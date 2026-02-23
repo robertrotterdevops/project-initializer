@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info
+.DS_Store
+ui-draft/desktop/src-tauri/target/

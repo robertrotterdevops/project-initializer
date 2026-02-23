@@ -11,7 +11,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 source .venv/bin/activate
-pip install -r "$UI_DIR/requirements.txt"
+pip install -r "$UI_DIR/requirements.txt" -r "$UI_DIR/requirements-build.txt"
 
 if [ -f "$HOME/.cargo/env" ]; then
   source "$HOME/.cargo/env"

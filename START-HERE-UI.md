@@ -4,21 +4,14 @@ Run from repository root.
 
 ## Quick Start
 
-### Web Mode
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r ui-draft/requirements.txt
-uvicorn app:app --app-dir ui-draft/backend --reload --port 8787
-```
-Then open http://localhost:8787
-
-### Desktop Mode
-
-Auto-detect OS:
 ```bash
 ./start-ui.sh
 ```
+Then open http://localhost:8787
+
+This handles venv creation, dependency install, and server launch automatically.
+
+### Desktop Mode (optional)
 
 macOS launcher:
 ```bash
