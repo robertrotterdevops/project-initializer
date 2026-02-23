@@ -21,14 +21,14 @@ from addon_loader import AddonLoader, run_matched_addons  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
 # ------------------------------------------------------------------
 # Template helpers
 # ------------------------------------------------------------------
+
 
 def render_template(template_content: str, context: Dict) -> str:
     """Simple {{var}} replacement -- no Jinja2 needed."""
@@ -51,7 +51,9 @@ def prepare_template_context(analysis_result: Dict) -> Dict:
 
     # Pre-render secondary skills as markdown list
     if secondary:
-        secondary_list = "\n".join(f"- **{s}**: Supplementary expertise" for s in secondary)
+        secondary_list = "\n".join(
+            f"- **{s}**: Supplementary expertise" for s in secondary
+        )
     else:
         secondary_list = "- (none)"
 
@@ -105,6 +107,7 @@ def prepare_template_context(analysis_result: Dict) -> Dict:
 # ------------------------------------------------------------------
 # File-system helpers
 # ------------------------------------------------------------------
+
 
 def create_project_structure(base_path: str, structure: List[str]) -> List[str]:
     """Create directory structure. Items ending with / are dirs, else files."""
@@ -172,23 +175,27 @@ def generate_basic_files(base_path: str, context: Dict) -> List[str]:
     if os.path.isdir(tf_dir):
         main_tf = os.path.join(tf_dir, "main.tf")
         with open(main_tf, "w") as fh:
-            fh.write(render_template(
-                '# Terraform configuration for {{project_name}}\n\n'
-                'terraform {\n  required_version = ">= 1.0"\n}\n',
-                context,
-            ))
+            fh.write(
+                render_template(
+                    "# Terraform configuration for {{project_name}}\n\n"
+                    'terraform {\n  required_version = ">= 1.0"\n}\n',
+                    context,
+                )
+            )
         generated.append(main_tf)
 
         vars_tf = os.path.join(tf_dir, "variables.tf")
         with open(vars_tf, "w") as fh:
-            fh.write(render_template(
-                '# Input variables\n\nvariable "project_name" {\n'
-                '  description = "Project name"\n  type        = string\n'
-                '  default     = "{{project_name}}"\n}\n\n'
-                'variable "environment" {\n  description = "Environment"\n'
-                '  type        = string\n  default     = "dev"\n}\n',
-                context,
-            ))
+            fh.write(
+                render_template(
+                    '# Input variables\n\nvariable "project_name" {\n'
+                    '  description = "Project name"\n  type        = string\n'
+                    '  default     = "{{project_name}}"\n}\n\n'
+                    'variable "environment" {\n  description = "Environment"\n'
+                    '  type        = string\n  default     = "dev"\n}\n',
+                    context,
+                )
+            )
         generated.append(vars_tf)
 
     # K8s namespace
@@ -196,12 +203,14 @@ def generate_basic_files(base_path: str, context: Dict) -> List[str]:
     if os.path.isdir(k8s_dir):
         ns = os.path.join(k8s_dir, "namespace.yaml")
         with open(ns, "w") as fh:
-            fh.write(render_template(
-                "apiVersion: v1\nkind: Namespace\nmetadata:\n"
-                "  name: {{project_name}}\n  labels:\n"
-                "    project: {{project_name}}\n",
-                context,
-            ))
+            fh.write(
+                render_template(
+                    "apiVersion: v1\nkind: Namespace\nmetadata:\n"
+                    "  name: {{project_name}}\n  labels:\n"
+                    "    project: {{project_name}}\n",
+                    context,
+                )
+            )
         generated.append(ns)
 
     return generated
@@ -211,18 +220,18 @@ def generate_opencode_context(base_path: str, context: Dict) -> str:
     """Generate .opencode/context.md for session bootstrap."""
     opencode_dir = os.path.join(base_path, ".opencode")
     os.makedirs(opencode_dir, exist_ok=True)
-    
+
     # Build context file content
     skills = context.get("assigned_skills", [])
     primary_skill = context.get("primary_skill", "")
     platform = context.get("platform", "")
     gitops_tool = context.get("gitops_tool", "")
-    
+
     content = f"""# OpenCode Session Context
 
-## Project: {context.get('project_name', 'Unknown')}
+## Project: {context.get("project_name", "Unknown")}
 
-{context.get('project_description', '')}
+{context.get("project_description", "")}
 
 ## Active Skills
 
@@ -234,27 +243,27 @@ load skill {primary_skill}
 
 ### All Assigned Skills
 
-{context.get('skill_load_commands_full', '# (no skills assigned)')}
+{context.get("skill_load_commands_full", "# (no skills assigned)")}
 
 ## Project Configuration
 
 | Setting | Value |
 |---------|-------|
-| Category | {context.get('primary_category', 'generic')} |
-| Priority Chain | {context.get('priority_chain', 'default')} |
-| Platform | {context.get('platform_display', 'Not specified')} |
-| GitOps Tool | {context.get('gitops_display', 'Not specified')} |
+| Category | {context.get("primary_category", "generic")} |
+| Priority Chain | {context.get("priority_chain", "default")} |
+| Platform | {context.get("platform_display", "Not specified")} |
+| GitOps Tool | {context.get("gitops_display", "Not specified")} |
 
 ## Quick Reference
 
 ### Primary Skill Capabilities
 
-{context.get('primary_skill_capabilities', 'General-purpose DevOps capabilities')}
+{context.get("primary_skill_capabilities", "General-purpose DevOps capabilities")}
 
 ### Project Structure
 
 ```
-{context.get('project_structure_tree', '(no structure)')}
+{context.get("project_structure_tree", "(no structure)")}
 ```
 
 ## Session Notes
@@ -263,9 +272,9 @@ load skill {primary_skill}
 
 ---
 
-*Generated by project-initializer on {context.get('timestamp', 'unknown')}*
+*Generated by project-initializer on {context.get("timestamp", "unknown")}*
 """
-    
+
     out = os.path.join(opencode_dir, "context.md")
     with open(out, "w") as fh:
         fh.write(content)
@@ -276,6 +285,7 @@ load skill {primary_skill}
 # Main entry point
 # ------------------------------------------------------------------
 
+
 def initialize_project(
     project_name: str,
     description: str,
@@ -285,10 +295,11 @@ def initialize_project(
     platform: Optional[str] = None,
     gitops_tool: Optional[str] = None,
     sizing_context: Optional[Dict] = None,
+    forced_chain: Optional[str] = None,
 ) -> Dict:
     """
     Analyse, scaffold, and generate documentation for a new project.
-    
+
     Args:
         project_name: Name of the project (kebab-case recommended)
         description: Short project description
@@ -298,6 +309,7 @@ def initialize_project(
         platform: Target platform (rke2, openshift, aks) - from interactive mode
         gitops_tool: GitOps tool (flux, argo, none) - from interactive mode
         sizing_context: ES sizing context dict - from sizing skill
+        forced_chain: Override the priority chain selection
     """
     if not target_directory:
         target_directory = "./" + project_name
@@ -305,20 +317,25 @@ def initialize_project(
     os.makedirs(target_directory, exist_ok=True)
 
     analysis = analyze_project(project_name, description, focus_areas)
+
+    # Apply forced_chain override if provided
+    if forced_chain:
+        analysis["priority_chain"] = forced_chain
+
     context = prepare_template_context(analysis)
-    
+
     # Add platform and gitops context for templates
     if platform:
         context["platform"] = platform
         context["platform_display"] = {
             "rke2": "RKE2 + ECK",
-            "openshift": "OpenShift 4.x + ECK", 
+            "openshift": "OpenShift 4.x + ECK",
             "aks": "AKS + ECK",
         }.get(platform, platform)
     else:
         context["platform"] = ""
         context["platform_display"] = ""
-    
+
     if gitops_tool:
         context["gitops_tool"] = gitops_tool
         context["gitops_display"] = {
@@ -329,12 +346,14 @@ def initialize_project(
     else:
         context["gitops_tool"] = ""
         context["gitops_display"] = ""
-    
+
     # Add sizing context if available
     if sizing_context:
         context["sizing_configured"] = "true"
         for key, value in sizing_context.items():
-            context[f"sizing_{key}"] = str(value) if not isinstance(value, dict) else str(value)
+            context[f"sizing_{key}"] = (
+                str(value) if not isinstance(value, dict) else str(value)
+            )
     else:
         context["sizing_configured"] = "false"
 
@@ -357,23 +376,23 @@ def initialize_project(
         custom.get("AGENTS.md", str(tmpl_base / "AGENTS_template.md")),
     )
     config_files = generate_basic_files(target_directory, context)
-    
+
     # Generate .opencode/context.md for session bootstrap
     opencode_context = generate_opencode_context(target_directory, context)
 
     # Addon autodiscovery and loading
     generated_files = [readme, agents, opencode_context] + config_files
-    
+
     # Build context for addon matching
     addon_context = {
         "gitops_tool": gitops_tool or "",
         "platform": platform or "",
         "sizing_context": sizing_context,
     }
-    
+
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)
     interactive_mode = bool(platform or gitops_tool)
-    
+
     try:
         # Use AddonLoader for autodiscovery and matching
         addon_files = run_matched_addons(
@@ -383,16 +402,16 @@ def initialize_project(
             context=addon_context,
             interactive_mode=interactive_mode,
         )
-        
+
         # Write addon-generated files to disk
         for filepath, content in addon_files.items():
             full_path = os.path.join(target_directory, filepath)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, 'w') as f:
+            with open(full_path, "w") as f:
                 f.write(content)
             generated_files.append(full_path)
             logging.info(f"Generated addon file: {filepath}")
-                
+
     except Exception as e:
         logging.warning(f"Addon loading failed: {e}")
 
