@@ -1,0 +1,203 @@
+# Priority Chains Configuration
+# Defines the order in which skills are assigned for different project types
+
+priority_chains:
+  # Default chain: Elasticsearch > Kubernetes > Terraform
+  default:
+    - devops-02-2026
+    - elasticsearch-general-expert
+    - elasticsearch-troubleshooting-performance
+    - kubernetes-k8s-specialist
+    - platform-engineering
+    - devops-general
+
+  # Kubernetes-first chain
+  kubernetes_first:
+    - kubernetes-k8s-specialist
+    - platform-engineering
+    - devops-02-2026
+    - elasticsearch-general-expert
+    - devops-general
+
+  # Terraform-first chain
+  terraform_first:
+    - devops-general
+    - kubernetes-k8s-specialist
+    - platform-engineering
+    - devops-02-2026
+    - elasticsearch-general-expert
+
+  # Azure-focused chain
+  azure_focused:
+    - devops-general
+    - kubernetes-k8s-specialist
+    - platform-engineering
+    - devops-02-2026
+
+  # OpenShift-focused chain
+  openshift_focused:
+    - kubernetes-k8s-specialist
+    - platform-engineering
+    - devops-02-2026
+    - devops-general
+
+  # GitOps-focused chain (FluxCD / ArgoCD)
+  gitops_focused:
+    - platform-engineering
+    - devops-general
+    - kubernetes-k8s-specialist
+    - devops-02-2026
+
+# Skill availability mapping
+skill_mapping:
+  devops-02-2026:
+    available: true
+    category: elasticsearch
+    capabilities:
+      - elasticsearch-sizing
+      - openshift-deployment
+      - eck-operator
+      - capacity-planning
+
+  kubernetes-k8s-specialist:
+    available: true
+    category: kubernetes
+    capabilities:
+      - kubernetes-clusters
+      - openshift
+      - container-orchestration
+      - security-hardening
+
+  platform-engineering:
+    available: true
+    category: platform
+    capabilities:
+      - gitops
+      - developer-platforms
+      - self-service
+      - standardization
+
+  devops-general:
+    available: true
+    category: infrastructure
+    capabilities:
+      - terraform
+      - azure
+      - cloud-infrastructure
+      - automation
+
+  elasticsearch-general-expert:
+    available: true
+    category: elasticsearch
+    capabilities:
+      - query-optimization
+      - performance-tuning
+      - cluster-management
+
+  elasticsearch-troubleshooting-performance:
+    available: true
+    category: elasticsearch
+    capabilities:
+      - troubleshooting
+      - performance-analysis
+      - diagnostics
+
+# Keyword to skill category mapping
+keyword_mapping:
+  elasticsearch:
+    - elasticsearch
+    - es
+    - eck
+    - elastic
+    - kibana
+    - logstash
+    - beats
+    - observability
+    - logging
+    - metrics
+    - apm
+
+  kubernetes:
+    - kubernetes
+    - k8s
+    - openshift
+    - container
+    - pod
+    - deployment
+    - service
+    - ingress
+    - helm
+    - operator
+
+  terraform:
+    - terraform
+    - iac
+    - infrastructure
+    - provisioning
+    - cloud
+
+  azure:
+    - azure
+    - aks
+    - azurekubernetesservice
+    - microsoft
+
+  gitops:
+    - fluxcd
+    - flux
+    - gitops
+    - kustomize
+    - helmrelease
+    - argocd
+    - gitrepository
+    - kustomization
+
+# Project type templates
+project_templates:
+  elasticsearch_kubernetes:
+    description: "Elasticsearch cluster on Kubernetes with GitOps"
+    priority_chain: default
+    structure:
+      - elasticsearch/
+      - k8s/
+      - terraform/
+      - observability/
+      - gitops/
+
+  kubernetes_platform:
+    description: "Kubernetes platform with developer self-service"
+    priority_chain: kubernetes_first
+    structure:
+      - cluster/
+      - platform-services/
+      - applications/
+      - policies/
+
+  terraform_infrastructure:
+    description: "Cloud infrastructure with Terraform"
+    priority_chain: terraform_first
+    structure:
+      - terraform/
+      - modules/
+      - environments/
+      - networking/
+
+  azure_platform:
+    description: "Azure platform with AKS and infrastructure"
+    priority_chain: azure_focused
+    structure:
+      - azure/
+      - aks/
+      - terraform/
+      - monitoring/
+
+  gitops_platform:
+    description: "GitOps platform with FluxCD"
+    priority_chain: gitops_focused
+    structure:
+      - clusters/
+      - infrastructure/
+      - apps/
+      - flux-system/
+      - base/
+      - overlays/

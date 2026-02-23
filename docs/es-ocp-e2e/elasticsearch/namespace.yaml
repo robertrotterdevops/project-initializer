@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: elasticsearch
+    app.kubernetes.io/managed-by: eck

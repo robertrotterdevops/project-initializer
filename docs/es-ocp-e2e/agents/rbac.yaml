@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elastic-agent
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: elastic-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: elastic-agent-es-ocp-e2e
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces", "events", "services", "configmaps", "persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/stats", "nodes/metrics"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: elastic-agent-es-ocp-e2e
+subjects:
+  - kind: ServiceAccount
+    name: elastic-agent
+    namespace: es-ocp-e2e
+roleRef:
+  kind: ClusterRole
+  name: elastic-agent-es-ocp-e2e
+  apiGroup: rbac.authorization.k8s.io

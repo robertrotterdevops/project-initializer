@@ -1,0 +1,163 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: es-ocp-e2e
+  namespace: es-ocp-e2e
+  annotations:
+    # OpenShift: Allow ECK to manage security context
+    eck.k8s.elastic.co/downward-node-labels: "topology.kubernetes.io/zone"
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: elasticsearch
+spec:
+  version: 8.17.0
+  
+  # HTTP configuration
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: false
+  
+  # Node sets
+  nodeSets:
+    # Master nodes (dedicated)
+    - name: master
+      count: 7
+      config:
+        node.roles: ["master"]
+        # Disable machine learning on master nodes
+        xpack.ml.enabled: false
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                requests:
+                  memory: 8Gi
+                  cpu: "4"
+                limits:
+                  memory: 8Gi
+                  cpu: "8000m"
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+
+    # Hot tier - data nodes (ingest, recent data)
+    - name: hot
+      count: 8
+      config:
+        node.roles: ["data_hot", "data_content", "ingest", "transform"]
+        # Hot tier node attributes
+        node.attr.data: hot
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                requests:
+                  memory: 64Gi
+                  cpu: "16"
+                limits:
+                  memory: 64Gi
+                  cpu: "32"
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        elasticsearch.k8s.elastic.co/cluster-name: es-ocp-e2e
+                        elasticsearch.k8s.elastic.co/node-data: "true"
+                    topologyKey: topology.kubernetes.io/zone
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1800Gi
+            storageClassName: premium
+
+    # Cold tier - older data, less frequent access
+    - name: cold
+      count: 200
+      config:
+        node.roles: ["data_cold"]
+        # Cold tier node attributes
+        node.attr.data: cold
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                requests:
+                  memory: 64Gi
+                  cpu: "12"
+                limits:
+                  memory: 64Gi
+                  cpu: "24"
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5000Gi
+            storageClassName: standard
+
+    # Frozen tier - searchable snapshots, minimal local cache
+    - name: frozen
+      count: 3
+      config:
+        node.roles: ["data_frozen"]
+        # Frozen tier node attributes
+        node.attr.data: frozen
+        # Searchable snapshots cache
+        xpack.searchable.snapshot.shared_cache.size: 90%
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                requests:
+                  memory: 32Gi
+                  cpu: "8"
+                limits:
+                  memory: 32Gi
+                  cpu: "16"
+          initContainers:
+            - name: sysctl
+              securityContext:
+                privileged: true
+                runAsUser: 0
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2400Gi
+            storageClassName: standard

@@ -1,0 +1,64 @@
+{
+  "project": "es-ocp-e2e",
+  "profile": "custom",
+  "source": "sizing_report",
+  "health_score": 65,
+  "platform": "openshift",
+  "inputs": {
+    "ingest_per_day_gb": 650.0,
+    "compression_factor": 0.62,
+    "indexed_per_day_gb": 403.0,
+    "reserve_percent": 20,
+    "retention_days": 365,
+    "workload_type": "security"
+  },
+  "tiers": {
+    "hot": {
+      "count": 8,
+      "memory": "64Gi",
+      "cpu": "16",
+      "storage": "1800Gi",
+      "storage_class": "premium",
+      "tier": "hot"
+    },
+    "cold": {
+      "count": 200,
+      "memory": "64Gi",
+      "cpu": "12",
+      "storage": "5000Gi",
+      "storage_class": "standard",
+      "tier": "cold"
+    },
+    "frozen": {
+      "count": 3,
+      "memory": "32Gi",
+      "cpu": "8",
+      "cache_storage": "2400Gi",
+      "snapshot_storage_gb": 101253.75,
+      "tier": "frozen"
+    }
+  },
+  "kibana": {
+    "count": 4,
+    "memory": "18Gi",
+    "cpu": "10"
+  },
+  "fleet_server": {
+    "count": 3,
+    "memory": "24Gi",
+    "cpu": "12"
+  },
+  "summary": {
+    "total_nodes": 234,
+    "total_vcpu": 2752.0,
+    "total_ram_gb": 14072.0,
+    "total_disk_gb": 1054600.0
+  },
+  "generated_by": "project-initializer/sizing_integration",
+  "notes": [
+    "Configuration derived from sizing report",
+    "Use 'elasticsearch-openshift-sizing-assistant-legacy' skill for re-sizing or adjustments",
+    "Memory: Allocate 50% of node memory to JVM heap (max 31GB)",
+    "Storage: Values include replicas and overhead calculations"
+  ]
+}

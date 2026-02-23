@@ -1,0 +1,31 @@
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: es-ocp-e2e
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: kibana
+spec:
+  version: 8.17.0
+  count: 4
+  
+  elasticsearchRef:
+    name: es-ocp-e2e
+  
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: false
+  
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+          resources:
+            requests:
+              memory: "18Gi"
+              cpu: "10"
+            limits:
+              memory: "18Gi"
+              cpu: "20"

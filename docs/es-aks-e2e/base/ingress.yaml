@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: es-aks-e2e
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /es-aks-e2e
+        pathType: Prefix
+        backend:
+          service:
+            name: es-aks-e2e
+            port:
+              number: 80

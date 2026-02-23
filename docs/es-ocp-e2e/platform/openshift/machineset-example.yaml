@@ -1,0 +1,44 @@
+# Example MachineSet for dedicated Elasticsearch nodes
+# Adjust for your cloud provider (AWS/Azure/vSphere/etc.)
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: es-ocp-e2e-elasticsearch
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: <cluster-id>
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: <cluster-id>
+      machine.openshift.io/cluster-api-machineset: es-ocp-e2e-elasticsearch
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: <cluster-id>
+        machine.openshift.io/cluster-api-machineset: es-ocp-e2e-elasticsearch
+        machine.openshift.io/cluster-api-machine-role: elasticsearch
+        machine.openshift.io/cluster-api-machine-type: elasticsearch
+    spec:
+      metadata:
+        labels:
+          node-role.kubernetes.io/elasticsearch: ""
+          es-ocp-e2e-node: "true"
+      taints:
+        - key: elasticsearch
+          value: "true"
+          effect: NoSchedule
+      providerSpec:
+        value:
+          # AWS example - adjust for your provider
+          apiVersion: awsproviderconfig.openshift.io/v1beta1
+          kind: AWSMachineProviderConfig
+          instanceType: r5.xlarge  # 4 vCPU, 32GB RAM
+          blockDevices:
+            - ebs:
+                volumeSize: 500
+                volumeType: gp3
+                iops: 3000
+                throughput: 125
+          # Add your AMI, subnet, security groups, etc.

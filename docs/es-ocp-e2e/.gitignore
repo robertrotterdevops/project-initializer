@@ -1,0 +1,11 @@
+.opencode/
+.venv/
+__pycache__/
+*.pyc
+env/
+venv/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

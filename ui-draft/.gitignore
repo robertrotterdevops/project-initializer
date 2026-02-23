@@ -1,0 +1,12 @@
+.venv/
+build/
+dist/
+*.spec
+
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/pi-backend
+desktop/src-tauri/binaries/pi-backend.exe
+desktop/src-tauri/binaries/pi-backend-*.sig
+
+backend/__pycache__/

@@ -1,0 +1,30 @@
+{
+  "index_patterns": ["logs-es-ocp-e2e-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "hot-cold-frozen",
+      "index.lifecycle.rollover_alias": "logs-es-ocp-e2e"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "message": {
+          "type": "text"
+        },
+        "log.level": {
+          "type": "keyword"
+        },
+        "kubernetes.namespace": {
+          "type": "keyword"
+        },
+        "kubernetes.pod.name": {
+          "type": "keyword"
+        }
+      }
+    }
+  }
+}

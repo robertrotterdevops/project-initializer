@@ -1,0 +1,16 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: es-aks-e2e
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/your-org/es-aks-e2e
+  ref:
+    branch: main
+  ignore: |
+    # Exclude files from synchronization
+    /*.md
+    /docs
+    /scripts
+    /overlays

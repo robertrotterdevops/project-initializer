@@ -1,0 +1,39 @@
+apiVersion: agent.k8s.elastic.co/v1alpha1
+kind: Agent
+metadata:
+  name: es-ocp-e2e-fleet-server
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: fleet-server
+spec:
+  version: 8.17.0
+  
+  # Fleet Server mode
+  mode: fleet
+  fleetServerEnabled: true
+  
+  # Reference to Elasticsearch
+  elasticsearchRefs:
+    - name: es-ocp-e2e
+  
+  # Reference to Kibana for Fleet setup
+  kibanaRef:
+    name: es-ocp-e2e
+  
+  # Deployment for Fleet Server
+  deployment:
+    replicas: 1
+    podTemplate:
+      spec:
+        serviceAccountName: elastic-agent
+        automountServiceAccountToken: true
+        containers:
+          - name: agent
+            resources:
+              requests:
+                memory: "24Gi"
+                cpu: "12"
+              limits:
+                memory: "24Gi"
+                cpu: "1"

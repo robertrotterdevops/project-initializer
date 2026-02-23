@@ -1,0 +1,44 @@
+# OpenShift Route for Kibana
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: es-ocp-e2e-kibana
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+spec:
+  host: kibana-es-ocp-e2e.apps.cluster.local
+  to:
+    kind: Service
+    name: es-ocp-e2e-kb-http
+    weight: 100
+  port:
+    targetPort: https
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+# Route for Elasticsearch API (optional, usually internal only)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: es-ocp-e2e-elasticsearch
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+  annotations:
+    # Restrict to internal access
+    haproxy.router.openshift.io/ip_whitelist: "10.0.0.0/8"
+spec:
+  host: elasticsearch-es-ocp-e2e.apps.cluster.local
+  to:
+    kind: Service
+    name: es-ocp-e2e-es-http
+    weight: 100
+  port:
+    targetPort: https
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: None
+  wildcardPolicy: None

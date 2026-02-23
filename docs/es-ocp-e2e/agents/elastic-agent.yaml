@@ -1,0 +1,35 @@
+apiVersion: agent.k8s.elastic.co/v1alpha1
+kind: Agent
+metadata:
+  name: es-ocp-e2e-agent
+  namespace: es-ocp-e2e
+  labels:
+    app.kubernetes.io/name: es-ocp-e2e
+    app.kubernetes.io/component: elastic-agent
+spec:
+  version: 8.17.0
+  
+  # Fleet mode - enrolls with Fleet Server
+  mode: fleet
+  
+  # Reference to Fleet Server
+  fleetServerRef:
+    name: es-ocp-e2e-fleet-server
+  
+  # DaemonSet for node-level collection
+  daemonSet:
+    podTemplate:
+      spec:
+        serviceAccountName: elastic-agent
+        automountServiceAccountToken: true
+        securityContext:
+          runAsUser: 0
+        containers:
+          - name: agent
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "200m"
+              limits:
+                memory: "1Gi"
+                cpu: "500m"

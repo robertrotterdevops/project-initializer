@@ -1,0 +1,33 @@
+# Azure Premium SSD storage class for Elasticsearch
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-premium-es-aks-e2e
+  labels:
+    app.kubernetes.io/name: es-aks-e2e
+provisioner: disk.csi.azure.com
+parameters:
+  skuName: Premium_LRS
+  cachingmode: ReadOnly
+  # For zone-redundant storage (ZRS)
+  # skuName: Premium_ZRS
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+# Azure Ultra Disk for high-performance workloads
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-ultra-es-aks-e2e
+  labels:
+    app.kubernetes.io/name: es-aks-e2e
+provisioner: disk.csi.azure.com
+parameters:
+  skuName: UltraSSD_LRS
+  DiskIOPSReadWrite: "4000"
+  DiskMBpsReadWrite: "125"
+  LogicalSectorSize: "512"
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer

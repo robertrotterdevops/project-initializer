@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-ocp-e2e
+spec:
+  template:
+    spec:
+      containers:
+      - name: es-ocp-e2e
+        env:
+        - name: ENVIRONMENT
+          value: development
+        - name: DEBUG
+          value: "true"

@@ -1,0 +1,2225 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Initializer - Openshift Azure</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      :root {
+        --bg-primary: #0f1218;
+        --bg-secondary: #1e2530;
+        --bg-tertiary: #252b35;
+        --bg-input: #1a2028;
+        --bg-hover: #2d3640;
+        
+        --accent-primary: #00d4aa;
+        --accent-primary-hover: #00e6b8;
+        --accent-secondary: #0ea5e9;
+        --accent-warning: #f59e0b;
+        --accent-error: #ef4444;
+        --accent-success: #22c55e;
+        
+        --text-primary: #ffffff;
+        --text-secondary: #a1aeb8;
+        --text-muted: #6b7785;
+        --text-link: #00d4aa;
+        
+        --border-color: #2d3640;
+        --border-focus: #00d4aa;
+        
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+        
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        
+        --sidebar-width: 260px;
+        --header-height: 56px;
+        
+        --transition-fast: 150ms ease;
+        --transition-normal: 200ms ease;
+      }
+
+      html[data-theme="light"] {
+        --bg-primary: #f8fafc;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #f1f5f9;
+        --bg-input: #ffffff;
+        --bg-hover: #e2e8f0;
+        
+        --accent-primary: #0d9488;
+        --accent-primary-hover: #0f766e;
+        
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --text-muted: #94a3b8;
+        
+        --border-color: #e2e8f0;
+        
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+      }
+
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        font-size: 14px;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.5;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border-color);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-muted);
+      }
+
+      /* Layout */
+      .app-layout {
+        display: flex;
+        min-height: 100vh;
+      }
+
+      /* Sidebar */
+      .sidebar {
+        width: var(--sidebar-width);
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 100;
+        transition: transform var(--transition-normal);
+      }
+
+      .sidebar-header {
+        height: var(--header-height);
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--border-color);
+        gap: 12px;
+      }
+
+      .sidebar-logo {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, var(--accent-primary-secondary));
+        border-radius: var(--), var(--accentradius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .sidebar-logo svg {
+        width: 18px;
+        height: 18px;
+        color: white;
+      }
+
+      .sidebar-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .sidebar-subtitle {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: -2px;
+      }
+
+      .sidebar-nav {
+        flex: 1;
+        padding: 16px 12px;
+        overflow-y: auto;
+      }
+
+      .nav-section {
+        margin-bottom: 24px;
+      }
+
+      .nav-section-title {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 0 8px;
+        margin-bottom: 8px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: var(--radius-md);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        text-decoration: none;
+        margin-bottom: 2px;
+      }
+
+      .nav-item:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .nav-item.active {
+        background: rgba(0, 212, 170, 0.1);
+        color: var(--accent-primary);
+      }
+
+      .nav-item.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 20px;
+        background: var(--accent-primary);
+        border-radius: 0 2px 2px 0;
+      }
+
+      .nav-item svg {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+
+      .nav-item span {
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+
+      .sidebar-footer {
+        padding: 16px;
+        border-top: 1px solid var(--border-color);
+      }
+
+      .theme-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .theme-toggle-btn:hover {
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+      }
+
+      .theme-toggle-btn .left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .theme-toggle-btn span {
+        font-size: 0.85rem;
+        font-weight: 500;
+      }
+
+      /* Main Content */
+      .main-content {
+        flex: 1;
+        margin-left: var(--sidebar-width);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .main-header {
+        height: var(--header-height);
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+
+      .breadcrumb span {
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .header-btn {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .header-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+      }
+
+      .main-body {
+        flex: 1;
+        padding: 24px;
+      }
+
+      /* Page Sections */
+      .page-section {
+        display: none;
+      }
+
+      .page-section.active {
+        display: block;
+      }
+
+      .section-header {
+        margin-bottom: 24px;
+      }
+
+      .section-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+      }
+
+      .section-subtitle {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+
+      /* Cards */
+      .card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 20px;
+        margin-bottom: 16px;
+        transition: border-color var(--transition-fast);
+      }
+
+      .card:hover {
+        border-color: var(--bg-hover);
+      }
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .card-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent-primary);
+      }
+
+      /* Form Grid */
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+
+      .form-grid.single {
+        grid-template-columns: 1fr;
+      }
+
+      @media (max-width: 768px) {
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Form Fields */
+      .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .form-field.full-width {
+        grid-column: 1 / -1;
+      }
+
+      .form-label {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .form-label svg {
+        width: 14px;
+        height: 14px;
+        color: var(--text-muted);
+      }
+
+      .form-input,
+      .form-select,
+      .form-textarea {
+        width: 100%;
+        padding: 10px 14px;
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 0.9rem;
+        transition: all var(--transition-fast);
+      }
+
+      .form-input::placeholder,
+      .form-textarea::placeholder {
+        color: var(--text-muted);
+      }
+
+      .form-input:focus,
+      .form-select:focus,
+      .form-textarea:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15);
+      }
+
+      .form-input:hover,
+      .form-select:hover,
+      .form-textarea:hover {
+        border-color: var(--bg-hover);
+      }
+
+      .form-select {
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7785' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 36px;
+      }
+
+      .form-select option {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+
+      .form-textarea {
+        min-height: 80px;
+        resize: vertical;
+      }
+
+      .form-hint {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      .form-hint.error {
+        color: var(--accent-error);
+      }
+
+      /* Path Input */
+      .path-input-wrapper {
+        position: relative;
+      }
+
+      .path-input-wrapper .form-input {
+        padding-right: 80px;
+      }
+
+      .path-browse-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        padding: 4px 10px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .path-browse-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        border-color: var(--accent-primary);
+      }
+
+      .path-autocomplete {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        max-height: 220px;
+        overflow-y: auto;
+        z-index: 100;
+        display: none;
+      }
+
+      .path-autocomplete.visible {
+        display: block;
+      }
+
+      .path-option {
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+        transition: background var(--transition-fast);
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      .path-option:hover,
+      .path-option.active {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .path-option svg {
+        width: 16px;
+        height: 16px;
+        color: var(--text-muted);
+        flex-shrink: 0;
+      }
+
+      /* Checkbox */
+      .checkbox-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .checkbox-wrapper input {
+        display: none;
+      }
+
+      .checkbox-custom {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border-color);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all var(--transition-fast);
+        flex-shrink: 0;
+      }
+
+      .checkbox-wrapper:hover .checkbox-custom {
+        border-color: var(--accent-primary);
+      }
+
+      .checkbox-wrapper input:checked + .checkbox-custom {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+      }
+
+      .checkbox-custom svg {
+        width: 12px;
+        height: 12px;
+        color: white;
+        opacity: 0;
+        transform: scale(0.5);
+        transition: all var(--transition-fast);
+      }
+
+      .checkbox-wrapper input:checked + .checkbox-custom svg {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      .checkbox-label {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+      }
+
+      .checkbox-wrapper:hover .checkbox-label {
+        color: var(--text-primary);
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: var(--radius-md);
+        font-family: inherit;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        border: none;
+        text-decoration: none;
+      }
+
+      .btn svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .btn-primary {
+        background: var(--accent-primary);
+        color: #0f1218;
+      }
+
+      .btn-primary:hover {
+        background: var(--accent-primary-hover);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-hover);
+        border-color: var(--text-muted);
+        color: var(--text-primary);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--text-secondary);
+      }
+
+      .btn-ghost:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .btn-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      /* Actions Card */
+      .actions-card .card-header {
+        border-bottom: none;
+        padding-bottom: 0;
+        margin-bottom: 16px;
+      }
+
+      .actions-card .btn-group {
+        margin-top: 16px;
+      }
+
+      /* Result Panel */
+      .result-card {
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+
+      .result-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .result-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .result-title svg {
+        width: 16px;
+        height: 16px;
+        color: var(--accent-primary);
+      }
+
+      .result-content {
+        padding: 16px;
+        max-height: 400px;
+        overflow: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      /* Toast Notifications */
+      .toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .toast {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 18px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-lg);
+        animation: slideIn 0.3s ease;
+        min-width: 280px;
+        max-width: 400px;
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+
+      .toast.success {
+        border-left: 3px solid var(--accent-success);
+      }
+
+      .toast.error {
+        border-left: 3px solid var(--accent-error);
+      }
+
+      .toast.warning {
+        border-left: 3px solid var(--accent-warning);
+      }
+
+      .toast-icon {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+
+      .toast.success .toast-icon {
+        color: var(--accent-success);
+      }
+
+      .toast.error .toast-icon {
+        color: var(--accent-error);
+      }
+
+      .toast.warning .toast-icon {
+        color: var(--accent-warning);
+      }
+
+      .toast-message {
+        flex: 1;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+      }
+
+      .toast-close {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px;
+        display: flex;
+        transition: color var(--transition-fast);
+      }
+
+      .toast-close:hover {
+        color: var(--text-primary);
+      }
+
+      .toast-close svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* Status Badge */
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+      }
+
+      .status-badge.success {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--accent-success);
+      }
+
+      .status-badge.error {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--accent-error);
+      }
+
+      .status-badge.warning {
+        background: rgba(245, 158, 11, 0.15);
+        color: var(--accent-warning);
+      }
+
+      .status-badge .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      /* Mobile Menu Toggle */
+      .mobile-menu-btn {
+        display: none;
+        width: 40px;
+        height: 40px;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        cursor: pointer;
+      }
+
+      @media (max-width: 768px) {
+        .sidebar {
+          transform: translateX(-100%);
+        }
+
+        .sidebar.open {
+          transform: translateX(0);
+        }
+
+        .main-content {
+          margin-left: 0;
+        }
+
+        .mobile-menu-btn {
+          display: flex;
+        }
+      }
+
+      /* File Input */
+      .file-input-wrapper {
+        position: relative;
+      }
+
+      .file-input-dropzone {
+        border: 2px dashed var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        text-align: center;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        background: var(--bg-input);
+      }
+
+      .file-input-dropzone:hover {
+        border-color: var(--accent-primary);
+        background: rgba(0, 212, 170, 0.05);
+      }
+
+      .file-input-dropzone.dragover {
+        border-color: var(--accent-primary);
+        background: rgba(0, 212, 170, 0.1);
+      }
+
+      .file-input-dropzone svg {
+        width: 32px;
+        height: 32px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+
+      .file-input-dropzone p {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+      }
+
+      .file-input-dropzone span {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      .file-input-dropzone.has-file {
+        border-color: var(--accent-success);
+        border-style: solid;
+      }
+
+      .file-input-dropzone.has-file svg {
+        color: var(--accent-success);
+      }
+
+      .file-input-dropzone .filename {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        color: var(--accent-primary);
+        margin-top: 8px;
+      }
+
+      .file-input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      /* Loading Spinner */
+      .spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--border-color);
+        border-top-color: var(--accent-primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .btn .spinner {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* Zoom Controls */
+      .zoom-controls {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 2px;
+      }
+
+      .zoom-controls button {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        transition: all var(--transition-fast);
+      }
+
+      .zoom-controls button:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      .zoom-label {
+        min-width: 40px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      /* Sidebar Overlay for Mobile */
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 99;
+      }
+
+      @media (max-width: 768px) {
+        .sidebar-overlay.visible {
+          display: block;
+        }
+      }
+
+      /* Recent Projects List */
+      .recent-projects {
+        padding: 8px 0;
+      }
+
+      .recent-project-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background var(--transition-fast);
+      }
+
+      .recent-project-item:hover {
+        background: var(--bg-hover);
+      }
+
+      .recent-project-item svg {
+        width: 16px;
+        height: 16px;
+        color: var(--text-muted);
+      }
+
+      .recent-project-item .name {
+        flex: 1;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .recent-project-item:hover .name {
+        color: var(--text-primary);
+      }
+
+      /* Sync Section */
+      .sync-section .card {
+        background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- Mobile Sidebar Overlay -->
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">
+            <i data-lucide="layers"></i>
+          </div>
+          <div>
+            <div class="sidebar-title">Project Initializer</div>
+            <div class="sidebar-subtitle">Openshift-Azure</div>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <div class="nav-section">
+            <div class="nav-section-title">Main</div>
+            <a class="nav-item active" data-page="create">
+              <i data-lucide="plus-circle"></i>
+              <span>Create Project</span>
+            </a>
+            <a class="nav-item" data-page="analyze">
+              <i data-lucide="search"></i>
+              <span>Analyze</span>
+            </a>
+            <a class="nav-item" data-page="sync">
+              <i data-lucide="refresh-cw"></i>
+              <span>Git Sync</span>
+            </a>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-section-title">Recent Projects</div>
+            <div class="recent-projects" id="recentProjects">
+              <div class="recent-project-item" style="color: var(--text-muted); font-size: 0.8rem; cursor: default;">
+                <i data-lucide="clock"></i>
+                <span class="name">No recent projects</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-section-title">Tools</div>
+            <a class="nav-item" data-page="settings">
+              <i data-lucide="settings"></i>
+              <span>Settings</span>
+            </a>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="theme-toggle-btn" id="themeToggleBtn">
+            <div class="left">
+              <i data-lucide="moon"></i>
+              <span>Dark Mode</span>
+            </div>
+            <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <header class="main-header">
+          <div class="header-left">
+            <button class="mobile-menu-btn" id="mobileMenuBtn">
+              <i data-lucide="menu"></i>
+            </button>
+            <div class="breadcrumb">
+              <span id="breadcrumbCurrent">Create Project</span>
+            </div>
+          </div>
+          <div class="header-right">
+            <div class="zoom-controls">
+              <button id="zoomOutBtn" title="Zoom Out">
+                <i data-lucide="minus"></i>
+              </button>
+              <span class="zoom-label" id="zoomLabel">100%</span>
+              <button id="zoomInBtn" title="Zoom In">
+                <i data-lucide="plus"></i>
+              </button>
+            </div>
+            <button class="header-btn" id="openFileMgrBtn" title="Open Folder">
+              <i data-lucide="folder-open"></i>
+            </button>
+          </div>
+        </header>
+
+        <div class="main-body">
+          <!-- Create Project Page -->
+          <section class="page-section active" id="pageCreate">
+            <div class="section-header">
+              <h1 class="section-title">Create New Project</h1>
+              <p class="section-subtitle">Initialize a new DevOps project with automated skill assignment</p>
+            </div>
+
+            <!-- Project Setup -->
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="folder-kanban"></i>
+                  Project Setup
+                </h2>
+              </div>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="tag"></i>
+                    Project Name
+                  </label>
+                  <input type="text" class="form-input" id="name" value="my-elastic-project" placeholder="my-elasticsearch-cluster">
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="folder"></i>
+                    Target Directory
+                  </label>
+                  <div class="path-input-wrapper">
+                    <input type="text" class="form-input" id="targetDir" value="./my-elastic-project" placeholder="~/Projects/my-project">
+                    <button type="button" class="path-browse-btn" id="targetBrowseBtn">Browse</button>
+                    <div class="path-autocomplete" id="targetAutocomplete"></div>
+                  </div>
+                  <div class="form-hint" id="targetHint">Use absolute path or relative path from your home directory</div>
+                </div>
+                <div class="form-field full-width">
+                  <label class="form-label">
+                    <i data-lucide="file-text"></i>
+                    Description
+                  </label>
+                  <textarea class="form-textarea" id="description" placeholder="Elasticsearch cluster on OpenShift with Terraform and GitOps">Elasticsearch cluster on OpenShift with Terraform and GitOps</textarea>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="tag"></i>
+                    Type
+                  </label>
+                  <select class="form-select" id="forcedType">
+                    <option value="auto">Auto-detect</option>
+                    <option value="elasticsearch">Elasticsearch</option>
+                    <option value="kubernetes">Kubernetes</option>
+                    <option value="terraform">Terraform</option>
+                    <option value="azure">Azure</option>
+                    <option value="gitops">GitOps</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="git-branch"></i>
+                    Priority Chain
+                  </label>
+                  <select class="form-select" id="forcedChain">
+                    <option value="">Auto-detect</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Platform & Sizing -->
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="server"></i>
+                  Platform & Sizing
+                </h2>
+              </div>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="cloud"></i>
+                    Platform
+                  </label>
+                  <select class="form-select" id="platform">
+                    <option value="">Auto-detect</option>
+                    <option value="rke2">RKE2</option>
+                    <option value="openshift">OpenShift</option>
+                    <option value="aks">AKS (Azure)</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="git-merge"></i>
+                    GitOps Tool
+                  </label>
+                  <select class="form-select" id="gitopsTool">
+                    <option value="">None</option>
+                    <option value="flux">FluxCD</option>
+                    <option value="argo">ArgoCD</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div class="form-field full-width">
+                  <label class="form-label">
+                    <i data-lucide="scale"></i>
+                    Sizing Input File (.md)
+                  </label>
+                  <div class="file-input-wrapper">
+                    <div class="file-input-dropzone" id="sizingDropzone">
+                      <i data-lucide="upload-cloud"></i>
+                      <p>Drop sizing report here or click to browse</p>
+                      <span>Supports markdown files from ES sizing assistant</span>
+                    </div>
+                    <input type="file" class="file-input" id="sizingFile" accept=".md">
+                    <div class="filename" id="sizingFilename" style="display: none;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Git Options -->
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="github"></i>
+                  Git Options
+                </h2>
+              </div>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="gitInit">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Initialize Git Repository</span>
+                  </label>
+                </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="autoOpenZed">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Auto-open in Zed</span>
+                  </label>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="message-square"></i>
+                    Commit Message
+                  </label>
+                  <input type="text" class="form-input" id="gitCommitMessage" value="Initial commit: project scaffold">
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="git-branch"></i>
+                    Branch
+                  </label>
+                  <input type="text" class="form-input" id="gitBranch" value="main">
+                </div>
+                <div class="form-field full-width">
+                  <label class="form-label">
+                    <i data-lucide="link"></i>
+                    Remote URL (optional)
+                  </label>
+                  <input type="text" class="form-input" id="gitRemoteUrl" placeholder="https://github.com/org/repo.git">
+                </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="gitPush">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Push after create</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="card actions-card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="zap"></i>
+                  Actions
+                </h2>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-secondary" id="analyzeBtn">
+                  <i data-lucide="search"></i>
+                  Analyze / Preview
+                </button>
+                <button class="btn btn-primary" id="createBtn">
+                  <i data-lucide="plus"></i>
+                  Create Project
+                </button>
+                <button class="btn btn-secondary" id="openZedBtn">
+                  <i data-lucide="code"></i>
+                  Open in Zed
+                </button>
+                <button class="btn btn-secondary" id="openCodeBtn">
+                  <i data-lucide="file-code"></i>
+                  VS Code
+                </button>
+              </div>
+            </div>
+
+            <!-- Result -->
+            <div class="result-card">
+              <div class="result-header">
+                <span class="result-title">
+                  <i data-lucide="terminal"></i>
+                  Output
+                </span>
+                <span class="status-badge" id="resultStatus" style="display: none;">
+                  <span class="dot"></span>
+                  <span id="resultStatusText">Ready</span>
+                </span>
+              </div>
+              <div class="result-content" id="output">Ready to create project...</div>
+            </div>
+          </section>
+
+          <!-- Analyze Page -->
+          <section class="page-section" id="pageAnalyze">
+            <div class="section-header">
+              <h1 class="section-title">Analyze Project</h1>
+              <p class="section-subtitle">Preview skill assignments and project configuration without creating files</p>
+            </div>
+
+            <div class="card">
+              <div class="form-grid single">
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="tag"></i>
+                    Project Name
+                  </label>
+                  <input type="text" class="form-input" id="analyzeName" placeholder="my-project">
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="file-text"></i>
+                    Description
+                  </label>
+                  <textarea class="form-textarea" id="analyzeDescription" placeholder="Elasticsearch cluster on OpenShift"></textarea>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="tag"></i>
+                    Force Type
+                  </label>
+                  <select class="form-select" id="analyzeForcedType">
+                    <option value="auto">Auto-detect</option>
+                    <option value="elasticsearch">Elasticsearch</option>
+                    <option value="kubernetes">Kubernetes</option>
+                    <option value="terraform">Terraform</option>
+                    <option value="azure">Azure</option>
+                    <option value="gitops">GitOps</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="git-branch"></i>
+                    Priority Chain
+                  </label>
+                  <select class="form-select" id="analyzeForcedChain">
+                    <option value="">Auto-detect</option>
+                  </select>
+                </div>
+                <div class="form-field full-width">
+                  <button class="btn btn-primary" id="runAnalyzeBtn">
+                    <i data-lucide="search"></i>
+                    Run Analysis
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-card">
+              <div class="result-header">
+                <span class="result-title">
+                  <i data-lucide="list"></i>
+                  Analysis Result
+                </span>
+              </div>
+              <div class="result-content" id="analyzeOutput">Enter project details above and run analysis...</div>
+            </div>
+          </section>
+
+          <!-- Git Sync Page -->
+          <section class="page-section" id="pageSync">
+            <div class="section-header">
+              <h1 class="section-title">Git Sync</h1>
+              <p class="section-subtitle">Pull, rebase, and push existing repositories</p>
+            </div>
+
+            <div class="card sync-section">
+              <div class="form-grid single">
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="folder"></i>
+                    Repository Path
+                  </label>
+                  <div class="path-input-wrapper">
+                    <input type="text" class="form-input" id="syncRepoPath" placeholder="/path/to/repository">
+                    <button type="button" class="path-browse-btn" id="syncBrowseBtn">Browse</button>
+                    <div class="path-autocomplete" id="syncAutocomplete"></div>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="git-branch"></i>
+                    Branch
+                  </label>
+                  <input type="text" class="form-input" id="syncBranch" value="main">
+                </div>
+                <div class="form-field">
+                  <button class="btn btn-primary" id="syncBtn">
+                    <i data-lucide="refresh-cw"></i>
+                    Pull / Rebase / Push
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-card">
+              <div class="result-header">
+                <span class="result-title">
+                  <i data-lucide="terminal"></i>
+                  Sync Output
+                </span>
+              </div>
+              <div class="result-content" id="syncOutput">Ready to sync repository...</div>
+            </div>
+          </section>
+
+          <!-- Settings Page -->
+          <section class="page-section" id="pageSettings">
+            <div class="section-header">
+              <h1 class="section-title">Settings</h1>
+              <p class="section-subtitle">Configure application preferences</p>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="palette"></i>
+                  Appearance
+                </h2>
+              </div>
+              <div class="form-field">
+                <label class="checkbox-wrapper">
+                  <input type="checkbox" id="settingDarkMode" checked>
+                  <span class="checkbox-custom">
+                    <i data-lucide="check"></i>
+                  </span>
+                  <span class="checkbox-label">Dark Mode</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="folder"></i>
+                  Default Paths
+                </h2>
+              </div>
+              <div class="form-field">
+                <label class="form-label">Default Target Directory</label>
+                <input type="text" class="form-input" id="settingDefaultPath" placeholder="~/Projects">
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i data-lucide="info"></i>
+                  About
+                </h2>
+              </div>
+              <div class="form-hint">Project Initializer v1.8</div>
+              <div class="form-hint">Platform-agnostic project scaffolding</div>
+              <div class="form-hint">Openshift-Azure Edition</div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+      // Initialize Lucide icons
+      lucide.createIcons();
+
+      // State
+      const state = {
+        lastCreatedPath: localStorage.getItem('pi-last-created-path') || '',
+        pathSuggestions: [],
+        pathActiveIndex: -1,
+        zoom: Number(localStorage.getItem('pi-ui-zoom') || '1'),
+        recentProjects: JSON.parse(localStorage.getItem('pi-recent-projects') || '[]'),
+        currentPage: 'create',
+        sizingFile: null,
+        isLoading: false,
+      };
+
+      const isDesktopRuntime = !window.location.protocol.startsWith('http');
+      const apiBase = window.__PI_API_BASE || (isDesktopRuntime ? 'http://127.0.0.1:8787' : '');
+
+      // API Helpers
+      function apiUrl(path) {
+        return apiBase ? `${apiBase}${path}` : path;
+      }
+
+      // Toast Notifications
+      function showToast(message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icons = {
+          success: 'check-circle',
+          error: 'x-circle',
+          warning: 'alert-triangle',
+        };
+        
+        toast.innerHTML = `
+          <i data-lucide="${icons[type]}" class="toast-icon"></i>
+          <span class="toast-message">${message}</span>
+          <button class="toast-close">
+            <i data-lucide="x"></i>
+          </button>
+        `;
+        
+        container.appendChild(toast);
+        lucide.createIcons({ icons: { x: icons[type] } });
+        lucide.createIcons();
+        
+        toast.querySelector('.toast-close').addEventListener('click', () => {
+          toast.remove();
+        });
+        
+        setTimeout(() => {
+          if (toast.parentNode) toast.remove();
+        }, 5000);
+      }
+
+      // Navigation
+      function navigateTo(pageId) {
+        document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        
+        document.getElementById(`page${pageId.charAt(0).toUpperCase() + pageId.slice(1)}`).classList.add('active');
+        document.querySelector(`.nav-item[data-page="${pageId}"]`)?.classList.add('active');
+        
+        document.getElementById('breadcrumbCurrent').textContent = 
+          pageId === 'create' ? 'Create Project' :
+          pageId === 'analyze' ? 'Analyze' :
+          pageId === 'sync' ? 'Git Sync' : 'Settings';
+        
+        state.currentPage = pageId;
+        
+        // Close mobile sidebar
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebarOverlay').classList.remove('visible');
+      }
+
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const page = item.dataset.page;
+          if (page) navigateTo(page);
+        });
+      });
+
+      // Mobile Menu
+      document.getElementById('mobileMenuBtn').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('sidebarOverlay').classList.toggle('visible');
+      });
+
+      document.getElementById('sidebarOverlay').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebarOverlay').classList.remove('visible');
+      });
+
+      // Theme Toggle
+      const themeToggleBtn = document.getElementById('themeToggleBtn');
+      const savedTheme = localStorage.getItem('pi-ui-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+
+      function updateThemeButton() {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        themeToggleBtn.querySelector('span').textContent = isDark ? 'Dark Mode' : 'Light Mode';
+        themeToggleBtn.querySelector('svg:nth-child(1)').setAttribute('data-lucide', isDark ? 'moon' : 'sun');
+        lucide.createIcons();
+      }
+      updateThemeButton();
+
+      themeToggleBtn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('pi-ui-theme', next);
+        updateThemeButton();
+      });
+
+      document.getElementById('settingDarkMode').addEventListener('change', (e) => {
+        const next = e.target.checked ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('pi-ui-theme', next);
+        updateThemeButton();
+      });
+
+      // Zoom Controls
+      function applyZoom(zoomValue) {
+        const normalized = Math.max(0.8, Math.min(1.6, zoomValue));
+        state.zoom = normalized;
+        document.body.style.zoom = String(normalized);
+        document.getElementById('zoomLabel').textContent = `${Math.round(normalized * 100)}%`;
+        localStorage.setItem('pi-ui-zoom', String(normalized));
+      }
+
+      document.getElementById('zoomInBtn').addEventListener('click', () => applyZoom(state.zoom + 0.1));
+      document.getElementById('zoomOutBtn').addEventListener('click', () => applyZoom(state.zoom - 0.1));
+      document.getElementById('zoomResetBtn')?.addEventListener('click', () => applyZoom(1));
+      applyZoom(state.zoom);
+
+      // Keyboard shortcuts for zoom
+      window.addEventListener('keydown', (e) => {
+        const mod = e.metaKey || e.ctrlKey;
+        if (!mod) return;
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          applyZoom(state.zoom + 0.1);
+        } else if (e.key === '-') {
+          e.preventDefault();
+          applyZoom(state.zoom - 0.1);
+        } else if (e.key === '0') {
+          e.preventDefault();
+          applyZoom(1);
+        }
+      });
+
+      // Path Autocomplete
+      function renderPathSuggestions(autocompleteEl, inputEl, validate = true) {
+        if (!state.pathSuggestions.length) {
+          autocompleteEl.classList.remove('visible');
+          autocompleteEl.innerHTML = '';
+          return;
+        }
+
+        autocompleteEl.innerHTML = '';
+        state.pathSuggestions.forEach((path, idx) => {
+          const div = document.createElement('div');
+          div.className = `path-option ${idx === state.pathActiveIndex ? 'active' : ''}`;
+          div.innerHTML = `<i data-lucide="folder"></i><span>${path}</span>`;
+          div.addEventListener('click', () => {
+            inputEl.value = path;
+            state.pathSuggestions = [];
+            state.pathActiveIndex = -1;
+            autocompleteEl.classList.remove('visible');
+            if (validate) validateTargetPath();
+          });
+          autocompleteEl.appendChild(div);
+        });
+        autocompleteEl.classList.add('visible');
+        lucide.createIcons();
+      }
+
+      async function loadPathSuggestions(query, targetId = 'target') {
+        const inputEl = document.getElementById(targetId === 'target' ? 'targetDir' : 'syncRepoPath');
+        const autocompleteEl = document.getElementById(targetId === 'target' ? 'targetAutocomplete' : 'syncAutocomplete');
+        
+        if (!query) {
+          try {
+            const res = await fetch(`${apiUrl('/api/fs/suggest')}?query=&limit=8`);
+            const data = await res.json();
+            state.pathSuggestions = data.suggestions || [];
+            state.pathActiveIndex = state.pathSuggestions.length ? 0 : -1;
+            renderPathSuggestions(autocompleteEl, inputEl, targetId === 'target');
+          } catch (_) {
+            state.pathSuggestions = [];
+          }
+          return;
+        }
+
+        try {
+          const res = await fetch(`${apiUrl('/api/fs/suggest')}?query=${encodeURIComponent(query)}&limit=12`);
+          const data = await res.json();
+          state.pathSuggestions = data.suggestions || [];
+          state.pathActiveIndex = state.pathSuggestions.length ? 0 : -1;
+          renderPathSuggestions(autocompleteEl, inputEl, targetId === 'target');
+        } catch (_) {
+          state.pathSuggestions = [];
+          state.pathActiveIndex = -1;
+          renderPathSuggestions(autocompleteEl, inputEl, targetId === 'target');
+        }
+      }
+
+      // Target Directory Input
+      const targetDirEl = document.getElementById('targetDir');
+      const targetAutocompleteEl = document.getElementById('targetAutocomplete');
+      const targetHintEl = document.getElementById('targetHint');
+
+      targetDirEl.addEventListener('input', async (e) => {
+        const v = e.target.value.trim();
+        if (!v) {
+          state.pathSuggestions = [];
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+          targetHintEl.textContent = 'Target directory is required';
+          targetHintEl.classList.add('error');
+          return;
+        }
+        await loadPathSuggestions(v, 'target');
+      });
+
+      targetDirEl.addEventListener('blur', () => {
+        setTimeout(() => {
+          state.pathSuggestions = [];
+          state.pathActiveIndex = -1;
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+        }, 150);
+        validateTargetPath();
+      });
+
+      targetDirEl.addEventListener('keydown', (e) => {
+        if (!state.pathSuggestions.length) return;
+        
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          state.pathActiveIndex = Math.min(state.pathActiveIndex + 1, state.pathSuggestions.length - 1);
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          state.pathActiveIndex = Math.max(state.pathActiveIndex - 1, 0);
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+        } else if (e.key === 'Enter' && state.pathActiveIndex >= 0) {
+          e.preventDefault();
+          targetDirEl.value = state.pathSuggestions[state.pathActiveIndex];
+          state.pathSuggestions = [];
+          state.pathActiveIndex = -1;
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+          validateTargetPath();
+        } else if (e.key === 'Escape') {
+          state.pathSuggestions = [];
+          state.pathActiveIndex = -1;
+          renderPathSuggestions(targetAutocompleteEl, targetDirEl);
+        }
+      });
+
+      document.getElementById('targetBrowseBtn').addEventListener('click', () => {
+        loadPathSuggestions('', 'target');
+      });
+
+      async function validateTargetPath() {
+        const value = targetDirEl.value.trim();
+        if (!value) {
+          targetHintEl.textContent = 'Target directory is required';
+          targetHintEl.classList.add('error');
+          return;
+        }
+        try {
+          const res = await fetch(`${apiUrl('/api/fs/stat')}?path=${encodeURIComponent(value)}`);
+          const data = await res.json();
+          if (data.exists && data.is_dir) {
+            targetHintEl.textContent = `✓ Path exists: ${data.path}`;
+            targetHintEl.classList.remove('error');
+          } else if (!data.exists && data.parent_exists) {
+            targetHintEl.textContent = `Will create directory: ${data.path}`;
+            targetHintEl.classList.remove('error');
+          } else {
+            targetHintEl.textContent = 'Parent directory does not exist or is not accessible';
+            targetHintEl.classList.add('error');
+          }
+        } catch (err) {
+          targetHintEl.textContent = `Path validation failed: ${err}`;
+          targetHintEl.classList.add('error');
+        }
+      }
+
+      // Sync Path Input
+      const syncRepoPathEl = document.getElementById('syncRepoPath');
+      const syncAutocompleteEl = document.getElementById('syncAutocomplete');
+
+      syncRepoPathEl.addEventListener('input', async (e) => {
+        const v = e.target.value.trim();
+        if (!v) {
+          state.pathSuggestions = [];
+          renderPathSuggestions(syncAutocompleteEl, syncRepoPathEl, false);
+          return;
+        }
+        await loadPathSuggestions(v, 'sync');
+      });
+
+      syncRepoPathEl.addEventListener('blur', () => {
+        setTimeout(() => {
+          state.pathSuggestions = [];
+          state.pathActiveIndex = -1;
+          renderPathSuggestions(syncAutocompleteEl, syncRepoPathEl, false);
+        }, 150);
+      });
+
+      document.getElementById('syncBrowseBtn').addEventListener('click', () => {
+        loadPathSuggestions('', 'sync');
+      });
+
+      // File Input (Sizing)
+      const sizingFileEl = document.getElementById('sizingFile');
+      const sizingDropzoneEl = document.getElementById('sizingDropzone');
+      const sizingFilenameEl = document.getElementById('sizingFilename');
+
+      sizingFileEl.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          state.sizingFile = file;
+          sizingDropzoneEl.classList.add('has-file');
+          sizingDropzoneEl.querySelector('p').textContent = 'File selected';
+          sizingFilenameEl.textContent = file.name;
+          sizingFilenameEl.style.display = 'block';
+        } else {
+          state.sizingFile = null;
+          sizingDropzoneEl.classList.remove('has-file');
+          sizingDropzoneEl.querySelector('p').textContent = 'Drop sizing report here or click to browse';
+          sizingFilenameEl.style.display = 'none';
+        }
+      });
+
+      sizingDropzoneEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        sizingDropzoneEl.classList.add('dragover');
+      });
+
+      sizingDropzoneEl.addEventListener('dragleave', () => {
+        sizingDropzoneEl.classList.remove('dragover');
+      });
+
+      sizingDropzoneEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        sizingDropzoneEl.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.md')) {
+          sizingFileEl.files = e.dataTransfer.files;
+          sizingFileEl.dispatchEvent(new Event('change'));
+        } else {
+          showToast('Please drop a markdown file (.md)', 'warning');
+        }
+      });
+
+      // Load Metadata (Chains)
+      async function loadMeta() {
+        try {
+          const res = await fetch(apiUrl('/api/meta'));
+          const data = await res.json();
+          
+          const chainSelects = document.querySelectorAll('#forcedChain, #analyzeForcedChain');
+          chainSelects.forEach(select => {
+            select.innerHTML = '<option value="">Auto-detect</option>';
+            data.chains.forEach(c => {
+              const opt = document.createElement('option');
+              opt.value = c;
+              opt.textContent = c;
+              select.appendChild(opt);
+            });
+          });
+        } catch (err) {
+          console.error('Failed to load metadata:', err);
+        }
+      }
+
+      // Base Fields
+      function baseFields() {
+        return {
+          name: document.getElementById('name').value.trim(),
+          description: document.getElementById('description').value.trim(),
+          target_dir: document.getElementById('targetDir').value.trim(),
+          forced_type: document.getElementById('forcedType').value,
+          forced_chain: document.getElementById('forcedChain').value,
+          platform: document.getElementById('platform').value,
+          gitops_tool: document.getElementById('gitopsTool').value,
+          git_init: document.getElementById('gitInit').checked,
+          git_commit_message: document.getElementById('gitCommitMessage').value,
+          git_remote_url: document.getElementById('gitRemoteUrl').value,
+          git_branch: document.getElementById('gitBranch').value,
+          git_push: document.getElementById('gitPush').checked,
+        };
+      }
+
+      // Open Project
+      async function openProject(tool) {
+        const path = state.lastCreatedPath || targetDirEl.value.trim();
+        if (!path) {
+          showToast('No project path available to open', 'error');
+          return;
+        }
+        try {
+          const fd = new FormData();
+          fd.append('path', path);
+          fd.append('tool', tool);
+          const res = await fetch(apiUrl('/api/open'), { method: 'POST', body: fd });
+          const data = await res.json();
+          if (res.ok) {
+            showToast(`Opened with ${tool}`);
+          } else {
+            showToast(data.detail || 'Open failed', 'error');
+          }
+        } catch (err) {
+          showToast(`Open failed: ${err}`, 'error');
+        }
+      }
+
+      // Analyze Button
+      document.getElementById('analyzeBtn').addEventListener('click', async () => {
+        const f = baseFields();
+        if (!f.name || !f.description) {
+          showToast('Name and description are required', 'error');
+          return;
+        }
+
+        state.isLoading = true;
+        document.getElementById('analyzeBtn').innerHTML = '<span class="spinner"></span> Analyzing...';
+        
+        try {
+          const fd = new FormData();
+          fd.append('name', f.name);
+          fd.append('description', f.description);
+          fd.append('forced_type', f.forced_type);
+          fd.append('forced_chain', f.forced_chain);
+
+          const res = await fetch(apiUrl('/api/analyze'), { method: 'POST', body: fd });
+          const data = await res.json();
+          document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+          
+          if (res.ok) {
+            showToast('Analysis complete');
+          } else {
+            showToast(data.detail || 'Analysis failed', 'error');
+          }
+        } catch (err) {
+          showToast(`Analysis failed: ${err}`, 'error');
+        } finally {
+          state.isLoading = false;
+          document.getElementById('analyzeBtn').innerHTML = '<i data-lucide="search"></i> Analyze / Preview';
+          lucide.createIcons();
+        }
+      });
+
+      // Create Button
+      document.getElementById('createBtn').addEventListener('click', async () => {
+        const f = baseFields();
+        if (!f.name || !f.description || !f.target_dir) {
+          showToast('Name, description, and target directory are required', 'error');
+          return;
+        }
+
+        state.isLoading = true;
+        document.getElementById('createBtn').innerHTML = '<span class="spinner"></span> Creating...';
+        
+        try {
+          const fd = new FormData();
+          Object.entries(f).forEach(([k, v]) => fd.append(k, String(v)));
+
+          if (state.sizingFile) {
+            fd.append('sizing_file', state.sizingFile);
+          }
+
+          const res = await fetch(apiUrl('/api/create'), { method: 'POST', body: fd });
+          const data = await res.json();
+          document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+
+          if (res.ok) {
+            state.lastCreatedPath = data.project_path || data.normalized_target_dir || '';
+            if (state.lastCreatedPath) {
+              localStorage.setItem('pi-last-created-path', state.lastCreatedPath);
+              
+              // Add to recent projects
+              if (!state.recentProjects.includes(state.lastCreatedPath)) {
+                state.recentProjects.unshift(state.lastCreatedPath);
+                state.recentProjects = state.recentProjects.slice(0, 5);
+                localStorage.setItem('pi-recent-projects', JSON.stringify(state.recentProjects));
+                updateRecentProjects();
+              }
+            }
+            
+            const statusBadge = document.getElementById('resultStatus');
+            statusBadge.style.display = 'inline-flex';
+            statusBadge.className = 'status-badge success';
+            document.getElementById('resultStatusText').textContent = 'Created';
+            
+            showToast('Project created successfully!');
+            
+            if (document.getElementById('autoOpenZed').checked) {
+              await openProject('zed');
+            }
+          } else {
+            const statusBadge = document.getElementById('resultStatus');
+            statusBadge.style.display = 'inline-flex';
+            statusBadge.className = 'status-badge error';
+            document.getElementById('resultStatusText').textContent = 'Error';
+            showToast(data.detail || 'Create failed', 'error');
+          }
+        } catch (err) {
+          showToast(`Create failed: ${err}`, 'error');
+        } finally {
+          state.isLoading = false;
+          document.getElementById('createBtn').innerHTML = '<i data-lucide="plus"></i> Create Project';
+          lucide.createIcons();
+        }
+      });
+
+      // Analyze Page - Run Analysis
+      document.getElementById('runAnalyzeBtn').addEventListener('click', async () => {
+        const name = document.getElementById('analyzeName').value.trim();
+        const description = document.getElementById('analyzeDescription').value.trim();
+        const forced_type = document.getElementById('analyzeForcedType').value;
+        const forced_chain = document.getElementById('analyzeForcedChain').value;
+
+        if (!name || !description) {
+          showToast('Name and description are required', 'error');
+          return;
+        }
+
+        try {
+          const fd = new FormData();
+          fd.append('name', name);
+          fd.append('description', description);
+          fd.append('forced_type', forced_type);
+          fd.append('forced_chain', forced_chain);
+
+          const res = await fetch(apiUrl('/api/analyze'), { method: 'POST', body: fd });
+          const data = await res.json();
+          document.getElementById('analyzeOutput').textContent = JSON.stringify(data, null, 2);
+          showToast('Analysis complete');
+        } catch (err) {
+          showToast(`Analysis failed: ${err}`, 'error');
+        }
+      });
+
+      // Sync Button
+      document.getElementById('syncBtn').addEventListener('click', async () => {
+        const repoPath = document.getElementById('syncRepoPath').value.trim();
+        const branch = document.getElementById('syncBranch').value.trim() || 'main';
+
+        if (!repoPath) {
+          showToast('Repository path is required', 'error');
+          return;
+        }
+
+        state.isLoading = true;
+        document.getElementById('syncBtn').innerHTML = '<span class="spinner"></span> Syncing...';
+        
+        try {
+          const fd = new FormData();
+          fd.append('repo_path', repoPath);
+          fd.append('branch', branch);
+
+          const res = await fetch(apiUrl('/api/sync'), { method: 'POST', body: fd });
+          const data = await res.json();
+          document.getElementById('syncOutput').textContent = JSON.stringify(data, null, 2);
+          
+          if (res.ok) {
+            showToast('Sync complete');
+          } else {
+            showToast(data.detail || 'Sync failed', 'error');
+          }
+        } catch (err) {
+          showToast(`Sync failed: ${err}`, 'error');
+        } finally {
+          state.isLoading = false;
+          document.getElementById('syncBtn').innerHTML = '<i data-lucide="refresh-cw"></i> Pull / Rebase / Push';
+          lucide.createIcons();
+        }
+      });
+
+      // Open Buttons
+      document.getElementById('openZedBtn').addEventListener('click', () => openProject('zed'));
+      document.getElementById('openCodeBtn').addEventListener('click', () => openProject('vscode'));
+      document.getElementById('openFileMgrBtn').addEventListener('click', () => openProject('filemanager'));
+
+      // Recent Projects
+      function updateRecentProjects() {
+        const container = document.getElementById('recentProjects');
+        if (!state.recentProjects.length) {
+          container.innerHTML = `
+            <div class="recent-project-item" style="color: var(--text-muted); font-size: 0.8rem; cursor: default;">
+              <i data-lucide="clock"></i>
+              <span class="name">No recent projects</span>
+            </div>
+          `;
+        } else {
+          container.innerHTML = state.recentProjects.map(path => `
+            <div class="recent-project-item" data-path="${path}">
+              <i data-lucide="folder"></i>
+              <span class="name">${path.split('/').pop()}</span>
+            </div>
+          `).join('');
+          
+          container.querySelectorAll('.recent-project-item[data-path]').forEach(item => {
+            item.addEventListener('click', () => {
+              state.lastCreatedPath = item.dataset.path;
+              navigateTo('create');
+              showToast('Loaded: ' + item.dataset.path);
+            });
+          });
+        }
+        lucide.createIcons();
+      }
+
+      // Auto-open Zed preference
+      document.getElementById('autoOpenZed').checked = localStorage.getItem('pi-auto-open-zed') === 'true';
+      document.getElementById('autoOpenZed').addEventListener('change', () => {
+        localStorage.setItem('pi-auto-open-zed', String(document.getElementById('autoOpenZed').checked));
+      });
+
+      // Initialize
+      async function init() {
+        try {
+          await loadMeta();
+          updateRecentProjects();
+          validateTargetPath();
+          
+          // Check API health
+          const health = await fetch(apiUrl('/api/health'));
+          if (!health.ok) {
+            showToast('Backend API is not reachable', 'warning');
+          }
+        } catch (err) {
+          showToast('Failed to initialize: ' + err, 'error');
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>

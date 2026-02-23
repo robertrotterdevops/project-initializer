@@ -1,0 +1,8 @@
+Component,Count,Memory (Gi),CPU (cores),Storage (Gi),Notes
+Hot Tier Nodes,8,64,16,1800,Primary indexing (hot tier)
+Cold Tier Nodes,200,64,12,5000,Long-term storage (cold tier)
+Frozen Tier Nodes,3,32,8,2400,Searchable snapshots (cache); snapshot repo: 101253.75GB
+Master Nodes,7,8,4,10,Cluster coordination
+Kibana,4,18,10,1,UI and visualization
+Fleet Server,3,24,12,10,Agent management
+TOTAL,234,14072.0,2752.0,1054600.0,Elasticsearch cluster totals

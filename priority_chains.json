@@ -1,0 +1,167 @@
+{
+  "default_category": "elasticsearch",
+  "priority_chains": {
+    "default": ["devops-02-2026", "kubernetes-k8s-specialist", "platform-engineering", "devops-general"],
+    "elasticsearch_focused": ["devops-02-2026", "elasticsearch-general-expert", "elasticsearch-troubleshooting-performance", "kubernetes-k8s-specialist", "platform-engineering"],
+    "kubernetes_first": ["kubernetes-k8s-specialist", "platform-engineering", "devops-02-2026", "devops-general"],
+    "terraform_first": ["devops-general", "kubernetes-k8s-specialist", "platform-engineering", "devops-02-2026"],
+    "azure_focused": ["devops-general", "kubernetes-k8s-specialist", "platform-engineering", "devops-02-2026"],
+    "openshift_focused": ["kubernetes-k8s-specialist", "platform-engineering", "devops-02-2026", "devops-general"],
+    "gitops_focused": ["platform-engineering", "devops-general", "kubernetes-k8s-specialist", "devops-02-2026"]
+  },
+  "keyword_mapping": {
+    "elasticsearch": ["elasticsearch", "es", "eck", "elastic", "kibana", "logstash", "beats", "observability", "logging", "metrics", "apm"],
+    "kubernetes": ["kubernetes", "k8s", "openshift", "container", "pod", "deployment", "service", "ingress", "helm", "operator", "rke2", "rancher"],
+    "terraform": ["terraform", "iac", "infrastructure", "provisioning", "cloud"],
+    "azure": ["azure", "aks", "azurekubernetesservice", "microsoft"],
+    "gitops": ["fluxcd", "flux", "gitops", "kustomize", "helmrelease", "argocd", "gitrepository", "kustomization"]
+  },
+  "platforms": {
+    "rke2": {
+      "display": "RKE2 + ECK",
+      "description": "Rancher Kubernetes Engine 2",
+      "keywords": ["rke2", "rancher", "rke"]
+    },
+    "openshift": {
+      "display": "OpenShift 4.x + ECK",
+      "description": "Red Hat OpenShift Container Platform",
+      "keywords": ["openshift", "ocp", "redhat", "okd"]
+    },
+    "aks": {
+      "display": "AKS + ECK",
+      "description": "Azure Kubernetes Service",
+      "keywords": ["aks", "azure", "azurekubernetesservice"]
+    }
+  },
+  "gitops_tools": {
+    "flux": {
+      "display": "FluxCD",
+      "description": "GitOps with Flux controllers",
+      "addon": "flux_deployment"
+    },
+    "argo": {
+      "display": "ArgoCD",
+      "description": "GitOps with Argo Application CRDs",
+      "addon": "argo_deployment"
+    },
+    "none": {
+      "display": "None",
+      "description": "Raw Kubernetes manifests only",
+      "addon": null
+    }
+  },
+  "sizing_skill": "elasticsearch-openshift-sizing-assistant-legacy",
+  "skill_mapping": {
+    "devops-02-2026": {
+      "available": true,
+      "category": "elasticsearch",
+      "capabilities": ["elasticsearch-sizing", "openshift-deployment", "eck-operator", "capacity-planning"]
+    },
+    "elasticsearch-general-expert": {
+      "available": true,
+      "category": "elasticsearch",
+      "capabilities": ["query-dsl", "vector-search", "rag", "inference-api", "mappings"]
+    },
+    "elasticsearch-troubleshooting-performance": {
+      "available": true,
+      "category": "elasticsearch",
+      "capabilities": ["cluster-diagnostics", "performance-tuning", "security-hardening", "upgrade-planning"]
+    },
+    "kubernetes-k8s-specialist": {
+      "available": true,
+      "category": "kubernetes",
+      "capabilities": ["kubernetes-clusters", "openshift", "container-orchestration", "security-hardening"]
+    },
+    "platform-engineering": {
+      "available": true,
+      "category": "platform",
+      "capabilities": ["gitops", "developer-platforms", "self-service", "standardization"]
+    },
+    "devops-general": {
+      "available": true,
+      "category": "infrastructure",
+      "capabilities": ["terraform", "azure", "cloud-infrastructure", "automation"]
+    }
+  },
+  "addons": {
+    "flux_deployment": {
+      "path": "addons/flux_deployment.py",
+      "description": "FluxCD GitOps deployment generator (default for all platforms)",
+      "supported_project_types": ["gitops", "kubernetes", "elasticsearch", "azure"],
+      "triggers": {"default": true},
+      "priority": 5,
+      "minimum_python_version": "3.9",
+      "features": [
+        "Dynamic complexity analysis",
+        "Automated manifest generation",
+        "Bootstrap script creation",
+        "Multi-cluster support"
+      ]
+    },
+    "argo_deployment": {
+      "path": "addons/argo_deployment.py",
+      "description": "ArgoCD deployment generator",
+      "supported_project_types": ["gitops", "kubernetes", "elasticsearch"],
+      "triggers": {"gitops_tool": "argo"},
+      "minimum_python_version": "3.9",
+      "features": [
+        "Application CRD generation",
+        "AppProject configuration",
+        "Multi-cluster support"
+      ]
+    },
+    "eck_deployment": {
+      "path": "addons/eck_deployment.py",
+      "description": "ECK 2.x (Elasticsearch 8.x) deployment generator",
+      "supported_project_types": ["elasticsearch"],
+      "triggers": {"categories": ["elasticsearch"]},
+      "minimum_python_version": "3.9",
+      "features": [
+        "Elasticsearch cluster CRD",
+        "Kibana CRD",
+        "Elastic Agent configuration",
+        "ILM policies"
+      ]
+    },
+    "sizing_integration": {
+      "path": "addons/sizing_integration.py",
+      "description": "ES sizing skill integration",
+      "supported_project_types": ["elasticsearch"],
+      "triggers": {"categories": ["elasticsearch"], "interactive_only": true},
+      "minimum_python_version": "3.9",
+      "features": [
+        "Invoke elasticsearch-openshift-sizing-assistant-legacy",
+        "Generate resource limits from sizing",
+        "Capacity planning integration"
+      ]
+    },
+    "platform_manifests": {
+      "path": "addons/platform_manifests.py",
+      "description": "Platform-specific manifests generator (RKE2/OpenShift/AKS)",
+      "supported_project_types": ["elasticsearch", "kubernetes"],
+      "triggers": {"platforms": ["rke2", "openshift", "aks"]},
+      "priority": 15,
+      "minimum_python_version": "3.9",
+      "features": [
+        "RKE2: Longhorn storage, PSP, network policies",
+        "OpenShift: SCC, Routes, MachineSets",
+        "AKS: Azure managed disks, Workload Identity, AGIC ingress"
+      ]
+    },
+    "terraform_aks": {
+      "path": "addons/terraform_aks.py",
+      "description": "Terraform AKS module structure for Azure Kubernetes Service",
+      "supported_project_types": ["elasticsearch", "kubernetes", "azure"],
+      "triggers": {"platforms": ["aks"], "keywords": ["azure", "aks", "terraform"]},
+      "priority": 15,
+      "minimum_python_version": "3.9",
+      "features": [
+        "AKS cluster with ES-optimized node pools",
+        "VNet, subnets, NSGs networking module",
+        "Storage account for ES snapshots",
+        "Azure Container Registry",
+        "Log Analytics and Azure Monitor"
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flux-system
+  labels:
+    project: es-aks-e2e
+    managed-by: flux
+    complexity-level: standard

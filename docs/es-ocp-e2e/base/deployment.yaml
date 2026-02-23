@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-ocp-e2e
+  labels:
+    app: es-ocp-e2e
+    managed-by: flux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: es-ocp-e2e
+  template:
+    metadata:
+      labels:
+        app: es-ocp-e2e
+    spec:
+      containers:
+      - name: es-ocp-e2e
+        image: es-ocp-e2e:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5

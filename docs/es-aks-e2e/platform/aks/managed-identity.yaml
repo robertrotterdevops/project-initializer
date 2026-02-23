@@ -1,0 +1,25 @@
+# Azure Workload Identity for es-aks-e2e
+# Enables pods to authenticate to Azure services using managed identity
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: es-aks-e2e-identity
+  namespace: es-aks-e2e
+  labels:
+    app.kubernetes.io/name: es-aks-e2e
+  annotations:
+    # Replace with your Azure managed identity client ID
+    azure.workload.identity/client-id: "<managed-identity-client-id>"
+---
+# Pod label for workload identity
+# Add this label to pods that need Azure access:
+# azure.workload.identity/use: "true"
+
+# Example: FederatedIdentityCredential (Azure CLI/Terraform)
+# az identity federated-credential create \
+#   --name es-aks-e2e-federated \
+#   --identity-name es-aks-e2e-identity \
+#   --resource-group <resource-group> \
+#   --issuer <aks-oidc-issuer> \
+#   --subject system:serviceaccount:es-aks-e2e:es-aks-e2e-identity

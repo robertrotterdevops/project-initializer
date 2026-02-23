@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Project Initializer",
+  "version": "0.1.0",
+  "identifier": "com.company.projectinitializer",
+  "build": {
+    "frontendDist": "../../frontend"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Project Initializer",
+        "width": 1200,
+        "height": 860,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "deb", "rpm"],
+    "externalBin": ["binaries/pi-backend"]
+  }
+}

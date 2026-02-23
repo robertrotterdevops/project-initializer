@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-aks-e2e
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: es-aks-e2e
+        env:
+        - name: ENVIRONMENT
+          value: dev
+        - name: LOG_LEVEL
+          value: DEBUG

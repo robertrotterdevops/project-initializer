@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: es-ocp-e2e-mgmt
+  labels:
+    project: es-ocp-e2e
+    environment: management

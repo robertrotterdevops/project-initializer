@@ -1,0 +1,60 @@
+# Elasticsearch Cluster Resource Requirements
+# Source: Sizing Report (Custom)
+# Platform: OpenShift
+# Health Score: 65/100
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-sizing-config
+  namespace: es-ocp-e2e
+data:
+  profile: "custom"
+  source: "sizing_report"
+  platform: "openshift"
+  
+---
+# Resource Totals (from sizing report)
+#
+# Total Nodes: 234
+# Total vCPU: 2752.0
+# Total RAM: 14072.0 GB
+# Total Local Disk: 1054600.0 GB
+# Snapshot Storage: 101253.75 GB
+#
+# ============================================================
+# Tier Breakdown
+# ============================================================
+#
+# HOT TIER (primary indexing):
+#   Nodes: 8
+#   Memory: 64Gi per node
+#   CPU: 16 cores per node
+#   Storage: 1800Gi per node
+#
+# COLD TIER (long-term storage):
+#   Nodes: 200
+#   Memory: 64Gi per node
+#   CPU: 12 cores per node
+#   Storage: 5000Gi per node
+#
+# FROZEN TIER (searchable snapshots):
+#   Nodes: 3
+#   Memory: 32Gi per node
+#   CPU: 8 cores per node
+#   Cache Storage: 2400Gi per node
+#   Snapshot Repository: 101253.75 GB (remote storage)
+#
+# KIBANA:
+#   Instances: 4
+#   Memory: 18Gi per instance
+#   CPU: 10 cores per instance
+#
+# FLEET SERVER:
+#   Instances: 3
+#   Memory: 24Gi per instance
+#   CPU: 12 cores per instance
+#
+# ============================================================
+# Use these values to request cluster resources from infrastructure team
+# ============================================================

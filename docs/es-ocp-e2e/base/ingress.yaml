@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: es-ocp-e2e
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /es-ocp-e2e
+        pathType: Prefix
+        backend:
+          service:
+            name: es-ocp-e2e
+            port:
+              number: 80
