@@ -2048,7 +2048,14 @@
         
         try {
           const fd = new FormData();
-          Object.entries(f).forEach(([k, v]) => fd.append(k, String(v)));
+          Object.entries(f).forEach(([k, v]) => {
+            if (typeof v === 'boolean') {
+              if (v) fd.append(k, 'true');
+              // Omit false booleans — FastAPI defaults them to False
+            } else {
+              fd.append(k, String(v));
+            }
+          });
 
           if (state.sizingFile) {
             fd.append('sizing_file', state.sizingFile);
