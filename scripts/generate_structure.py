@@ -85,6 +85,9 @@ def prepare_template_context(analysis_result: Dict) -> Dict:
         tree_lines.append(f"  {connector}{item}")
     tree_text = "\n".join(tree_lines)
 
+    # Ambiguous categories
+    ambiguous = analysis_result.get("ambiguous_categories", [])
+
     return {
         "project_name": project_name,
         "project_description": analysis_result.get("description", ""),
@@ -96,6 +99,7 @@ def prepare_template_context(analysis_result: Dict) -> Dict:
         "skill_load_commands_full": load_cmds_full,
         "primary_skill_capabilities": caps_text,
         "primary_category": analysis_result.get("primary_category", "generic"),
+        "ambiguous_categories": ambiguous,
         "priority_chain": analysis_result.get("priority_chain", "default"),
         "analysis_confidence": str(analysis_result.get("analysis_confidence", 0)),
         "project_structure_tree": tree_text,
@@ -148,7 +152,17 @@ def generate_agents_doc(base_path: str, context: Dict, template_path: str) -> st
         with open(template_path, "r") as fh:
             template = fh.read()
     except FileNotFoundError:
-        template = "# Agent Coordination Guide\n\nPrimary: {{primary_skill}}\n"
+        template = (
+            "# Agent Coordination Guide\n\n"
+            "## Primary Skill\n\n"
+            "**{{primary_skill}}** — {{primary_skill_capabilities}}\n\n"
+            "## Assigned Skills\n\n"
+            "{{secondary_skills_list}}\n\n"
+            "## Priority Chain\n\n"
+            "Chain: `{{priority_chain}}` | Category: `{{primary_category}}`\n\n"
+            "### Load Commands\n\n"
+            "```\n{{skill_load_commands_full}}\n```\n"
+        )
 
     content = render_template(template, context)
     out = os.path.join(base_path, "AGENTS.md")
@@ -227,12 +241,25 @@ def generate_opencode_context(base_path: str, context: Dict) -> str:
     platform = context.get("platform", "")
     gitops_tool = context.get("gitops_tool", "")
 
+    # Build ambiguity note if categories are close
+    ambiguous = context.get("ambiguous_categories", [])
+    if ambiguous:
+        ambiguity_note = (
+            f"\n> **Note:** Category classification is ambiguous. "
+            f"The following categories scored within 1 point of the primary "
+            f"category (`{context.get('primary_category', 'generic')}`): "
+            f"{', '.join(f'`{c}`' for c in ambiguous)}. "
+            f"Consider reviewing the priority chain if results seem off.\n"
+        )
+    else:
+        ambiguity_note = ""
+
     content = f"""# OpenCode Session Context
 
 ## Project: {context.get("project_name", "Unknown")}
 
 {context.get("project_description", "")}
-
+{ambiguity_note}
 ## Active Skills
 
 Primary skill for this project:
@@ -318,9 +345,10 @@ def initialize_project(
 
     analysis = analyze_project(project_name, description, focus_areas)
 
-    # Apply forced_chain override if provided
+    # Apply forced_chain override if provided (recalculates skills)
     if forced_chain:
-        analysis["priority_chain"] = forced_chain
+        analyzer = ProjectAnalyzer()
+        analysis = analyzer.override_chain(analysis, forced_chain)
 
     context = prepare_template_context(analysis)
 

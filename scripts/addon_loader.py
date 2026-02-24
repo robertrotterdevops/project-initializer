@@ -177,8 +177,14 @@ class AddonLoader:
             triggers = spec.triggers
             trigger_gitops = triggers.get("gitops_tool", "")
 
-            # Check for default trigger (always load)
+            # Check for default trigger
             if triggers.get("default", False):
+                # If gitops_tool is "none", skip addons with a gitops_tool trigger
+                if gitops_tool == "none" and trigger_gitops:
+                    continue
+                # If gitops_tool is set and doesn't match, skip
+                if gitops_tool and trigger_gitops and trigger_gitops != gitops_tool:
+                    continue
                 matched.append(spec)
                 continue
 

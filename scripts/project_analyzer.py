@@ -93,6 +93,13 @@ class ProjectAnalyzer:
         else:
             primary_category = "generic"
 
+        # Detect ambiguous categories (within 1 point of the top score)
+        max_score = max(category_scores.values()) if category_scores else 0
+        ambiguous_categories = [
+            cat for cat, score in category_scores.items()
+            if score >= max_score - 1 and score > 0 and cat != primary_category
+        ]
+
         priority_chain = self._select_chain(primary_category, category_scores)
 
         available_skills = [
@@ -104,6 +111,7 @@ class ProjectAnalyzer:
         return {
             "primary_category": primary_category,
             "category_scores": category_scores,
+            "ambiguous_categories": ambiguous_categories,
             "priority_chain": priority_chain,
             "assigned_skills": available_skills,
             "primary_skill": available_skills[0] if available_skills else None,
@@ -178,6 +186,21 @@ class ProjectAnalyzer:
     # Skill validation
     # ------------------------------------------------------------------
 
+    def override_chain(self, result: Dict, forced_chain: str) -> Dict:
+        """Override the priority chain and recalculate skills."""
+        if not forced_chain or forced_chain not in self.priority_chains:
+            return result
+        skills = [
+            s for s in self.priority_chains[forced_chain]
+            if self.skill_mapping.get(s, {}).get("available", False)
+        ]
+        available, unavailable = self.validate_skills(skills)
+        result["priority_chain"] = forced_chain
+        result["assigned_skills"] = available
+        result["primary_skill"] = available[0] if available else None
+        result["unavailable_skills"] = unavailable
+        return result
+
     def validate_skills(self, skills: List[str]) -> Tuple[List[str], List[str]]:
         """Check which skills actually exist on disk."""
         available: List[str] = []
@@ -226,6 +249,7 @@ def analyze_project(
         "description": description,
         "primary_category": result["primary_category"],
         "category_scores": result["category_scores"],
+        "ambiguous_categories": result.get("ambiguous_categories", []),
         "priority_chain": result["priority_chain"],
         "assigned_skills": available,
         "primary_skill": primary,

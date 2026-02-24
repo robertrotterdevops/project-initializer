@@ -163,25 +163,24 @@ def _infer_platform_from_text(text: str) -> Optional[str]:
     return None
 
 
+def _has_infra_keywords(text: str) -> bool:
+    """Check if text contains any platform or gitops keywords."""
+    t = (text or "").lower()
+    keywords = [
+        "openshift", "ocp", "redhat", "okd",
+        "rke2", "rancher",
+        "aks", "azure", "azure kubernetes",
+        "terraform",
+        "flux", "fluxcd", "argo", "argocd", "gitops",
+    ]
+    return any(k in t for k in keywords)
+
+
 def _override_chain(result: Dict[str, Any], forced_chain: str) -> Dict[str, Any]:
     if not forced_chain:
         return result
-
     analyzer = ProjectAnalyzer(config_path=str(ROOT_DIR))
-    if forced_chain not in analyzer.priority_chains:
-        return result
-
-    skills = [
-        s
-        for s in analyzer.priority_chains.get(forced_chain, [])
-        if analyzer.skill_mapping.get(s, {}).get("available", False)
-    ]
-    available, unavailable = analyzer.validate_skills(skills)
-    result["priority_chain"] = forced_chain
-    result["assigned_skills"] = available
-    result["unavailable_skills"] = unavailable
-    result["primary_skill"] = available[0] if available else None
-    return result
+    return analyzer.override_chain(result, forced_chain)
 
 
 def _build_open_command(tool: str, target_path: Path) -> List[str]:
@@ -364,7 +363,46 @@ async def create_project(
             tmp_path.unlink(missing_ok=True)
 
     description_platform = _infer_platform_from_text(description)
-    final_platform = platform or description_platform or detected_platform
+
+    # --- Platform resolution ---
+    # Sizing file is the source of truth: its structured platform detection
+    # overrides both the user's dropdown selection and description keywords.
+    # Priority: sizing file parser > explicit dropdown > description text
+    platform_source: Optional[str] = None
+    if detected_platform:
+        final_platform = detected_platform
+        platform_source = "sizing_file"
+    elif platform:
+        final_platform = platform
+        platform_source = "user_selection"
+    elif description_platform:
+        final_platform = description_platform
+        platform_source = "description"
+    else:
+        final_platform = None
+        platform_source = None
+
+    # If no sizing file AND description is generic (no infra keywords) AND
+    # user didn't pick platform → reject, force them to choose a platform.
+    # GitOps tool is NOT required — it defaults to flux below.
+    if (
+        not final_platform
+        and sizing_context is None
+        and not _has_infra_keywords(description)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not determine target platform from the description. "
+                "Please select a Platform (aks, openshift, rke2) "
+                "or upload a sizing file."
+            ),
+        )
+
+    # --- GitOps tool resolution ---
+    # GitOps is independent of platform — any combination works.
+    # If the user didn't select a gitops tool, default to FluxCD.
+    final_gitops = gitops_tool if gitops_tool else "flux"
 
     result = initialize_project(
         project_name=name,
@@ -372,7 +410,7 @@ async def create_project(
         target_directory=normalized_target_dir,
         forced_chain=forced_chain or None,
         platform=final_platform or None,
-        gitops_tool=gitops_tool or None,
+        gitops_tool=final_gitops,
         sizing_context=sizing_context,
     )
 
@@ -415,6 +453,19 @@ async def create_project(
         "log": git_log,
     }
     result["effective_platform"] = final_platform
+    result["platform_source"] = platform_source
+    result["effective_gitops"] = final_gitops
+    result["gitops_source"] = "user_selection" if gitops_tool else "default"
+    # Surface override info so the UI can notify the user
+    if platform_source == "sizing_file" and platform and platform != final_platform:
+        result["platform_override"] = {
+            "user_selected": platform,
+            "sizing_file_detected": final_platform,
+            "message": (
+                f"Platform changed from '{platform}' to '{final_platform}' "
+                f"based on the uploaded sizing file."
+            ),
+        }
     result["normalized_target_dir"] = normalized_target_dir
 
     return result

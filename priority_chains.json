@@ -88,7 +88,7 @@
       "path": "addons/flux_deployment.py",
       "description": "FluxCD GitOps deployment generator (default for all platforms)",
       "supported_project_types": ["gitops", "kubernetes", "elasticsearch", "azure"],
-      "triggers": {"default": true},
+      "triggers": {"default": true, "gitops_tool": "flux"},
       "priority": 5,
       "minimum_python_version": "3.9",
       "features": [
@@ -152,7 +152,7 @@
       "path": "addons/terraform_aks.py",
       "description": "Terraform AKS module structure for Azure Kubernetes Service",
       "supported_project_types": ["elasticsearch", "kubernetes", "azure"],
-      "triggers": {"platforms": ["aks"], "keywords": ["azure", "aks", "terraform"]},
+      "triggers": {"platforms": ["aks"], "keywords": ["azure", "aks"]},
       "priority": 15,
       "minimum_python_version": "3.9",
       "features": [

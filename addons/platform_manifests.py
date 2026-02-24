@@ -32,7 +32,7 @@ class PlatformManifestsGenerator:
         self.context = context or {}
 
         self.platform = self.context.get("platform", "kubernetes")
-        self.sizing = self.context.get("sizing_context", {})
+        self.sizing = self.context.get("sizing_context") or {}
 
     def _openshift_worker_pools(self) -> List[Dict[str, Any]]:
         """Return parsed OpenShift worker pools from sizing context."""

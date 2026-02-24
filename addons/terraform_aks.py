@@ -24,7 +24,7 @@ ADDON_META = {
     "description": "Terraform AKS module structure for Azure Kubernetes Service",
     "triggers": {
         "platforms": ["aks"],
-        "keywords": ["azure", "aks", "terraform"],
+        "keywords": ["azure", "aks"],
     },
     "priority": 15,
 }
