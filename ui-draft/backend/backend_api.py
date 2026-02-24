@@ -404,10 +404,15 @@ async def create_project(
     # If the user didn't select a gitops tool, default to FluxCD.
     final_gitops = gitops_tool if gitops_tool else "flux"
 
+    # Build project_dir as a subfolder of target_dir so multiple projects
+    # can coexist in the same mono-repo root.
+    project_dir = Path(normalized_target_dir) / name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
     result = initialize_project(
         project_name=name,
         description=effective_desc,
-        target_directory=normalized_target_dir,
+        target_directory=str(project_dir),
         forced_chain=forced_chain or None,
         platform=final_platform or None,
         gitops_tool=final_gitops,
@@ -415,38 +420,64 @@ async def create_project(
     )
 
     git_log: List[Dict[str, Any]] = []
-    project_path = Path(result["project_path"]).resolve()
+    repo_root = Path(normalized_target_dir)
 
     if git_init:
-        git_log.append(_run_git_command(["git", "init"], project_path))
-        git_log.append(_run_git_command(["git", "add", "."], project_path))
+        # 1. Init only if .git doesn't exist yet (first project in the repo)
+        if not (repo_root / ".git").exists():
+            git_log.append(_run_git_command(["git", "init"], repo_root))
+            if git_remote_url.strip():
+                git_log.append(
+                    _run_git_command(
+                        ["git", "remote", "add", "origin", git_remote_url.strip()],
+                        repo_root,
+                    )
+                )
+        # 2. Repo already exists — configure remote if provided but not yet set
+        elif git_remote_url.strip():
+            existing = _run_git_command(
+                ["git", "remote", "get-url", "origin"], repo_root
+            )
+            if not existing["ok"]:
+                git_log.append(
+                    _run_git_command(
+                        ["git", "remote", "add", "origin", git_remote_url.strip()],
+                        repo_root,
+                    )
+                )
+
+        # 3. Stage only the new project subfolder
         git_log.append(
-            _run_git_command(["git", "commit", "-m", git_commit_message], project_path)
+            _run_git_command(["git", "add", name + "/"], repo_root)
         )
 
-        if git_remote_url.strip():
-            git_log.append(
-                _run_git_command(["git", "remote", "remove", "origin"], project_path)
+        # 4. Commit
+        git_log.append(
+            _run_git_command(
+                ["git", "commit", "-m", git_commit_message], repo_root
             )
-            git_log.append(
-                _run_git_command(
-                    ["git", "remote", "add", "origin", git_remote_url.strip()],
-                    project_path,
-                )
-            )
+        )
 
+        # 5. Push: pull --rebase first to integrate previous projects
         if git_push and git_remote_url.strip():
             git_log.append(
-                _run_git_command(["git", "branch", "-M", git_branch], project_path)
+                _run_git_command(["git", "branch", "-M", git_branch], repo_root)
             )
+            # Pull first (handles non-empty remote / prior projects).
+            # Allow failure on first push when remote is empty.
+            pull_result = _run_git_command(
+                ["git", "pull", "--rebase", "origin", git_branch], repo_root
+            )
+            git_log.append(pull_result)
             git_log.append(
                 _run_git_command(
-                    ["git", "push", "-u", "origin", git_branch], project_path
+                    ["git", "push", "-u", "origin", git_branch], repo_root
                 )
             )
 
     result["git"] = {
         "enabled": git_init,
+        "repo_root": str(repo_root),
         "remote": git_remote_url,
         "branch": git_branch,
         "push": git_push,
