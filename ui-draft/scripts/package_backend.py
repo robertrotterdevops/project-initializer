@@ -7,6 +7,7 @@ Requires pyinstaller in active environment.
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,12 @@ TAURI_BIN_DIR = ROOT / "desktop" / "src-tauri" / "binaries"
 
 def _target_suffix() -> str:
     if sys.platform == "darwin":
-        return "aarch64-apple-darwin"
+        machine = platform.machine().lower()
+        if machine in {"arm64", "aarch64"}:
+            return "aarch64-apple-darwin"
+        if machine in {"x86_64", "amd64"}:
+            return "x86_64-apple-darwin"
+        raise RuntimeError(f"Unsupported macOS architecture: {machine}")
     if sys.platform.startswith("linux"):
         return "x86_64-unknown-linux-gnu"
     raise RuntimeError(f"Unsupported platform for packaging: {sys.platform}")
@@ -31,14 +37,20 @@ def main() -> None:
     TAURI_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
     data_sep = os.pathsep
-    add_data = [
-        f"{PI_ROOT / 'scripts'}{data_sep}scripts",
-        f"{PI_ROOT / 'addons'}{data_sep}addons",
-        f"{PI_ROOT / 'templates'}{data_sep}templates",
-        f"{PI_ROOT / 'priority_chains.json'}{data_sep}.",
-        f"{PI_ROOT / 'priority_chains.yaml'}{data_sep}.",
-        f"{ROOT / 'frontend'}{data_sep}ui-draft/frontend",
+    add_data_sources = [
+        (PI_ROOT / "scripts", "scripts"),
+        (PI_ROOT / "addons", "addons"),
+        (PI_ROOT / "templates", "templates"),
+        (PI_ROOT / "priority_chains.json", "."),
+        (PI_ROOT / "priority_chains.yaml", "."),
+        (ROOT / "frontend", "ui-draft/frontend"),
     ]
+    add_data = []
+    for source, target in add_data_sources:
+        if source.exists():
+            add_data.append(f"{source}{data_sep}{target}")
+        else:
+            print(f"Skipping missing add-data path: {source}")
 
     hidden_imports = [
         "backend_api",

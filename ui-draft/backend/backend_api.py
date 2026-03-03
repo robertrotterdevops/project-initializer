@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -132,6 +132,62 @@ def _run_git_command(command: List[str], cwd: Path) -> Dict[str, Any]:
         }
 
 
+def _run_shell_command(command: List[str], cwd: Path) -> Dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return {
+            "ok": True,
+            "command": " ".join(command),
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+    except subprocess.CalledProcessError as exc:
+        return {
+            "ok": False,
+            "command": " ".join(command),
+            "stdout": (exc.stdout or "").strip(),
+            "stderr": (exc.stderr or str(exc)).strip(),
+        }
+
+
+
+
+def _run_ssh_command(host: str, port: str, user: str, remote_cmd: str, ssh_key_path: str = "") -> Dict[str, Any]:
+    ssh = ["ssh", "-p", str(port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if ssh_key_path.strip():
+        ssh.extend(["-i", str(Path(ssh_key_path).expanduser())])
+    ssh.append(f"{user}@{host}")
+    ssh.append(remote_cmd)
+    return _run_shell_command(ssh, Path.cwd())
+
+
+def _run_rsync_to_remote(local_src: Path, host: str, port: str, user: str, remote_target: str, ssh_key_path: str = "") -> Dict[str, Any]:
+    ssh_parts = ["ssh", "-p", str(port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if ssh_key_path.strip():
+        ssh_parts.extend(["-i", str(Path(ssh_key_path).expanduser())])
+    cmd = [
+        "rsync", "-az", "--delete",
+        "-e", " ".join(ssh_parts),
+        f"{str(local_src).rstrip('/')}/",
+        f"{user}@{host}:{remote_target.rstrip('/')}/",
+    ]
+    return _run_shell_command(cmd, Path.cwd())
+
+
+def _normalize_remote_base_dir(base_dir: str) -> str:
+    raw = (base_dir or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="remote_base_dir is required for remote target")
+    if not raw.startswith("/"):
+        raise HTTPException(status_code=400, detail="remote_base_dir must be an absolute POSIX path")
+    return str(PurePosixPath(raw))
+
 def _apply_forced_type(desc: str, forced_type: str) -> str:
     if forced_type and forced_type != "auto":
         return f"{forced_type} {desc}"
@@ -158,6 +214,8 @@ def _infer_platform_from_text(text: str) -> Optional[str]:
         return "openshift"
     if any(k in t for k in ["rke2", "rancher"]):
         return "rke2"
+    if any(k in t for k in ["proxmox", "pve"]):
+        return "proxmox"
     if any(k in t for k in ["aks", "azure kubernetes", "azure"]):
         return "aks"
     return None
@@ -169,6 +227,7 @@ def _has_infra_keywords(text: str) -> bool:
     keywords = [
         "openshift", "ocp", "redhat", "okd",
         "rke2", "rancher",
+        "proxmox", "pve",
         "aks", "azure", "azure kubernetes",
         "terraform",
         "flux", "fluxcd", "argo", "argocd", "gitops",
@@ -215,6 +274,74 @@ def _build_open_command(tool: str, target_path: Path) -> List[str]:
     )
 
 
+def _build_open_remote_command(tool: str, host: str, user: str, remote_path: str) -> List[str]:
+    if tool == "zed":
+        if shutil.which("zed") is None:
+            raise HTTPException(status_code=400, detail="zed is not installed or not in PATH")
+        return ["zed", f"ssh://{user}@{host}{remote_path}"]
+
+    if tool == "vscode":
+        if shutil.which("code") is None:
+            raise HTTPException(status_code=400, detail="vscode CLI 'code' is not installed or not in PATH")
+        uri = f"vscode-remote://ssh-remote+{host}{remote_path}"
+        return ["code", "--folder-uri", uri]
+
+    raise HTTPException(status_code=400, detail="Remote open supports zed or vscode")
+
+
+def _pick_directory_os_dialog(initial_path: Optional[str] = None) -> str:
+    """Open native folder picker and return selected absolute directory."""
+    start_dir = _expand_input_path(initial_path or str(USER_HOME))
+    if not start_dir.exists():
+        start_dir = USER_HOME
+
+    if sys.platform == "darwin":
+        script = (
+            'set chosenFolder to choose folder with prompt "Select folder" '
+            f'default location POSIX file "{str(start_dir)}"\n'
+            "POSIX path of chosenFolder"
+        )
+        proc = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip().lower()
+            if "user canceled" in stderr:
+                raise HTTPException(status_code=400, detail="Folder selection cancelled")
+            raise HTTPException(status_code=500, detail="Failed to open folder dialog")
+        selected = (proc.stdout or "").strip()
+        if not selected:
+            raise HTTPException(status_code=400, detail="No folder selected")
+        return str(Path(selected).expanduser().resolve())
+
+    if sys.platform.startswith("linux"):
+        if shutil.which("zenity") is None:
+            raise HTTPException(
+                status_code=501, detail="Linux folder picker unavailable (install zenity)"
+            )
+        proc = subprocess.run(
+            [
+                "zenity",
+                "--file-selection",
+                "--directory",
+                "--title=Select folder",
+                f"--filename={str(start_dir)}/",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(status_code=400, detail="Folder selection cancelled")
+        selected = (proc.stdout or "").strip()
+        if not selected:
+            raise HTTPException(status_code=400, detail="No folder selected")
+        return str(Path(selected).expanduser().resolve())
+
+    raise HTTPException(status_code=501, detail=f"Folder picker not supported on {sys.platform}")
+
+
 @app.get("/")
 def index() -> FileResponse:
     if not FRONTEND_DIR.exists():
@@ -239,7 +366,7 @@ def meta() -> Dict[str, Any]:
             "azure",
             "gitops",
         ],
-        "platforms": ["", "rke2", "openshift", "aks"],
+        "platforms": ["", "rke2", "openshift", "aks", "proxmox"],
         "gitops_tools": ["", "flux", "argo", "none"],
         "chains": sorted(list(analyzer.priority_chains.keys())),
     }
@@ -302,6 +429,38 @@ def fs_stat(path: str) -> Dict[str, Any]:
     }
 
 
+@app.get("/api/fs/pick-directory")
+def fs_pick_directory(initial_path: str = "") -> Dict[str, Any]:
+    selected = _pick_directory_os_dialog(initial_path=initial_path)
+    p = Path(selected).resolve()
+    return {"path": str(p), "exists": p.exists(), "is_dir": p.is_dir()}
+
+
+
+
+@app.post("/api/remote/test")
+def remote_test(
+    remote_host: str = Form(...),
+    remote_port: str = Form("22"),
+    remote_user: str = Form(...),
+    remote_ssh_key_path: str = Form(""),
+) -> Dict[str, Any]:
+    host = remote_host.strip()
+    user = remote_user.strip()
+    if not host or not user:
+        raise HTTPException(status_code=400, detail="remote_host and remote_user are required")
+
+    cmd = _run_ssh_command(
+        host=host,
+        port=(remote_port or "22").strip() or "22",
+        user=user,
+        remote_cmd="echo connected",
+        ssh_key_path=remote_ssh_key_path,
+    )
+    if not cmd["ok"]:
+        raise HTTPException(status_code=400, detail=f"Remote SSH test failed: {cmd['stderr'] or cmd['stdout']}")
+    return {"ok": True, "host": host, "user": user, "port": (remote_port or "22").strip() or "22", "stdout": cmd.get("stdout", "")}
+
 @app.post("/api/analyze")
 def analyze(
     name: str = Form(...),
@@ -318,7 +477,7 @@ def analyze(
 @app.post("/api/create")
 async def create_project(
     name: str = Form(...),
-    description: str = Form(...),
+    description: str = Form(""),
     target_dir: str = Form(...),
     forced_type: str = Form("auto"),
     forced_chain: str = Form(""),
@@ -329,47 +488,79 @@ async def create_project(
     git_remote_url: str = Form(""),
     git_branch: str = Form("main"),
     git_push: bool = Form(False),
+    use_terraform_iac: bool = Form(False),
+    run_terraform_apply: bool = Form(False),
+    target_type: str = Form("local"),
+    remote_host: str = Form(""),
+    remote_port: str = Form("22"),
+    remote_user: str = Form(""),
+    remote_auth_mode: str = Form("ssh_key"),
+    remote_ssh_key_path: str = Form(""),
+    remote_base_dir: str = Form(""),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> Dict[str, Any]:
-    if not name.strip() or not description.strip() or not target_dir.strip():
-        raise HTTPException(
-            status_code=400, detail="name, description, and target_dir are required"
-        )
+    if not name.strip() or not target_dir.strip():
+        raise HTTPException(status_code=400, detail="name and target_dir are required")
 
-    normalized_target_dir = _normalize_target_dir(target_dir)
-    Path(normalized_target_dir).parent.mkdir(parents=True, exist_ok=True)
+    safe_name = name.strip().strip("/").strip("\\")
+    effective_target_type = (target_type or "local").strip().lower()
+
+    normalized_target_parent = _normalize_target_dir(target_dir)
+    Path(normalized_target_parent).mkdir(parents=True, exist_ok=True)
+    normalized_target_dir = str((Path(normalized_target_parent) / safe_name).resolve())
+
+    remote_cfg: Optional[Dict[str, str]] = None
+    if effective_target_type == "remote":
+        host = remote_host.strip()
+        user = remote_user.strip()
+        port = (remote_port or "22").strip() or "22"
+        auth_mode = (remote_auth_mode or "ssh_key").strip()
+        if auth_mode != "ssh_key":
+            raise HTTPException(status_code=400, detail="Only SSH key auth is currently supported for remote target")
+        if not host or not user:
+            raise HTTPException(status_code=400, detail="remote_host and remote_user are required for remote target")
+        remote_base = _normalize_remote_base_dir(remote_base_dir)
+        remote_project_dir = str(PurePosixPath(remote_base) / safe_name)
+        remote_cfg = {
+            "host": host,
+            "user": user,
+            "port": port,
+            "auth_mode": auth_mode,
+            "ssh_key_path": remote_ssh_key_path.strip(),
+            "base_dir": remote_base,
+            "project_dir": remote_project_dir,
+        }
 
     effective_desc = _apply_forced_type(description, forced_type)
     sizing_context: Optional[Dict[str, Any]] = None
     detected_platform: Optional[str] = None
 
     if sizing_file is not None:
-        if not sizing_file.filename or not sizing_file.filename.lower().endswith(".md"):
-            raise HTTPException(
-                status_code=400, detail="sizing_file must be a .md file"
-            )
+        if not sizing_file.filename:
+            raise HTTPException(status_code=400, detail="sizing_file must be provided")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".md") as tmp:
+        lower_name = sizing_file.filename.lower()
+        if not (lower_name.endswith(".md") or lower_name.endswith(".json")):
+            raise HTTPException(status_code=400, detail="sizing_file must be a .json or .md file")
+
+        suffix = ".json" if lower_name.endswith(".json") else ".md"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             raw = await sizing_file.read()
             tmp.write(raw)
             tmp_path = Path(tmp.name)
 
         try:
             sizing_context = parse_sizing_file(str(tmp_path))
-            detected_platform = (
-                sizing_context.get("platform_detected") if sizing_context else None
-            )
+            detected_platform = (sizing_context.get("platform_detected") if sizing_context else None)
         finally:
             tmp_path.unlink(missing_ok=True)
 
     description_platform = _infer_platform_from_text(description)
-
-    # --- Platform resolution ---
-    # Sizing file is the source of truth: its structured platform detection
-    # overrides both the user's dropdown selection and description keywords.
-    # Priority: sizing file parser > explicit dropdown > description text
     platform_source: Optional[str] = None
-    if detected_platform:
+    if platform == "proxmox":
+        final_platform = "proxmox"
+        platform_source = "user_selection"
+    elif detected_platform:
         final_platform = detected_platform
         platform_source = "sizing_file"
     elif platform:
@@ -382,112 +573,91 @@ async def create_project(
         final_platform = None
         platform_source = None
 
-    # If no sizing file AND description is generic (no infra keywords) AND
-    # user didn't pick platform → reject, force them to choose a platform.
-    # GitOps tool is NOT required — it defaults to flux below.
-    if (
-        not final_platform
-        and sizing_context is None
-        and not _has_infra_keywords(description)
-    ):
+    if not final_platform and sizing_context is None and not _has_infra_keywords(description):
         raise HTTPException(
             status_code=422,
             detail=(
                 "Could not determine target platform from the description. "
-                "Please select a Platform (aks, openshift, rke2) "
+                "Please select a Platform (aks, openshift, rke2, proxmox) "
                 "or upload a sizing file."
             ),
         )
 
-    # --- GitOps tool resolution ---
-    # GitOps is independent of platform — any combination works.
-    # If the user didn't select a gitops tool, default to FluxCD.
     final_gitops = gitops_tool if gitops_tool else "flux"
 
-    # Build project_dir as a subfolder of target_dir so multiple projects
-    # can coexist in the same mono-repo root.
-    project_dir = Path(normalized_target_dir) / name
-    project_dir.mkdir(parents=True, exist_ok=True)
+    # Build local (final local path or staging path)
+    temp_build_root: Optional[Path] = None
+    if effective_target_type == "remote":
+        temp_build_root = Path(tempfile.mkdtemp(prefix="pi-remote-build-"))
+        local_build_dir = temp_build_root / safe_name
+    else:
+        local_build_dir = Path(normalized_target_dir)
 
     result = initialize_project(
         project_name=name,
         description=effective_desc,
-        target_directory=str(project_dir),
+        target_directory=str(local_build_dir),
         forced_chain=forced_chain or None,
         platform=final_platform or None,
         gitops_tool=final_gitops,
+        iac_tool="terraform" if use_terraform_iac else "",
+        repo_url=git_remote_url.strip() or None,
+        target_revision=(git_branch.strip() or "main"),
         sizing_context=sizing_context,
     )
 
     git_log: List[Dict[str, Any]] = []
-    repo_root = Path(normalized_target_dir)
+    project_path = Path(result["project_path"]).resolve()
 
     if git_init:
-        # 1. Init only if .git doesn't exist yet (first project in the repo)
-        if not (repo_root / ".git").exists():
-            git_log.append(_run_git_command(["git", "init"], repo_root))
-            if git_remote_url.strip():
-                git_log.append(
-                    _run_git_command(
-                        ["git", "remote", "add", "origin", git_remote_url.strip()],
-                        repo_root,
-                    )
-                )
-        # 2. Repo already exists — configure remote if provided but not yet set
-        elif git_remote_url.strip():
-            existing = _run_git_command(
-                ["git", "remote", "get-url", "origin"], repo_root
-            )
-            if not existing["ok"]:
-                git_log.append(
-                    _run_git_command(
-                        ["git", "remote", "add", "origin", git_remote_url.strip()],
-                        repo_root,
-                    )
-                )
+        git_log.append(_run_git_command(["git", "init"], project_path))
+        git_log.append(_run_git_command(["git", "add", "."], project_path))
+        git_log.append(_run_git_command(["git", "commit", "-m", git_commit_message], project_path))
 
-        # 3. Stage only the new project subfolder
-        git_log.append(
-            _run_git_command(["git", "add", name + "/"], repo_root)
-        )
+        if git_remote_url.strip():
+            git_log.append(_run_git_command(["git", "remote", "remove", "origin"], project_path))
+            git_log.append(_run_git_command(["git", "remote", "add", "origin", git_remote_url.strip()], project_path))
 
-        # 4. Commit
-        git_log.append(
-            _run_git_command(
-                ["git", "commit", "-m", git_commit_message], repo_root
-            )
-        )
-
-        # 5. Push: pull --rebase first to integrate previous projects
         if git_push and git_remote_url.strip():
-            git_log.append(
-                _run_git_command(["git", "branch", "-M", git_branch], repo_root)
-            )
-            # Pull first (handles non-empty remote / prior projects).
-            # Allow failure on first push when remote is empty.
-            pull_result = _run_git_command(
-                ["git", "pull", "--rebase", "origin", git_branch], repo_root
-            )
-            git_log.append(pull_result)
-            git_log.append(
-                _run_git_command(
-                    ["git", "push", "-u", "origin", git_branch], repo_root
-                )
-            )
+            git_log.append(_run_git_command(["git", "branch", "-M", git_branch], project_path))
+            git_log.append(_run_git_command(["git", "push", "-u", "origin", git_branch], project_path))
+
+    remote_log: List[Dict[str, Any]] = []
+    remote_result: Dict[str, Any] = {"enabled": effective_target_type == "remote", "ok": True, "log": []}
+    if effective_target_type == "remote" and remote_cfg is not None:
+        mkdir_cmd = f"mkdir -p '{remote_cfg['project_dir'].replace("'", "'\''")}'"
+        remote_log.append(_run_ssh_command(remote_cfg["host"], remote_cfg["port"], remote_cfg["user"], mkdir_cmd, remote_cfg["ssh_key_path"]))
+        if remote_log[-1]["ok"]:
+            remote_log.append(_run_rsync_to_remote(project_path, remote_cfg["host"], remote_cfg["port"], remote_cfg["user"], remote_cfg["project_dir"], remote_cfg["ssh_key_path"]))
+        remote_result = {
+            "enabled": True,
+            "ok": all(x.get("ok") for x in remote_log),
+            "log": remote_log,
+            "host": remote_cfg["host"],
+            "user": remote_cfg["user"],
+            "port": remote_cfg["port"],
+            "project_dir": remote_cfg["project_dir"],
+            "base_dir": remote_cfg["base_dir"],
+        }
+        if not remote_result["ok"]:
+            raise HTTPException(status_code=502, detail=f"Remote transfer failed: {remote_log[-1].get('stderr') or remote_log[-1].get('stdout') or 'unknown error'}")
 
     result["git"] = {
         "enabled": git_init,
-        "repo_root": str(repo_root),
         "remote": git_remote_url,
         "branch": git_branch,
         "push": git_push,
         "log": git_log,
     }
     result["effective_platform"] = final_platform
+    result["detected_workload_platform"] = detected_platform
     result["platform_source"] = platform_source
     result["effective_gitops"] = final_gitops
     result["gitops_source"] = "user_selection" if gitops_tool else "default"
-    # Surface override info so the UI can notify the user
+    result["iac_tool"] = "terraform" if use_terraform_iac else ""
+    result["target_type"] = effective_target_type
+    result["remote"] = remote_result
+
     if platform_source == "sizing_file" and platform and platform != final_platform:
         result["platform_override"] = {
             "user_selected": platform,
@@ -497,7 +667,30 @@ async def create_project(
                 f"based on the uploaded sizing file."
             ),
         }
-    result["normalized_target_dir"] = normalized_target_dir
+
+    if effective_target_type == "remote" and remote_cfg is not None:
+        result["normalized_target_dir"] = remote_cfg["project_dir"]
+        result["target_parent_dir"] = remote_cfg["base_dir"]
+        result["project_path"] = remote_cfg["project_dir"]
+        result["local_staging_path"] = str(project_path)
+    else:
+        result["normalized_target_dir"] = normalized_target_dir
+        result["target_parent_dir"] = normalized_target_parent
+
+    if use_terraform_iac and run_terraform_apply and effective_target_type == "local":
+        terraform_dir = project_path / "terraform"
+        tf_log: List[Dict[str, Any]] = []
+        if terraform_dir.exists() and terraform_dir.is_dir():
+            tf_log.append(_run_shell_command(["terraform", "init", "-input=false"], terraform_dir))
+            if tf_log[-1]["ok"]:
+                tf_log.append(_run_shell_command(["terraform", "apply", "-auto-approve", "-input=false"], terraform_dir))
+        else:
+            tf_log.append({"ok": False, "command": "terraform", "stdout": "", "stderr": f"terraform directory not found: {terraform_dir}"})
+        result["terraform"] = {"requested": True, "log": tf_log}
+    elif use_terraform_iac and run_terraform_apply and effective_target_type == "remote":
+        result["terraform"] = {"requested": True, "log": [], "note": "run_terraform_apply is local-only in this version; run terraform on remote host"}
+    else:
+        result["terraform"] = {"requested": False, "log": []}
 
     return result
 
@@ -531,6 +724,31 @@ def version() -> Dict[str, Any]:
         "python": sys.version,
     }
 
+
+
+
+@app.post("/api/open-remote")
+def open_remote_path(
+    host: str = Form(...),
+    user: str = Form(...),
+    remote_path: str = Form(...),
+    tool: str = Form("zed"),
+) -> Dict[str, Any]:
+    h = host.strip()
+    u = user.strip()
+    rp = (remote_path or "").strip()
+    if not h or not u or not rp:
+        raise HTTPException(status_code=400, detail="host, user and remote_path are required")
+    if not rp.startswith("/"):
+        raise HTTPException(status_code=400, detail="remote_path must be an absolute POSIX path")
+
+    cmd = _build_open_remote_command(tool, h, u, rp)
+    try:
+        subprocess.Popen(cmd)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Failed to open remote path: {exc}") from exc
+
+    return {"ok": True, "tool": tool, "host": h, "user": u, "remote_path": rp, "command": " ".join(cmd)}
 
 @app.post("/api/open")
 def open_path(

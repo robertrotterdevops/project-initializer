@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_BIN="$ROOT_DIR/ui-draft/desktop/src-tauri/target/release/bundle/macos/Project Initializer.app/Contents/MacOS/project_initializer_ui"
+PORT="${PI_UI_PORT:-8787}"
 
 needs_build="false"
 if [ ! -x "$APP_BIN" ]; then
@@ -51,5 +52,16 @@ fi
 
 # Avoid stale sidecar from previous runs.
 pkill -f pi-backend >/dev/null 2>&1 || true
+
+# Avoid stale listeners blocking the embedded backend port.
+if command -v lsof >/dev/null 2>&1; then
+  PIDS="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "$PIDS" ]; then
+    echo "Stopping existing listener(s) on port $PORT: $PIDS"
+    # shellcheck disable=SC2086
+    kill $PIDS >/dev/null 2>&1 || true
+    sleep 1
+  fi
+fi
 
 exec "$APP_BIN"

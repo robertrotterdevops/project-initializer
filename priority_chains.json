@@ -152,7 +152,7 @@
       "path": "addons/terraform_aks.py",
       "description": "Terraform AKS module structure for Azure Kubernetes Service",
       "supported_project_types": ["elasticsearch", "kubernetes", "azure"],
-      "triggers": {"platforms": ["aks"], "keywords": ["azure", "aks"]},
+      "triggers": {"platforms": ["aks"], "keywords": ["azure", "aks"], "iac_tools": ["terraform"]},
       "priority": 15,
       "minimum_python_version": "3.9",
       "features": [
@@ -161,6 +161,33 @@
         "Storage account for ES snapshots",
         "Azure Container Registry",
         "Log Analytics and Azure Monitor"
+      ]
+    },
+    "terraform_platform": {
+      "path": "addons/terraform_platform.py",
+      "description": "Terraform structures for RKE2/OpenShift/Proxmox platform deployment",
+      "supported_project_types": ["elasticsearch", "kubernetes", "terraform"],
+      "triggers": {"platforms": ["rke2", "openshift", "proxmox"], "iac_tools": ["terraform"]},
+      "priority": 16,
+      "minimum_python_version": "3.9",
+      "features": [
+        "RKE2: cluster and worker pool Terraform modules",
+        "OpenShift: UPI-style worker pool and infra scaffold",
+        "Proxmox: VM pool scaffold for RKE2 cluster nodes",
+        "Sizing context mapping into tfvars examples"
+      ]
+    },
+    "terraform_gitops_trigger": {
+      "path": "addons/terraform_gitops_trigger.py",
+      "description": "Post-terraform trigger scripts for Flux/Argo reconciliation",
+      "supported_project_types": ["elasticsearch", "kubernetes", "terraform", "gitops"],
+      "triggers": {"iac_tools": ["terraform"]},
+      "priority": 18,
+      "minimum_python_version": "3.9",
+      "features": [
+        "Post-terraform deployment script generation",
+        "Flux reconcile trigger support",
+        "Argo sync trigger support"
       ]
     }
   }

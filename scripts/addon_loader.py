@@ -156,6 +156,7 @@ class AddonLoader:
 
         primary_category = analysis.get("primary_category", "")
         gitops_tool = context.get("gitops_tool", "")
+        iac_tool = context.get("iac_tool", "")
         platform = context.get("platform", "")
         sizing_context = context.get("sizing_context") or {}
 
@@ -176,6 +177,10 @@ class AddonLoader:
 
             triggers = spec.triggers
             trigger_gitops = triggers.get("gitops_tool", "")
+            trigger_iac_tools = triggers.get("iac_tools", [])
+            trigger_platforms = triggers.get("platforms", [])
+            trigger_categories = triggers.get("categories", [])
+            trigger_keywords = triggers.get("keywords", [])
 
             # Check for default trigger
             if triggers.get("default", False):
@@ -185,8 +190,28 @@ class AddonLoader:
                 # If gitops_tool is set and doesn't match, skip
                 if gitops_tool and trigger_gitops and trigger_gitops != gitops_tool:
                     continue
+                if trigger_iac_tools and iac_tool not in trigger_iac_tools:
+                    continue
                 matched.append(spec)
                 continue
+
+            # Check IaC-only trigger
+            if trigger_iac_tools and iac_tool in trigger_iac_tools:
+                has_other_triggers = bool(
+                    trigger_platforms
+                    or trigger_categories
+                    or trigger_keywords
+                    or trigger_gitops
+                )
+                if has_other_triggers:
+                    # Defer to specific platform/category/keyword matching below.
+                    pass
+                else:
+                # Respect gitops filter if present
+                    if trigger_gitops and trigger_gitops != gitops_tool:
+                        continue
+                    matched.append(spec)
+                    continue
 
             # If gitops_tool is explicitly set in context, filter GitOps addons
             # Only load addons that match the selected gitops_tool (or have no gitops_tool trigger)
@@ -200,24 +225,25 @@ class AddonLoader:
                     continue
 
             # Check platform trigger
-            trigger_platforms = triggers.get("platforms", [])
             if trigger_platforms and platform in trigger_platforms:
+                if trigger_iac_tools and iac_tool not in trigger_iac_tools:
+                    continue
                 matched.append(spec)
                 continue
 
             # Check category triggers (skip if addon has gitops_tool trigger and we have gitops set)
-            trigger_categories = triggers.get("categories", [])
             if trigger_categories:
                 # If this addon has a gitops_tool trigger and gitops is set, skip category match
                 # (we already handled gitops_tool matching above)
                 if trigger_gitops and gitops_tool:
                     continue
                 if primary_category in trigger_categories:
+                    if trigger_iac_tools and iac_tool not in trigger_iac_tools:
+                        continue
                     matched.append(spec)
                     continue
 
             # Check keyword triggers
-            trigger_keywords = triggers.get("keywords", [])
             if trigger_keywords:
                 description = analysis.get("description", "").lower()
                 project_name = analysis.get("project_name", "").lower()
@@ -225,6 +251,8 @@ class AddonLoader:
 
                 for keyword in trigger_keywords:
                     if keyword.lower() in full_text:
+                        if trigger_iac_tools and iac_tool not in trigger_iac_tools:
+                            break
                         matched.append(spec)
                         break
 

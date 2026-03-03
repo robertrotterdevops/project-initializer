@@ -38,6 +38,8 @@ class FluxDeploymentGenerator:
         self.project_description = project_description
         self.context = context or {}
         self.platform = self.context.get("platform", "kubernetes")
+        self.repo_url = self.context.get("repo_url", f"https://github.com/your-org/{project_name}.git")
+        self.target_revision = self.context.get("target_revision", "main")
         self.complexity_score = self._calculate_complexity()
 
     def _calculate_complexity(self) -> float:
@@ -116,11 +118,45 @@ spec:
   sourceRef:
     kind: GitRepository
     name: {self.project_name}
-  path: ./base
+  path: ./clusters/management
   prune: true
   wait: true
   timeout: {"2m" if self.complexity_score < 1.3 else "5m"}
   validation: server
+"""
+
+        manifests["kustomization-apps.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {self.project_name}-apps
+  namespace: flux-system
+spec:
+  interval: {reconciliation_interval}
+  sourceRef:
+    kind: GitRepository
+    name: {self.project_name}
+  path: ./apps
+  prune: true
+  wait: true
+  dependsOn:
+  - name: {self.project_name}
+"""
+
+        manifests["kustomization-infra.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {self.project_name}-infra
+  namespace: flux-system
+spec:
+  interval: {reconciliation_interval}
+  sourceRef:
+    kind: GitRepository
+    name: {self.project_name}
+  path: ./infrastructure
+  prune: true
+  wait: true
+  dependsOn:
+  - name: {self.project_name}
 """
 
         # RBAC for more complex deployments
@@ -244,20 +280,24 @@ set -e
 command -v flux >/dev/null 2>&1 || {{ echo >&2 "Flux CLI is not installed. Please install Flux."; exit 1; }}
 command -v kubectl >/dev/null 2>&1 || {{ echo >&2 "kubectl is not installed. Please install kubectl."; exit 1; }}
 
-# Variables
-GITHUB_OWNER="your-github-username"
-GITHUB_REPO="{self.project_name}"
-CLUSTER_NAME="{self.project_name}-cluster"
+REPO_URL="{self.repo_url}"
+TARGET_REVISION="{self.target_revision}"
 FLUX_NAMESPACE="flux-system"
 
-# Bootstrap Flux
-flux bootstrap github \\
-  --owner=${{GITHUB_OWNER}} \\
-  --repository=${{GITHUB_REPO}} \\
-  --branch=main \\
-  --path=./clusters/${{CLUSTER_NAME}} \\
-  --namespace=${{FLUX_NAMESPACE}} \\
-  {"--personal" if self.complexity_score < 1.3 else "--team"}
+if echo "$REPO_URL" | grep -q "github.com"; then
+  GITHUB_OWNER="$(echo "$REPO_URL" | sed -E 's#https://github.com/([^/]+)/.*#\\1#')"
+  GITHUB_REPO="$(echo "$REPO_URL" | sed -E 's#https://github.com/[^/]+/([^/.]+)(\\.git)?#\\1#')"
+  flux bootstrap github \\
+    --owner="${{GITHUB_OWNER}}" \\
+    --repository="${{GITHUB_REPO}}" \\
+    --branch="${{TARGET_REVISION}}" \\
+    --path=./clusters/management \\
+    --namespace="${{FLUX_NAMESPACE}}" \\
+    {"--personal" if self.complexity_score < 1.3 else "--team"}
+else
+  echo "Non-GitHub URL detected. Creating GitRepository/Kustomization only."
+  kubectl apply -f "$PWD/flux-system"
+fi
 
 # Additional setup for more complex scenarios
 if [ {self.complexity_score} -gt 1.3 ]; then
@@ -273,7 +313,7 @@ if [ {self.complexity_score} -gt 1.3 ]; then
       --wait=true
 fi
 
-echo "Flux bootstrapped successfully for ${{CLUSTER_NAME}}"
+echo "Flux bootstrap/configuration complete."
 '''
 
     def generate_documentation(self) -> str:
@@ -302,8 +342,9 @@ echo "Flux bootstrapped successfully for ${{CLUSTER_NAME}}"
 3. Verify deployment with `flux get kustomizations`
 
 ### Recommended Workflow
-- Commit changes to Git repository
-- Flux will automatically synchronize cluster state
+- Commit and push changes to configured Git repository
+- Run `./scripts/post-terraform-deploy.sh` after Terraform apply
+- Flux will reconcile source and kustomizations
 
 ### Troubleshooting
 - Check Flux logs: `flux logs`

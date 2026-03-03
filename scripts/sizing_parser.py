@@ -477,13 +477,226 @@ class SizingReportParser:
 
 
 # ---------------------------------------------------------------------------
+# Context normalisation helpers
+# ---------------------------------------------------------------------------
+
+def _fmt_gi(value: float) -> str:
+    v = int(round(value or 0))
+    return f"{max(v, 0)}Gi"
+
+
+def _fmt_cpu(value: float) -> str:
+    v = value or 0
+    iv = int(round(v))
+    return str(max(iv, 0))
+
+
+def _extract_health_score_markdown(content: str, summary: dict[str, Any]) -> int:
+    m = re.search(r"Health Score:\s*([0-9]+)\s*/\s*100", content, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    for k, v in summary.items():
+        if "health" in k.lower():
+            m2 = re.search(r"([0-9]+)", str(v))
+            if m2:
+                return int(m2.group(1))
+    return 0
+
+
+def _extract_inputs_markdown(content: str) -> dict[str, Any]:
+    inputs: dict[str, Any] = {}
+    patterns = {
+        "ingest_gb_per_day": r"Ingest per day:\s*\*\*([0-9.,]+)",
+        "compression_factor": r"Compression factor:\s*\*\*([0-9.,]+)",
+        "indexed_gb_per_day": r"Indexed per day:\s*\*\*([0-9.,]+)",
+        "reserve_pct": r"Reserve:\s*\*\*([0-9.,]+)%",
+        "total_retention_days": r"Total retention:\s*\*\*([0-9.,]+)",
+    }
+    for key, pat in patterns.items():
+        m = re.search(pat, content, re.IGNORECASE)
+        if not m:
+            continue
+        val = _safe_float(m.group(1))
+        if key == "reserve_pct":
+            val = val / 100.0
+        inputs[key] = val
+
+    m = re.search(r"Workload type:\s*\*\*([^*]+)\*\*", content, re.IGNORECASE)
+    if m:
+        inputs["workload_type"] = m.group(1).strip().lower()
+    return inputs
+
+
+def _node_profile_from_tier_table(tier: dict[str, Any], snapshot_fallback: float = 0.0) -> dict[str, Any]:
+    count = _safe_int(str(tier.get("Nr of nodes", "0")))
+    memory = _safe_float(str(tier.get("RAM per node", tier.get("RAM per node (GB)", tier.get("RAM needed per node (GB)", "0")))))
+    cpu = _safe_float(str(tier.get("vCPU per node", "0")))
+    storage = _safe_float(str(tier.get("Disk per node", tier.get("Cache disk per node (GB)", "0"))))
+    snapshot = _safe_float(str(tier.get("Snapshot repo storage (GB)", "0"))) or snapshot_fallback
+    return {
+        "count": count,
+        "memory": _fmt_gi(memory),
+        "cpu": _fmt_cpu(cpu),
+        "storage": _fmt_gi(storage),
+        "storage_class": "premium",
+        "snapshot_storage_gb": snapshot,
+    }
+
+
+def _extract_rke2_markdown(content: str) -> dict[str, Any] | None:
+    sec = re.search(r"##\s+RKE2/Kubernetes Deployment(.*?)(?:\n##\s+|\Z)", content, re.IGNORECASE | re.DOTALL)
+    if not sec:
+        return None
+    chunk = sec.group(1)
+
+    cluster: dict[str, Any] = {}
+    for key, pat in {
+        "worker_nodes_total": r"Worker nodes:\s*\*\*([0-9.,]+)",
+        "control_plane_nodes_total": r"Control plane nodes:\s*\*\*([0-9.,]+)",
+        "cluster_total_nodes": r"Total nodes:\s*\*\*([0-9.,]+)",
+        "cluster_total_vcpu": r"Total vCPU:\s*\*\*([0-9.,]+)",
+        "cluster_total_ram_gb": r"Total RAM:\s*\*\*([0-9.,]+)",
+    }.items():
+        m = re.search(pat, chunk, re.IGNORECASE)
+        if m:
+            cluster[key] = _safe_float(m.group(1))
+
+    pools: list[dict[str, Any]] = []
+    table_match = re.search(r"\|\s*Pool\s*\|.*?(?:\n\|.*)+", chunk, re.IGNORECASE)
+    if table_match:
+        table_lines = [ln.strip() for ln in table_match.group(0).splitlines() if ln.strip().startswith("|")]
+        rows = _parse_md_table(table_lines)
+        for row in rows:
+            name = row.get("Pool", "").strip().lower().replace(" ", "_")
+            pools.append({
+                "name": name,
+                "nodes": _safe_int(row.get("Nodes", "0")),
+                "per_zone": [x for x in row.get("Per Zone", "").split("/") if x.strip()],
+                "vcpu_per_node": _safe_float(row.get("vCPU/Node", "0")),
+                "ram_gb_per_node": _safe_float(row.get("RAM/Node (GB)", "0")),
+                "unschedulable_pods": _safe_int(row.get("Unschedulable Pods", "0")),
+            })
+
+    return {
+        "cluster": {
+            "distribution": "RKE2",
+            "zones": 3,
+            "control_plane_nodes": int(cluster.get("control_plane_nodes_total", 3) or 3),
+            "ha_min_control_plane_nodes": 3,
+        },
+        "cluster_totals": cluster,
+        "pools": pools,
+    }
+
+
+def _normalize_markdown_context(parser: SizingReportParser) -> dict[str, Any]:
+    ctx = parser.to_sizing_context()
+    raw = ctx.get("raw", {})
+    tiers = raw.get("tiers", {})
+    summary = raw.get("summary", {})
+
+    hot = _node_profile_from_tier_table(tiers.get("hot", {}))
+    cold = _node_profile_from_tier_table(tiers.get("cold", {}))
+    frozen_snapshot = ctx.get("frozen_nodes", {}).get("snapshot_storage_gb", 0.0)
+    frozen = _node_profile_from_tier_table(tiers.get("frozen", {}), snapshot_fallback=frozen_snapshot)
+
+    ctx["source"] = "sizing_report"
+    ctx["source_format"] = "markdown"
+    ctx["health_score"] = _extract_health_score_markdown(parser.content, summary)
+    ctx["inputs"] = _extract_inputs_markdown(parser.content)
+    ctx["data_nodes"] = hot
+    ctx["cold_nodes"] = cold
+    ctx["frozen_nodes"] = frozen
+    ctx.setdefault("master_nodes", {})
+    ctx.setdefault("kibana", {})
+    ctx.setdefault("fleet_server", {})
+    ctx.setdefault("profile", "custom")
+
+    rke2 = _extract_rke2_markdown(parser.content)
+    if rke2:
+        ctx["rke2"] = rke2
+        if not ctx.get("platform_detected"):
+            ctx["platform_detected"] = "rke2"
+
+    return ctx
+
+
+def _node_profile_from_contract_tier(tier: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "count": int(tier.get("nodes", 0) or 0),
+        "memory": _fmt_gi(float(tier.get("ram_gb_per_node") or 0)),
+        "cpu": _fmt_cpu(float(tier.get("vcpu_per_node") or 0)),
+        "storage": _fmt_gi(float(tier.get("disk_gb_per_node") or 0)),
+        "storage_class": "premium",
+        "snapshot_storage_gb": float(tier.get("snapshot_repo_total_gb") or 0),
+    }
+
+
+def _parse_json_contract(content: str) -> dict[str, Any]:
+    data = json.loads(content)
+    if data.get("schema_version") != "es-sizing.v1":
+        raise ValueError("Unsupported sizing contract schema_version")
+
+    calc = data.get("calculation", {})
+    tiers = {t.get("name"): t for t in calc.get("tiers", []) if isinstance(t, dict)}
+
+    platform_value = (data.get("platform") or "").strip().lower()
+    if platform_value in {"", "all"}:
+        details = data.get("platform_details", {}) or {}
+        for candidate in ("rke2", "openshift", "aks"):
+            if details.get(candidate):
+                platform_value = candidate
+                break
+
+    ctx: dict[str, Any] = {
+        "source": "sizing_report",
+        "source_format": "json_contract_v1",
+        "raw": data,
+        "platform_detected": platform_value or None,
+        "metadata": data.get("project", {}) or {},
+        "summary": calc.get("summary", {}) or {},
+        "inputs": calc.get("inputs", {}) or {},
+        "health_score": int((calc.get("summary", {}) or {}).get("cluster_health_score", 0) or 0),
+        "profile": "custom",
+        "data_nodes": _node_profile_from_contract_tier(tiers.get("hot", {})),
+        "cold_nodes": _node_profile_from_contract_tier(tiers.get("cold", {})),
+        "frozen_nodes": _node_profile_from_contract_tier(tiers.get("frozen", {})),
+        "master_nodes": {},
+        "kibana": {},
+        "fleet_server": {},
+    }
+
+    platform_details = data.get("platform_details", {}) or {}
+    if platform_details.get("aks"):
+        ctx["aks"] = platform_details["aks"]
+    if platform_details.get("openshift"):
+        ctx["openshift"] = platform_details["openshift"]
+    if platform_details.get("rke2"):
+        ctx["rke2"] = platform_details["rke2"]
+
+    return ctx
+
+
+# ---------------------------------------------------------------------------
 # Public convenience function
 # ---------------------------------------------------------------------------
 
 def parse_sizing_file(filepath: str) -> dict[str, Any]:
-    """Parse a sizing file and return the sizing context dict."""
-    parser = SizingReportParser.from_file(filepath)
-    return parser.to_sizing_context()
+    """Parse a sizing file and return normalized sizing context for addons."""
+    path = Path(filepath)
+    content = path.read_text()
+
+    # JSON contract path (preferred)
+    try:
+        if path.suffix.lower() == ".json" or content.lstrip().startswith("{"):
+            contract_ctx = _parse_json_contract(content)
+            return contract_ctx
+    except Exception:
+        # Fall through to markdown parsing for backward compatibility
+        pass
+
+    parser = SizingReportParser(content, str(path))
+    return _normalize_markdown_context(parser)
 
 
 if __name__ == "__main__":

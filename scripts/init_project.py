@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sizing-file",
         default=None,
-        help="Path to ES sizing report markdown file (from elasticsearch-openshift-sizing-assistant)",
+        help="Path to ES sizing export file (.json contract preferred, .md supported for legacy)",
     )
     return parser
 

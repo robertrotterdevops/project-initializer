@@ -321,6 +321,9 @@ def initialize_project(
     custom_templates: Optional[Dict[str, str]] = None,
     platform: Optional[str] = None,
     gitops_tool: Optional[str] = None,
+    iac_tool: Optional[str] = None,
+    repo_url: Optional[str] = None,
+    target_revision: Optional[str] = None,
     sizing_context: Optional[Dict] = None,
     forced_chain: Optional[str] = None,
 ) -> Dict:
@@ -336,6 +339,9 @@ def initialize_project(
         platform: Target platform (rke2, openshift, aks) - from interactive mode
         gitops_tool: GitOps tool (flux, argo, none) - from interactive mode
         sizing_context: ES sizing context dict - from sizing skill
+        iac_tool: IaC tool selection (terraform, none)
+        repo_url: Git repository URL used by GitOps manifests
+        target_revision: Git branch/revision used by GitOps manifests
         forced_chain: Override the priority chain selection
     """
     if not target_directory:
@@ -359,6 +365,7 @@ def initialize_project(
             "rke2": "RKE2 + ECK",
             "openshift": "OpenShift 4.x + ECK",
             "aks": "AKS + ECK",
+            "proxmox": "Proxmox VE + RKE2/ECK",
         }.get(platform, platform)
     else:
         context["platform"] = ""
@@ -374,6 +381,16 @@ def initialize_project(
     else:
         context["gitops_tool"] = ""
         context["gitops_display"] = ""
+
+    if iac_tool:
+        context["iac_tool"] = iac_tool
+        context["iac_tool_display"] = {
+            "terraform": "Terraform",
+            "none": "None",
+        }.get(iac_tool, iac_tool)
+    else:
+        context["iac_tool"] = ""
+        context["iac_tool_display"] = ""
 
     # Add sizing context if available
     if sizing_context:
@@ -414,6 +431,9 @@ def initialize_project(
     # Build context for addon matching
     addon_context = {
         "gitops_tool": gitops_tool or "",
+        "iac_tool": iac_tool or "",
+        "repo_url": repo_url or "",
+        "target_revision": target_revision or "main",
         "platform": platform or "",
         "sizing_context": sizing_context,
     }
@@ -457,6 +477,9 @@ def initialize_project(
         "unavailable_skills": analysis.get("unavailable_skills", []),
         "platform": platform,
         "gitops_tool": gitops_tool,
+        "iac_tool": iac_tool,
+        "repo_url": repo_url,
+        "target_revision": target_revision,
         "sizing_context": sizing_context,
     }
 

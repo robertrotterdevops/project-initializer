@@ -136,8 +136,8 @@
       .sidebar-logo {
         width: 32px;
         height: 32px;
-        background: linear-gradient(135deg, var(--accent-primary-secondary));
-        border-radius: var(--), var(--accentradius-md);
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -535,6 +535,27 @@
         background: var(--bg-hover);
         color: var(--text-primary);
         border-color: var(--accent-primary);
+      }
+
+      .path-helper-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .path-helper-btn {
+        padding: 6px 10px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+
+      .path-helper-btn:hover {
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
       }
 
       .path-autocomplete {
@@ -979,6 +1000,81 @@
         cursor: pointer;
       }
 
+      .file-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .file-action-btn {
+        padding: 6px 10px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+
+      .file-action-btn:hover {
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+      }
+
+      .file-action-btn.danger:hover {
+        border-color: var(--accent-error);
+        color: var(--accent-error);
+      }
+
+      .dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+
+      .dialog-overlay.visible {
+        display: flex;
+      }
+
+      .dialog {
+        width: min(680px, calc(100vw - 32px));
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: 16px;
+      }
+
+      .dialog-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .dialog-title {
+        font-size: 1rem;
+        font-weight: 600;
+      }
+
+      .dialog-results {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
       /* Loading Spinner */
       .spinner {
         width: 18px;
@@ -1215,41 +1311,96 @@
                     Target Directory
                   </label>
                   <div class="path-input-wrapper">
-                    <input type="text" class="form-input" id="targetDir" value="./my-elastic-project" placeholder="~/Projects/my-project">
+                  <input type="text" class="form-input" id="targetDir" value="~/Projects" placeholder="~/Projects">
                     <button type="button" class="path-browse-btn" id="targetBrowseBtn">Browse</button>
                     <div class="path-autocomplete" id="targetAutocomplete"></div>
                   </div>
-                  <div class="form-hint" id="targetHint">Use absolute path or relative path from your home directory</div>
+                  <div class="path-helper-actions">
+                    <button type="button" class="path-helper-btn" id="openTargetFolderBtn">Open folder</button>
+                  </div>
+                  <div class="form-hint" id="targetHint">Choose parent folder. Project name will be created inside it.</div>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="network"></i>
+                    Target Type
+                  </label>
+                  <select class="form-select" id="targetType">
+                    <option value="local" selected>Local Folder</option>
+                    <option value="remote">Remote Host (SSH)</option>
+                  </select>
+                </div>
+                <div class="form-field full-width" id="remoteTargetSection" style="display: none;">
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="server"></i>Remote Host</label>
+                      <input type="text" class="form-input" id="remoteHost" placeholder="pve.local or 192.168.0.2">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="user"></i>Remote User</label>
+                      <input type="text" class="form-input" id="remoteUser" placeholder="ubuntu">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="hash"></i>SSH Port</label>
+                      <input type="text" class="form-input" id="remotePort" value="22" placeholder="22">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="folder-tree"></i>Remote Base Directory</label>
+                      <input type="text" class="form-input" id="remoteBaseDir" placeholder="/opt/projects">
+                    </div>
+                    <div class="form-field full-width">
+                      <label class="form-label"><i data-lucide="key-round"></i>SSH Key Path (optional)</label>
+                      <div class="path-input-wrapper">
+                        <input type="text" class="form-input" id="remoteSshKeyPath" placeholder="~/.ssh/id_rsa">
+                        <button type="button" class="path-browse-btn" id="remoteKeyBrowseBtn">Browse</button>
+                      </div>
+                      <div class="path-helper-actions">
+                        <button type="button" class="path-helper-btn" id="remoteTestBtn">Test Connection</button>
+                      </div>
+                      <div class="form-hint" id="remoteHint">Remote create uses SSH + rsync. Password auth is not enabled in this version.</div>
+                    </div>
+                  </div>
                 </div>
                 <div class="form-field full-width">
                   <label class="form-label">
                     <i data-lucide="file-text"></i>
                     Description
                   </label>
-                  <textarea class="form-textarea" id="description" placeholder="Elasticsearch cluster on OpenShift with Terraform and GitOps">Elasticsearch cluster on OpenShift with Terraform and GitOps</textarea>
+                  <textarea class="form-textarea" id="description" placeholder="Optional. Describe the project goals and scope."></textarea>
                 </div>
-                <div class="form-field">
-                  <label class="form-label">
-                    <i data-lucide="tag"></i>
-                    Type
-                  </label>
-                  <select class="form-select" id="forcedType">
-                    <option value="auto">Auto-detect</option>
-                    <option value="elasticsearch">Elasticsearch</option>
-                    <option value="kubernetes">Kubernetes</option>
-                    <option value="terraform">Terraform</option>
-                    <option value="azure">Azure</option>
-                    <option value="gitops">GitOps</option>
-                  </select>
-                </div>
-                <div class="form-field">
-                  <label class="form-label">
-                    <i data-lucide="git-branch"></i>
-                    Priority Chain
-                  </label>
-                  <select class="form-select" id="forcedChain">
-                    <option value="">Auto-detect</option>
-                  </select>
+                <div class="form-field full-width">
+                  <details>
+                    <summary class="form-label" style="cursor: pointer;">
+                      <i data-lucide="sliders-horizontal"></i>
+                      Advanced Skill Overrides (optional)
+                    </summary>
+                    <div class="form-grid" style="margin-top: 10px;">
+                      <div class="form-field">
+                        <label class="form-label">
+                          <i data-lucide="tag"></i>
+                          Force Type (optional)
+                        </label>
+                        <select class="form-select" id="forcedType">
+                          <option value="auto">Auto-detect</option>
+                          <option value="elasticsearch">Elasticsearch</option>
+                          <option value="kubernetes">Kubernetes</option>
+                          <option value="terraform">Terraform</option>
+                          <option value="azure">Azure</option>
+                          <option value="gitops">GitOps</option>
+                        </select>
+                      </div>
+                      <div class="form-field">
+                        <label class="form-label">
+                          <i data-lucide="git-branch"></i>
+                          Force Skill Chain (optional)
+                        </label>
+                        <select class="form-select" id="forcedChain">
+                          <option value="">Auto-detect</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-hint">Use these only when you need to override automatic skill assignment.</div>
+                  </details>
                 </div>
               </div>
             </div>
@@ -1271,6 +1422,7 @@
                   <select class="form-select" id="platform">
                     <option value="">Auto-detect</option>
                     <option value="rke2">RKE2</option>
+                    <option value="proxmox">Proxmox (RKE2 on VMs)</option>
                     <option value="openshift">OpenShift</option>
                     <option value="aks">AKS (Azure)</option>
                   </select>
@@ -1287,19 +1439,43 @@
                     <option value="none">None</option>
                   </select>
                 </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="useTerraformIac" checked>
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Use Terraform IaC</span>
+                  </label>
+                  <div class="form-hint">Generate platform Terraform structure based on selected/imported platform.</div>
+                </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="runTerraformApply">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Run Terraform Init/Apply after create</span>
+                  </label>
+                  <div class="form-hint">Uses generated tfvars; requires valid provider credentials.</div>
+                </div>
                 <div class="form-field full-width">
                   <label class="form-label">
                     <i data-lucide="scale"></i>
-                    Sizing Input File (.md)
+                    Sizing Input File (.json or .md)
                   </label>
                   <div class="file-input-wrapper">
                     <div class="file-input-dropzone" id="sizingDropzone">
                       <i data-lucide="upload-cloud"></i>
                       <p>Drop sizing report here or click to browse</p>
-                      <span>Supports markdown files from ES sizing assistant</span>
+                      <span>Supports JSON contract or markdown sizing report</span>
                     </div>
-                    <input type="file" class="file-input" id="sizingFile" accept=".md">
+                    <input type="file" class="file-input" id="sizingFile" accept=".json,.md,application/json,text/markdown,text/plain">
                     <div class="filename" id="sizingFilename" style="display: none;"></div>
+                    <div class="file-actions">
+                      <button type="button" class="file-action-btn" id="pickSizingFileBtn">Choose file</button>
+                      <button type="button" class="file-action-btn danger" id="clearSizingFileBtn">Clear file</button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1579,6 +1755,23 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <div class="dialog-overlay" id="folderDialog">
+      <div class="dialog">
+        <div class="dialog-header">
+          <div class="dialog-title" id="folderDialogTitle">Choose folder</div>
+          <button class="header-btn" type="button" id="folderDialogCloseBtn"><i data-lucide="x"></i></button>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Search path</label>
+          <input type="text" class="form-input" id="folderDialogQuery" placeholder="~/Projects">
+        </div>
+        <div class="dialog-results" id="folderDialogResults"></div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" type="button" id="folderDialogCancelBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script>
       // Initialize Lucide icons
       lucide.createIcons();
@@ -1593,6 +1786,9 @@
         currentPage: 'create',
         sizingFile: null,
         isLoading: false,
+        dialogTargetField: null,
+        lastCreatedTargetType: 'local',
+        lastCreatedRemote: null,
       };
 
       const isDesktopRuntime = !window.location.protocol.startsWith('http');
@@ -1840,11 +2036,79 @@
       });
 
       document.getElementById('targetBrowseBtn').addEventListener('click', () => {
-        loadPathSuggestions('', 'target');
+        pickDirectory('targetDir');
+      });
+
+      const folderDialogEl = document.getElementById('folderDialog');
+      const folderDialogTitleEl = document.getElementById('folderDialogTitle');
+      const folderDialogQueryEl = document.getElementById('folderDialogQuery');
+      const folderDialogResultsEl = document.getElementById('folderDialogResults');
+
+      function closeFolderDialog() {
+        folderDialogEl.classList.remove('visible');
+        state.dialogTargetField = null;
+      }
+
+      async function renderFolderDialogResults(query) {
+        try {
+          const res = await fetch(`${apiUrl('/api/fs/suggest')}?query=${encodeURIComponent(query || '')}&limit=25`);
+          const data = await res.json();
+          const suggestions = data.suggestions || [];
+          if (!suggestions.length) {
+            folderDialogResultsEl.innerHTML = '<div class="path-option"><span>No directories found</span></div>';
+            return;
+          }
+          folderDialogResultsEl.innerHTML = suggestions.map(path => `
+            <div class="path-option" data-path="${path}">
+              <i data-lucide="folder"></i><span>${path}</span>
+            </div>
+          `).join('');
+          folderDialogResultsEl.querySelectorAll('[data-path]').forEach(el => {
+            el.addEventListener('click', () => {
+              const targetEl = state.dialogTargetField ? document.getElementById(state.dialogTargetField) : null;
+              if (targetEl) {
+                targetEl.value = el.dataset.path || '';
+                if (state.dialogTargetField === 'targetDir') validateTargetPath();
+              }
+              closeFolderDialog();
+            });
+          });
+          lucide.createIcons();
+        } catch (err) {
+          folderDialogResultsEl.innerHTML = `<div class="path-option"><span>Failed to load directories: ${String(err)}</span></div>`;
+        }
+      }
+
+      function openFolderDialog(targetField, title) {
+        state.dialogTargetField = targetField;
+        folderDialogTitleEl.textContent = title;
+        folderDialogQueryEl.value = document.getElementById(targetField)?.value || '';
+        folderDialogEl.classList.add('visible');
+        renderFolderDialogResults(folderDialogQueryEl.value.trim());
+      }
+
+      folderDialogQueryEl.addEventListener('input', () => {
+        renderFolderDialogResults(folderDialogQueryEl.value.trim());
+      });
+      document.getElementById('folderDialogCloseBtn').addEventListener('click', closeFolderDialog);
+      document.getElementById('folderDialogCancelBtn').addEventListener('click', closeFolderDialog);
+      folderDialogEl.addEventListener('click', (e) => {
+        if (e.target === folderDialogEl) closeFolderDialog();
+      });
+
+      document.getElementById('openTargetFolderBtn').addEventListener('click', () => {
+        const path = document.getElementById('targetDir').value.trim();
+        if (!path) {
+          showToast('Target directory is empty', 'warning');
+          return;
+        }
+        state.lastCreatedPath = path;
+        openProject('filemanager');
       });
 
       async function validateTargetPath() {
         const value = targetDirEl.value.trim();
+        const projectName = document.getElementById('name').value.trim();
         if (!value) {
           targetHintEl.textContent = 'Target directory is required';
           targetHintEl.classList.add('error');
@@ -1853,11 +2117,12 @@
         try {
           const res = await fetch(`${apiUrl('/api/fs/stat')}?path=${encodeURIComponent(value)}`);
           const data = await res.json();
+          const preview = projectName ? `${data.path}/${projectName}` : data.path;
           if (data.exists && data.is_dir) {
-            targetHintEl.textContent = `✓ Path exists: ${data.path}`;
+            targetHintEl.textContent = `✓ Parent folder exists. Project folder preview: ${preview}`;
             targetHintEl.classList.remove('error');
           } else if (!data.exists && data.parent_exists) {
-            targetHintEl.textContent = `Will create directory: ${data.path}`;
+            targetHintEl.textContent = `Will create parent folder, then project folder: ${preview}`;
             targetHintEl.classList.remove('error');
           } else {
             targetHintEl.textContent = 'Parent directory does not exist or is not accessible';
@@ -1892,17 +2157,51 @@
       });
 
       document.getElementById('syncBrowseBtn').addEventListener('click', () => {
-        loadPathSuggestions('', 'sync');
+        pickDirectory('syncRepoPath');
       });
+
+      async function pickDirectory(targetFieldId) {
+        const targetEl = document.getElementById(targetFieldId);
+        const initialPath = targetEl?.value?.trim() || '';
+        try {
+          const res = await fetch(`${apiUrl('/api/fs/pick-directory')}?initial_path=${encodeURIComponent(initialPath)}`);
+          const data = await res.json();
+          if (!res.ok) {
+            if (data?.detail?.toLowerCase?.().includes('cancel')) return;
+            showToast(data.detail || 'Directory selection failed', 'error');
+            return;
+          }
+          targetEl.value = data.path || targetEl.value;
+          if (targetFieldId === 'targetDir') validateTargetPath();
+        } catch (_) {
+          showToast('Native folder picker unavailable. Showing inline picker.', 'warning');
+          if (targetFieldId === 'targetDir') {
+            loadPathSuggestions('', 'target');
+          } else {
+            loadPathSuggestions('', 'sync');
+          }
+        }
+      }
 
       // File Input (Sizing)
       const sizingFileEl = document.getElementById('sizingFile');
       const sizingDropzoneEl = document.getElementById('sizingDropzone');
       const sizingFilenameEl = document.getElementById('sizingFilename');
+      const pickSizingFileBtn = document.getElementById('pickSizingFileBtn');
+      const clearSizingFileBtn = document.getElementById('clearSizingFileBtn');
+
+      function isSizingFileSupported(fileName) {
+        return /\.(json|md)$/i.test(fileName || '');
+      }
 
       sizingFileEl.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
+          if (!isSizingFileSupported(file.name)) {
+            showToast('Unsupported sizing file. Use .json or .md', 'warning');
+            sizingFileEl.value = '';
+            return;
+          }
           state.sizingFile = file;
           sizingDropzoneEl.classList.add('has-file');
           sizingDropzoneEl.querySelector('p').textContent = 'File selected';
@@ -1929,12 +2228,21 @@
         e.preventDefault();
         sizingDropzoneEl.classList.remove('dragover');
         const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.md')) {
+        if (file && isSizingFileSupported(file.name)) {
           sizingFileEl.files = e.dataTransfer.files;
           sizingFileEl.dispatchEvent(new Event('change'));
         } else {
-          showToast('Please drop a markdown file (.md)', 'warning');
+          showToast('Please drop a supported file (.json or .md)', 'warning');
         }
+      });
+
+      pickSizingFileBtn.addEventListener('click', () => sizingFileEl.click());
+      clearSizingFileBtn.addEventListener('click', () => {
+        sizingFileEl.value = '';
+        state.sizingFile = null;
+        sizingDropzoneEl.classList.remove('has-file');
+        sizingDropzoneEl.querySelector('p').textContent = 'Drop sizing report here or click to browse';
+        sizingFilenameEl.style.display = 'none';
       });
 
       // Load Metadata (Chains)
@@ -1973,17 +2281,46 @@
           git_remote_url: document.getElementById('gitRemoteUrl').value,
           git_branch: document.getElementById('gitBranch').value,
           git_push: document.getElementById('gitPush').checked,
+          use_terraform_iac: document.getElementById('useTerraformIac').checked,
+          run_terraform_apply: document.getElementById('runTerraformApply').checked,
+          target_type: document.getElementById('targetType').value,
+          remote_host: document.getElementById('remoteHost').value.trim(),
+          remote_port: document.getElementById('remotePort').value.trim() || '22',
+          remote_user: document.getElementById('remoteUser').value.trim(),
+          remote_auth_mode: 'ssh_key',
+          remote_ssh_key_path: document.getElementById('remoteSshKeyPath').value.trim(),
+          remote_base_dir: document.getElementById('remoteBaseDir').value.trim(),
         };
       }
 
       // Open Project
       async function openProject(tool) {
-        const path = state.lastCreatedPath || targetDirEl.value.trim();
-        if (!path) {
-          showToast('No project path available to open', 'error');
-          return;
-        }
         try {
+          if (state.lastCreatedTargetType === 'remote' && state.lastCreatedRemote?.host && state.lastCreatedRemote?.user && state.lastCreatedRemote?.project_dir) {
+            if (tool === 'filemanager') {
+              showToast('File manager open is local-only. Use Zed/VSCode Remote for remote projects.', 'warning');
+              return;
+            }
+            const fd = new FormData();
+            fd.append('host', state.lastCreatedRemote.host);
+            fd.append('user', state.lastCreatedRemote.user);
+            fd.append('remote_path', state.lastCreatedRemote.project_dir);
+            fd.append('tool', tool);
+            const res = await fetch(apiUrl('/api/open-remote'), { method: 'POST', body: fd });
+            const data = await res.json();
+            if (res.ok) {
+              showToast(`Opened remote path with ${tool}`);
+            } else {
+              showToast(data.detail || 'Remote open failed', 'error');
+            }
+            return;
+          }
+
+          const path = state.lastCreatedPath || targetDirEl.value.trim();
+          if (!path) {
+            showToast('No project path available to open', 'error');
+            return;
+          }
           const fd = new FormData();
           fd.append('path', path);
           fd.append('tool', tool);
@@ -1999,13 +2336,64 @@
         }
       }
 
-      // Analyze Button
-      document.getElementById('analyzeBtn').addEventListener('click', async () => {
-        const f = baseFields();
-        if (!f.name || !f.description) {
-          showToast('Name and description are required', 'error');
+      const targetTypeEl = document.getElementById('targetType');
+      const remoteSectionEl = document.getElementById('remoteTargetSection');
+      const remoteHintEl = document.getElementById('remoteHint');
+      const targetDirFieldEl = document.getElementById('targetDir').closest('.form-field');
+
+      function syncTargetModeUi() {
+        const isRemote = targetTypeEl.value === 'remote';
+        remoteSectionEl.style.display = isRemote ? '' : 'none';
+        targetDirFieldEl.style.display = isRemote ? 'none' : '';
+      }
+
+      targetTypeEl.addEventListener('change', syncTargetModeUi);
+      syncTargetModeUi();
+
+      document.getElementById('remoteKeyBrowseBtn').addEventListener('click', () => {
+        pickDirectory('remoteSshKeyPath');
+      });
+
+      document.getElementById('remoteTestBtn').addEventListener('click', async () => {
+        const host = document.getElementById('remoteHost').value.trim();
+        const user = document.getElementById('remoteUser').value.trim();
+        const port = document.getElementById('remotePort').value.trim() || '22';
+        const key = document.getElementById('remoteSshKeyPath').value.trim();
+        if (!host || !user) {
+          showToast('Remote host and user are required', 'error');
           return;
         }
+        try {
+          const fd = new FormData();
+          fd.append('remote_host', host);
+          fd.append('remote_user', user);
+          fd.append('remote_port', port);
+          fd.append('remote_ssh_key_path', key);
+          const res = await fetch(apiUrl('/api/remote/test'), { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            remoteHintEl.textContent = data.detail || 'Remote connection failed';
+            remoteHintEl.classList.add('error');
+            showToast(data.detail || 'Remote test failed', 'error');
+            return;
+          }
+          remoteHintEl.textContent = `Connection OK: ${data.user}@${data.host}:${data.port}`;
+          remoteHintEl.classList.remove('error');
+          showToast('Remote connection successful');
+        } catch (err) {
+          remoteHintEl.textContent = `Remote connection failed: ${err}`;
+          remoteHintEl.classList.add('error');
+          showToast(`Remote test failed: ${err}`, 'error');
+        }
+      });
+
+      // Analyze Button
+      document.getElementById('analyzeBtn').addEventListener('click', async () => {
+          const f = baseFields();
+          if (!f.name) {
+            showToast('Project name is required', 'error');
+            return;
+          }
 
         state.isLoading = true;
         document.getElementById('analyzeBtn').innerHTML = '<span class="spinner"></span> Analyzing...';
@@ -2038,8 +2426,16 @@
       // Create Button
       document.getElementById('createBtn').addEventListener('click', async () => {
         const f = baseFields();
-        if (!f.name || !f.description || !f.target_dir) {
-          showToast('Name, description, and target directory are required', 'error');
+        if (!f.name) {
+          showToast('Project name is required', 'error');
+          return;
+        }
+        if (f.target_type === 'local' && !f.target_dir) {
+          showToast('Target directory is required for local mode', 'error');
+          return;
+        }
+        if (f.target_type === 'remote' && (!f.remote_host || !f.remote_user || !f.remote_base_dir)) {
+          showToast('Remote host, user and remote base directory are required', 'error');
           return;
         }
 
@@ -2066,6 +2462,8 @@
           document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 
           if (res.ok) {
+            state.lastCreatedTargetType = data.target_type || f.target_type || 'local';
+            state.lastCreatedRemote = data.remote || null;
             state.lastCreatedPath = data.project_path || data.normalized_target_dir || '';
             if (state.lastCreatedPath) {
               localStorage.setItem('pi-last-created-path', state.lastCreatedPath);
@@ -2086,8 +2484,11 @@
             
             showToast('Project created successfully!');
             
-            if (document.getElementById('autoOpenZed').checked) {
+            if (f.target_type === 'local' && document.getElementById('autoOpenZed').checked) {
               await openProject('zed');
+            }
+            if (f.target_type === 'remote') {
+              showToast('Remote project created. Use SSH/Remote-SSH in Zed or VS Code to open remote path.');
             }
           } else {
             const statusBadge = document.getElementById('resultStatus');
@@ -2112,8 +2513,8 @@
         const forced_type = document.getElementById('analyzeForcedType').value;
         const forced_chain = document.getElementById('analyzeForcedChain').value;
 
-        if (!name || !description) {
-          showToast('Name and description are required', 'error');
+        if (!name) {
+          showToast('Project name is required', 'error');
           return;
         }
 
