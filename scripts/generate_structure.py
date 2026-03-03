@@ -458,6 +458,8 @@ def initialize_project(
             with open(full_path, "w") as f:
                 f.write(content)
             generated_files.append(full_path)
+            if filepath.startswith("scripts/") and filepath.endswith(".sh"):
+                os.chmod(full_path, 0o755)
             logging.info(f"Generated addon file: {filepath}")
 
     except Exception as e:

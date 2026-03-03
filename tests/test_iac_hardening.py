@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,7 @@ class TestIacHardening(unittest.TestCase):
         names = [m.name for m in matched]
         self.assertIn("terraform_gitops_trigger", names)
         self.assertIn("terraform_platform", names)
+        self.assertIn("rke2_bootstrap", names)
 
     def test_initialize_project_generates_proxmox_terraform_and_trigger(self) -> None:
         sizing_context = {
@@ -61,12 +63,17 @@ class TestIacHardening(unittest.TestCase):
             )
             self.assertTrue((out_dir / "terraform/modules/proxmox_cluster/main.tf").exists())
             self.assertTrue((out_dir / "scripts/post-terraform-deploy.sh").exists())
+            self.assertTrue((out_dir / "scripts/bootstrap-rke2.sh").exists())
+            self.assertTrue((out_dir / "scripts/render-rke2-inventory.py").exists())
+            self.assertTrue((out_dir / "ansible/rke2-bootstrap.yml").exists())
             self.assertTrue((out_dir / "docs/DEPLOYMENT_ATTENTION.md").exists())
+            self.assertTrue((out_dir / "docs/RKE2_BOOTSTRAP.md").exists())
             tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
             versions_tf = (out_dir / "terraform/versions.tf").read_text()
             providers_tf = (out_dir / "terraform/providers.tf").read_text()
             variables_tf = (out_dir / "terraform/variables.tf").read_text()
             proxmox_module_tf = (out_dir / "terraform/modules/proxmox_cluster/main.tf").read_text()
+            deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
             self.assertIn("proxmox_node_pools", tfvars)
             self.assertIn("proxmox_endpoint", tfvars)
             self.assertIn("gitops_flux_path", tfvars)
@@ -78,8 +85,12 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn(", default =", variables_tf)
             self.assertIn('resource "proxmox_virtual_environment_vm" "nodes"', proxmox_module_tf)
             self.assertNotIn('resource "local_file"', proxmox_module_tf)
+            self.assertIn('scripts/bootstrap-rke2.sh', deploy_script)
             self.assertFalse((out_dir / "terraform/modules/aks/main.tf").exists())
             self.assertEqual(result.get("iac_tool"), "terraform")
+
+            mode = os.stat(out_dir / "scripts/post-terraform-deploy.sh").st_mode
+            self.assertTrue(mode & 0o100)
 
 
 if __name__ == "__main__":

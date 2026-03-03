@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 ADDON_META = {
     "name": "terraform_gitops_trigger",
-    "version": "1.0",
+    "version": "1.1",
     "description": "Post-terraform trigger scripts for Flux/Argo",
     "triggers": {"iac_tools": ["terraform"]},
     "priority": 18,
@@ -24,18 +24,24 @@ set -euo pipefail
 PROJECT_NAME="{project_name}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "[1/3] Running terraform apply..."
 cd "$ROOT_DIR/terraform"
+echo "[1/5] Running terraform apply..."
 terraform init
 terraform apply -auto-approve
 cd "$ROOT_DIR"
 
-echo "[2/3] Terraform complete. Triggering GitOps reconcile..."
+if [ -x "$ROOT_DIR/scripts/bootstrap-rke2.sh" ]; then
+  echo "[2/5] Running RKE2 bootstrap..."
+  "$ROOT_DIR/scripts/bootstrap-rke2.sh"
+else
+  echo "[2/5] No RKE2 bootstrap script found; skipping."
+fi
 """
 
 
 def _flux_tail(project_name: str) -> str:
     return f"""if command -v flux >/dev/null 2>&1; then
+  echo "[4/5] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true
@@ -44,19 +50,20 @@ else
   echo "Flux CLI not installed; skipped reconcile trigger."
 fi
 
-echo "[4/4] Deployment trigger finished."
+echo "[5/5] Deployment trigger finished."
 """
 
 
 def _argo_tail(project_name: str) -> str:
     return f"""if command -v argocd >/dev/null 2>&1; then
+  echo "[4/5] Triggering ArgoCD sync..."
   argocd app sync "$PROJECT_NAME" || true
   argocd app wait "$PROJECT_NAME" --health || true
 else
   echo "ArgoCD CLI not installed; skipped sync trigger."
 fi
 
-echo "[4/4] Deployment trigger finished."
+echo "[5/5] Deployment trigger finished."
 """
 
 
@@ -69,8 +76,9 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     gitops = (ctx.get("gitops_tool") or "").lower()
     repo_url = (ctx.get("repo_url") or "").strip()
     target_revision = (ctx.get("target_revision") or "main").strip() or "main"
+
     git_push_block = f"""
-echo "[2/4] Updating Git repository..."
+echo "[3/5] Updating Git repository..."
 cd "$ROOT_DIR"
 git add .
 git commit -m "Post-terraform deployment update for $PROJECT_NAME" || true
@@ -84,12 +92,18 @@ else
   echo "No git remote configured; push skipped."
 fi
 """
+
     if gitops not in {"flux", "argo"}:
         return {
             "scripts/post-terraform-deploy.sh": _script_header(project_name)
             + git_push_block
-            + 'echo "No GitOps tool selected (flux/argo). Terraform apply completed."'
-            + "\n"
+            + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
+            "docs/DEPLOYMENT_PIPELINE.md": (
+                "# Deployment Pipeline\n\n"
+                "1. Terraform creates infrastructure and VMs.\n"
+                "2. Optional RKE2 bootstrap (when script exists).\n"
+                "3. Commit and push generated artifacts to remote Git.\n"
+            ),
         }
 
     tail = _flux_tail(project_name) if gitops == "flux" else _argo_tail(project_name)
@@ -99,8 +113,9 @@ fi
             "# Deployment Pipeline\n\n"
             "Use this sequence to complete deployment:\n\n"
             "1. `terraform apply`\n"
-            "2. Commit and push generated changes to Git remote\n"
-            "3. Trigger GitOps reconciliation\n\n"
+            "2. `scripts/bootstrap-rke2.sh` (if present for RKE2/Proxmox projects)\n"
+            "3. Commit and push generated changes to Git remote\n"
+            "4. Trigger GitOps reconciliation\n\n"
             "Generated helper:\n\n"
             "```bash\n"
             "./scripts/post-terraform-deploy.sh\n"
@@ -110,20 +125,17 @@ fi
             "# Deployment Attention Checklist\n\n"
             "This project requires manual edits before first successful deployment.\n\n"
             "## Required Manual Inputs\n\n"
-            "1. Configure Terraform provider credentials in `terraform/terraform.tfvars`:\n"
-            "   - `proxmox_api_url`, `proxmox_api_token_id`, `proxmox_api_token_secret`\n"
-            "   - `proxmox_node_name`, network CIDRs, SSH key path\n"
-            "2. Validate Terraform state/backend approach in `terraform/versions.tf` (local by default).\n"
+            "1. Configure Terraform provider credentials in `terraform/terraform.tfvars`.\n"
+            "2. Validate Terraform backend/state strategy for your environment.\n"
             "3. Confirm GitOps source in `flux-system/gitrepository.yaml` or Argo app repo URL.\n"
-            "4. Verify GitOps kustomization paths:\n"
-            "   - `flux-system/kustomization.yaml` -> `./clusters/management`\n"
-            "   - `flux-system/kustomization-apps.yaml` -> `./apps`\n"
-            "   - `flux-system/kustomization-infra.yaml` -> `./infrastructure`\n"
-            "5. Confirm Kubernetes cluster access (`kubeconfig`) for reconcile commands.\n\n"
+            "4. Verify GitOps paths (`clusters/management`, `apps`, `infrastructure`).\n"
+            "5. Ensure cluster access and kubeconfig context are valid for reconcile commands.\n"
+            "6. For RKE2/proxmox flows, validate SSH access used by `scripts/bootstrap-rke2.sh`.\n\n"
             "## Execution Order\n\n"
             "1. `cd terraform && terraform init && terraform plan`\n"
             "2. `terraform apply`\n"
-            "3. `./scripts/post-terraform-deploy.sh`\n"
-            "4. Validate GitOps health (`flux get kustomizations` or `argocd app list`).\n"
+            "3. `./scripts/bootstrap-rke2.sh` (if generated)\n"
+            "4. `./scripts/post-terraform-deploy.sh`\n"
+            "5. Validate GitOps health (`flux get kustomizations` or `argocd app list`).\n"
         ),
     }

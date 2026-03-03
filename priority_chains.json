@@ -177,6 +177,19 @@
         "Sizing context mapping into tfvars examples"
       ]
     },
+    "rke2_bootstrap": {
+      "path": "addons/rke2_bootstrap.py",
+      "description": "RKE2 bootstrap scripts and Ansible assets for post-terraform cluster build",
+      "supported_project_types": ["elasticsearch", "kubernetes", "terraform"],
+      "triggers": {"platforms": ["rke2", "proxmox"], "iac_tools": ["terraform"]},
+      "priority": 17,
+      "minimum_python_version": "3.9",
+      "features": [
+        "RKE2 post-terraform bootstrap script",
+        "Ansible playbook for server/agent provisioning",
+        "Terraform output to inventory rendering"
+      ]
+    },
     "terraform_gitops_trigger": {
       "path": "addons/terraform_gitops_trigger.py",
       "description": "Post-terraform trigger scripts for Flux/Argo reconciliation",
