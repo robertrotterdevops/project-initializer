@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
 PORT="${PI_UI_PORT:-8787}"
+HOST="${PI_UI_HOST:-0.0.0.0}"
 AUTO_STOP_EXISTING="true"
 STOP_ONLY="false"
 
@@ -87,9 +88,10 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 9 ]; };
   exit 1
 fi
 
-# Create venv if missing
-if [ ! -d ".venv" ]; then
+# Create venv if missing or incomplete
+if [ ! -f ".venv/bin/activate" ]; then
   echo "Creating virtual environment..."
+  rm -rf .venv
   python3 -m venv .venv
 fi
 
@@ -100,9 +102,24 @@ source .venv/bin/activate
 echo "Installing dependencies..."
 pip install -q -r ui-draft/requirements.txt
 
+# Resolve display address
+if [ "$HOST" = "0.0.0.0" ]; then
+  if [ "$(uname)" = "Darwin" ]; then
+    DISPLAY_IP="$(ipconfig getifaddr en0 2>/dev/null \
+      || ipconfig getifaddr en1 2>/dev/null \
+      || echo "localhost")"
+  else
+    DISPLAY_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")"
+  fi
+  [ -z "$DISPLAY_IP" ] && DISPLAY_IP="localhost"
+else
+  DISPLAY_IP="$HOST"
+fi
+
 # Start web UI
 echo ""
 echo "Starting project-initializer UI..."
-echo "Open http://localhost:$PORT in your browser"
+echo "  Local:   http://localhost:$PORT"
+echo "  Network: http://$DISPLAY_IP:$PORT"
 echo ""
-exec uvicorn app:app --app-dir ui-draft/backend --reload --port "$PORT"
+exec uvicorn app:app --app-dir ui-draft/backend --reload --host "$HOST" --port "$PORT"
