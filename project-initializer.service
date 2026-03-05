@@ -1,0 +1,15 @@
+[Unit]
+Description=Project Initializer UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project-initializer
+ExecStart=%h/project-initializer/start-ui.sh
+Restart=on-failure
+RestartSec=5
+Environment=PI_UI_PORT=8787
+Environment=PI_UI_HOST=0.0.0.0
+
+[Install]
+WantedBy=default.target
