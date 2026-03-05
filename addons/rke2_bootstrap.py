@@ -25,6 +25,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+ANSIBLE_USER="${{ANSIBLE_USER:-ubuntu}}"
+ANSIBLE_SSH_PASS="${{ANSIBLE_SSH_PASS:-ubuntu}}"
+
 if ! command -v ansible-playbook >/dev/null 2>&1; then
   echo "ansible-playbook not found. Install Ansible and re-run."
   exit 1
@@ -45,10 +48,12 @@ python3 scripts/render-rke2-inventory.py \
   --project-name "{project_name}" \
   --tf-output "$ROOT_DIR/.tmp-terraform-outputs.json" \
   --template ansible/inventory.tpl.ini \
-  --out ansible/inventory.ini
+  --out ansible/inventory.ini \
+  --ansible-user "$ANSIBLE_USER" \
+  --ssh-pass "$ANSIBLE_SSH_PASS"
 
 echo "[3/4] Running RKE2 bootstrap playbook..."
-ansible-galaxy install -r ansible/requirements.yml >/dev/null 2>&1 || true
+ansible-galaxy install -r ansible/requirements.yml || true
 ansible-playbook -i ansible/inventory.ini ansible/rke2-bootstrap.yml
 
 echo "[4/4] Bootstrap complete. kubeconfig expected at ~/.kube/config or /etc/rancher/rke2/rke2.yaml on server nodes."
@@ -64,21 +69,37 @@ import json
 from pathlib import Path
 
 
-def _infer_hosts(tf: dict) -> tuple[list[str], list[str]]:
-    names = []
-    outputs = tf.get("vm_names", {})
-    if isinstance(outputs, dict):
-        value = outputs.get("value")
+def _infer_hosts(tf: dict) -> tuple[list[str], list[str], dict[str, str]]:
+    names: list[str] = []
+    ips: dict[str, str] = {}
+
+    name_output = tf.get("vm_names", {})
+    if isinstance(name_output, dict):
+        value = name_output.get("value")
         if isinstance(value, list):
             names = [str(v) for v in value]
 
-    # Deterministic fallback when IP outputs are unavailable:
-    # first node => server, others => agents.
-    servers = names[:1]
-    agents = names[1:]
+    ip_output = tf.get("vm_ips", {})
+    if isinstance(ip_output, dict):
+        value = ip_output.get("value")
+        if isinstance(value, dict):
+            ips = {str(k): str(v) for k, v in value.items() if v}
+
+    if not names and ips:
+        names = sorted(ips)
+
+    # Prefer system/server/control nodes as the RKE2 server
+    system_nodes = [n for n in names if any(kw in n.lower() for kw in ("system", "server", "control"))]
+    if system_nodes:
+        servers = system_nodes[:1]
+        agents = [n for n in names if n not in servers]
+    else:
+        servers = names[:1]
+        agents = names[1:]
+
     if not servers:
         servers = ["rke2-server-1"]
-    return servers, agents
+    return servers, agents, ips
 
 
 def main() -> None:
@@ -87,16 +108,30 @@ def main() -> None:
     parser.add_argument("--tf-output", required=True)
     parser.add_argument("--template", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--ansible-user", default="ubuntu")
+    parser.add_argument("--ssh-pass", default="ubuntu")
     args = parser.parse_args()
 
     tf_data = json.loads(Path(args.tf_output).read_text())
     template = Path(args.template).read_text()
 
-    servers, agents = _infer_hosts(tf_data)
+    servers, agents, ips = _infer_hosts(tf_data)
+
+    def _format(hosts: list[str]) -> str:
+        lines = []
+        for host in hosts:
+            ip = ips.get(host)
+            if ip:
+                lines.append(f"{host} ansible_host={ip}")
+            else:
+                lines.append(host)
+        return "\\n".join(lines)
 
     rendered = template.replace("{{ project_name }}", args.project_name)
-    rendered = rendered.replace("{{ servers }}", "\n".join(servers))
-    rendered = rendered.replace("{{ agents }}", "\n".join(agents) if agents else "")
+    rendered = rendered.replace("{{ servers }}", _format(servers))
+    rendered = rendered.replace("{{ agents }}", _format(agents) if agents else "")
+    rendered = rendered.replace("{{ ansible_user }}", args.ansible_user)
+    rendered = rendered.replace("{{ ansible_ssh_pass }}", args.ssh_pass)
 
     Path(args.out).write_text(rendered)
 
@@ -114,7 +149,10 @@ def _inventory_template() -> str:
 {{ agents }}
 
 [all:vars]
-ansible_user=ubuntu
+ansible_user={{ ansible_user }}
+ansible_ssh_pass={{ ansible_ssh_pass }}
+ansible_become_pass={{ ansible_ssh_pass }}
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 project_name={{ project_name }}
 rke2_version=v1.30.4+rke2r1
 """
@@ -132,11 +170,37 @@ def _ansible_playbook() -> str:
       args:
         creates: /usr/local/bin/rke2
 
+    - name: Create RKE2 config directory
+      file:
+        path: /etc/rancher/rke2
+        state: directory
+        mode: "0700"
+
+    - name: Write RKE2 server config
+      copy:
+        dest: /etc/rancher/rke2/config.yaml
+        mode: "0600"
+        content: |
+          node-name: {{ inventory_hostname }}
+
+    - name: Clear stale node password
+      file:
+        path: /etc/rancher/node/password
+        state: absent
+
     - name: Enable and start RKE2 server
       systemd:
         name: rke2-server
         enabled: true
         state: started
+      async: 600
+      poll: 15
+
+    - name: Wait for RKE2 server registration port
+      wait_for:
+        port: 9345
+        host: "{{ ansible_host }}"
+        timeout: 120
 
     - name: Read server token
       slurp:
@@ -151,7 +215,7 @@ def _ansible_playbook() -> str:
   hosts: rke2_agents
   become: true
   vars:
-    rke2_server_endpoint: "https://{{ groups['rke2_servers'][0] }}:9345"
+    rke2_server_endpoint: "https://{{ hostvars[groups['rke2_servers'][0]].ansible_host }}:9345"
     rke2_cluster_token: "{{ hostvars[groups['rke2_servers'][0]].rke2_cluster_token }}"
   tasks:
     - name: Install RKE2 agent
@@ -160,6 +224,17 @@ def _ansible_playbook() -> str:
       args:
         creates: /usr/local/bin/rke2
 
+    - name: Create RKE2 config directory
+      file:
+        path: /etc/rancher/rke2
+        state: directory
+        mode: "0700"
+
+    - name: Clear stale node password
+      file:
+        path: /etc/rancher/node/password
+        state: absent
+
     - name: Write RKE2 agent config
       copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -167,12 +242,27 @@ def _ansible_playbook() -> str:
         content: |
           server: {{ rke2_server_endpoint }}
           token: {{ rke2_cluster_token }}
+          node-name: {{ inventory_hostname }}
 
-    - name: Enable and start RKE2 agent
+    - name: Enable RKE2 agent
       systemd:
         name: rke2-agent
         enabled: true
-        state: started
+        daemon_reload: true
+
+    - name: Start RKE2 agent (async — notify-type service)
+      shell: systemctl start rke2-agent
+      async: 600
+      poll: 0
+      register: agent_start
+
+    - name: Wait for agent to reach running state
+      async_status:
+        jid: "{{ agent_start.ansible_job_id }}"
+      register: agent_result
+      until: agent_result.finished
+      retries: 40
+      delay: 15
 """
 
 

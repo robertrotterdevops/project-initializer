@@ -222,6 +222,8 @@ class TerraformPlatformGenerator:
         return (
             'output "cluster_name" { value = module.platform.cluster_name }\n'
             'output "pool_count"   { value = module.platform.pool_count }\n'
+            'output "vm_names"     { value = module.platform.vm_names }\n'
+            'output "vm_ips"       { value = module.platform.vm_ips }\n'
         )
 
     def _module_rke2_main(self) -> str:
@@ -334,8 +336,15 @@ class TerraformPlatformGenerator:
             '  }\n'
             '}\n\n'
             'output "cluster_name" { value = var.cluster_name }\n'
-            'output "pool_count" { value = length(var.pools) }\n'
-            'output "vm_names" { value = [for vm in proxmox_virtual_environment_vm.nodes : vm.name] }\n'
+            'output "pool_count"   { value = length(var.pools) }\n'
+            'output "vm_names"     { value = [for vm in proxmox_virtual_environment_vm.nodes : vm.name] }\n'
+            'output "vm_ips" {\n'
+            '  value = {\n'
+            '    for k, vm in proxmox_virtual_environment_vm.nodes : vm.name => [\n'
+            '      for ip in flatten(vm.ipv4_addresses) : ip if !startswith(ip, "127.")\n'
+            '    ][0]\n'
+            '  }\n'
+            '}\n'
         )
 
     def _proxmox_tfvars(self) -> str:
