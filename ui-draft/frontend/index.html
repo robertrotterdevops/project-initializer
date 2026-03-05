@@ -38,6 +38,9 @@
         --radius-sm: 6px;
         --radius-md: 8px;
         --radius-lg: 12px;
+
+        --workspace-accent: #00d4aa;
+        --workspace-accent-soft: rgba(0, 212, 170, 0.12);
         
         --sidebar-width: 260px;
         --header-height: 56px;
@@ -65,6 +68,9 @@
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
         --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
         --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+        --workspace-accent: #0d9488;
+        --workspace-accent-soft: rgba(13, 148, 136, 0.12);
       }
 
       *, *::before, *::after {
@@ -338,6 +344,309 @@
         padding: 24px;
       }
 
+      .workspace-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow-sm);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .workspace-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.06), transparent 45%);
+      }
+
+      .workspace-overview {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .workspace-eyebrow {
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
+      .workspace-title {
+        font-size: 1.6rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+      }
+
+      .workspace-description {
+        color: var(--text-secondary);
+        max-width: 540px;
+      }
+
+      .workspace-highlights {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-content: flex-start;
+        min-width: 240px;
+      }
+
+      .workspace-chip {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--workspace-accent);
+        background: var(--workspace-accent-soft);
+      }
+
+      .tech-tabs {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .tech-tab {
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        padding: 14px;
+        text-align: left;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        position: relative;
+        border-top: 3px solid transparent;
+      }
+
+      .tech-tab .title {
+        display: block;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .tech-tab .meta {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+
+      .tech-tab.active {
+        border-color: var(--tab-accent, var(--workspace-accent));
+        border-top-color: var(--tab-accent, var(--workspace-accent));
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      }
+
+      .tech-tab .tab-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--tab-accent-soft, rgba(255, 255, 255, 0.05));
+        color: var(--tab-accent, var(--text-muted));
+      }
+
+      .segmented-control {
+        display: inline-flex;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+
+      .segmented-control button {
+        flex: 1;
+        padding: 8px 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-weight: 500;
+        transition: all var(--transition-fast);
+      }
+
+      .segmented-control button.active {
+        background: var(--workspace-accent-soft);
+        color: var(--workspace-accent);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .platform-lock {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .platform-lock .lock-status {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      .platform-lock button {
+        font-size: 0.78rem;
+        border: none;
+        background: var(--workspace-accent-soft);
+        color: var(--workspace-accent);
+        border-radius: var(--radius-sm);
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+
+      .git-workspace {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+      }
+
+      .git-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .git-tab-button {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        background: transparent;
+        color: var(--text-secondary);
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .git-tab-button.active {
+        background: var(--workspace-accent-soft);
+        color: var(--workspace-accent);
+        border-color: var(--workspace-accent);
+      }
+
+      .git-pane {
+        display: none;
+      }
+
+      .git-pane.active {
+        display: block;
+      }
+
+      .git-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      .git-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .git-repo-card,
+      .key-item {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 12px;
+        background: var(--bg-tertiary);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .git-schema-panel {
+        margin-top: 20px;
+        padding: 16px;
+        border: 1px dashed var(--border-color);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .git-schema-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+
+      .git-schema-list {
+        margin-top: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .schema-badge {
+        display: inline-flex;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: var(--workspace-accent-soft);
+        color: var(--workspace-accent);
+      }
+
+      .schema-empty {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .git-repo-card .path {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        word-break: break-all;
+      }
+
+      .git-repo-card button,
+      .key-item button {
+        align-self: flex-start;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        padding: 4px 8px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.75rem;
+      }
+
+      .log-stream {
+        background: var(--bg-input);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        margin-top: 16px;
+        padding: 12px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        max-height: 320px;
+        overflow: auto;
+        line-height: 1.4;
+      }
+
       /* Page Sections */
       .page-section {
         display: none;
@@ -556,6 +865,13 @@
       .path-helper-btn:hover {
         border-color: var(--accent-primary);
         color: var(--text-primary);
+      }
+
+      .path-helper-btn:disabled,
+      .header-btn:disabled,
+      .header-btn.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .path-autocomplete {
@@ -1275,7 +1591,7 @@
                 <i data-lucide="plus"></i>
               </button>
             </div>
-            <button class="header-btn" id="openFileMgrBtn" title="Open Folder">
+            <button class="header-btn" id="openFileMgrBtn" title="Open Folder" data-label="Open Folder">
               <i data-lucide="folder-open"></i>
             </button>
           </div>
@@ -1290,83 +1606,138 @@
             </div>
 
             <!-- Project Setup -->
-            <div class="card">
-              <div class="card-header">
-                <h2 class="card-title">
-                  <i data-lucide="folder-kanban"></i>
-                  Project Setup
-                </h2>
+            <div class="workspace-card" id="technologyCard">
+              <div class="workspace-overview">
+                <div>
+                  <div class="workspace-eyebrow">Deployment target</div>
+                  <h2 class="workspace-title" id="workspaceTitle">OpenShift delivery</h2>
+                  <p class="workspace-description" id="workspaceDescription">
+                    Enterprise-ready OpenShift automation with Terraform and GitOps hand-offs tuned for regulated operators.
+                  </p>
+                </div>
+                <div class="workspace-highlights" id="workspaceHighlights"></div>
               </div>
+
+              <div class="tech-tabs" id="platformTabs">
+                <button class="tech-tab active" data-platform="openshift" style="--tab-accent:#f97316;--tab-accent-soft:rgba(249,115,22,0.15);">
+                  <span class="title">OpenShift</span>
+                  <span class="meta">Day 0-2 automation</span>
+                  <span class="tab-tag">OCP</span>
+                </button>
+                <button class="tech-tab" data-platform="proxmox" style="--tab-accent:#c084fc;--tab-accent-soft:rgba(192,132,252,0.18);">
+                  <span class="title">Proxmox + RKE2</span>
+                  <span class="meta">VM backed fleets</span>
+                  <span class="tab-tag">Edge</span>
+                </button>
+                <button class="tech-tab" data-platform="rke2" style="--tab-accent:#22d3ee;--tab-accent-soft:rgba(34,211,238,0.18);">
+                  <span class="title">RKE2 + Rancher</span>
+                  <span class="meta">Policy-driven</span>
+                  <span class="tab-tag">Rancher</span>
+                </button>
+                <button class="tech-tab" data-platform="aks" style="--tab-accent:#60a5fa;--tab-accent-soft:rgba(96,165,250,0.2);">
+                  <span class="title">Azure AKS</span>
+                  <span class="meta">Cloud landing zone</span>
+                  <span class="tab-tag">AKS</span>
+                </button>
+              </div>
+
               <div class="form-grid">
                 <div class="form-field">
                   <label class="form-label">
                     <i data-lucide="tag"></i>
                     Project Name
                   </label>
-                  <input type="text" class="form-input" id="name" value="my-elastic-project" placeholder="my-elasticsearch-cluster">
-                </div>
-                <div class="form-field">
-                  <label class="form-label">
-                    <i data-lucide="folder"></i>
-                    Target Directory
-                  </label>
-                  <div class="path-input-wrapper">
-                  <input type="text" class="form-input" id="targetDir" value="~/Projects" placeholder="~/Projects">
-                    <button type="button" class="path-browse-btn" id="targetBrowseBtn">Browse</button>
-                    <div class="path-autocomplete" id="targetAutocomplete"></div>
-                  </div>
-                  <div class="path-helper-actions">
-                    <button type="button" class="path-helper-btn" id="openTargetFolderBtn">Open folder</button>
-                  </div>
-                  <div class="form-hint" id="targetHint">Choose parent folder. Project name will be created inside it.</div>
+                  <input type="text" class="form-input" id="name" value="my-elastic-project" placeholder="my-rancher-automation">
                 </div>
                 <div class="form-field">
                   <label class="form-label">
                     <i data-lucide="network"></i>
                     Target Type
                   </label>
-                  <select class="form-select" id="targetType">
+                  <div class="segmented-control" id="targetTypeToggle">
+                    <button type="button" class="active" data-value="local">Local Folder</button>
+                    <button type="button" data-value="remote">Remote Host</button>
+                  </div>
+                  <select class="sr-only" id="targetType">
                     <option value="local" selected>Local Folder</option>
                     <option value="remote">Remote Host (SSH)</option>
                   </select>
+                  <div class="form-hint">Remote targets stream artifacts over SSH + rsync into your bastion or management host.</div>
                 </div>
-                <div class="form-field full-width" id="remoteTargetSection" style="display: none;">
-                  <div class="form-grid">
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="server"></i>Remote Host</label>
-                      <input type="text" class="form-input" id="remoteHost" placeholder="pve.local or 192.168.0.2">
+                <div class="form-field full-width">
+                  <label class="form-label">
+                    <i data-lucide="folder"></i>
+                    Target Directory
+                  </label>
+                  <div class="path-input-wrapper">
+                    <input type="text" class="form-input" id="targetDir" value="~/Projects" placeholder="~/Projects">
+                    <button type="button" class="path-browse-btn" id="targetBrowseBtn">Browse</button>
+                    <div class="path-autocomplete" id="targetAutocomplete"></div>
+                  </div>
+                  <div class="path-helper-actions">
+                    <button type="button" class="path-helper-btn" id="openTargetFolderBtn" data-label="Open folder">Open folder</button>
+                  </div>
+                  <div class="form-hint" id="targetHint">Choose the workspace root. The project folder is created inside automatically.</div>
+                </div>
+                <div class="form-field">
+                  <label class="form-label">
+                    <i data-lucide="cloud"></i>
+                    Platform
+                  </label>
+                  <div class="platform-lock">
+                    <span class="lock-status" id="platformLockLabel">Locked to OpenShift (from tab)</span>
+                    <button type="button" id="platformOverrideBtn">Override</button>
+                  </div>
+                  <select class="form-select" id="platform" disabled>
+                    <option value="">Auto-detect</option>
+                    <option value="openshift">OpenShift</option>
+                    <option value="proxmox">Proxmox (RKE2 on VMs)</option>
+                    <option value="rke2">RKE2 (Rancher managed)</option>
+                    <option value="aks">AKS (Azure)</option>
+                  </select>
+                  <div class="form-hint" id="platformHint">Switch tabs to update defaults or unlock for manual override.</div>
+                </div>
+              </div>
+
+              <div class="form-field full-width" id="remoteTargetSection" style="display: none;">
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label"><i data-lucide="server"></i>Remote Host</label>
+                    <input type="text" class="form-input" id="remoteHost" placeholder="pve.local or 192.168.0.2">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label"><i data-lucide="user"></i>Remote User</label>
+                    <input type="text" class="form-input" id="remoteUser" placeholder="ubuntu">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label"><i data-lucide="hash"></i>SSH Port</label>
+                    <input type="text" class="form-input" id="remotePort" value="22" placeholder="22">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label"><i data-lucide="folder-tree"></i>Remote Base Directory</label>
+                    <input type="text" class="form-input" id="remoteBaseDir" placeholder="/opt/projects">
+                  </div>
+                  <div class="form-field full-width">
+                    <label class="form-label"><i data-lucide="key-round"></i>SSH Key Path (optional)</label>
+                    <div class="path-input-wrapper">
+                      <input type="text" class="form-input" id="remoteSshKeyPath" placeholder="~/.ssh/id_rsa">
+                      <button type="button" class="path-browse-btn" id="remoteKeyBrowseBtn">Browse</button>
                     </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="user"></i>Remote User</label>
-                      <input type="text" class="form-input" id="remoteUser" placeholder="ubuntu">
+                    <div class="path-helper-actions">
+                      <button type="button" class="path-helper-btn" id="remoteTestBtn">Test Connection</button>
                     </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="hash"></i>SSH Port</label>
-                      <input type="text" class="form-input" id="remotePort" value="22" placeholder="22">
-                    </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="folder-tree"></i>Remote Base Directory</label>
-                      <input type="text" class="form-input" id="remoteBaseDir" placeholder="/opt/projects">
-                    </div>
-                    <div class="form-field full-width">
-                      <label class="form-label"><i data-lucide="key-round"></i>SSH Key Path (optional)</label>
-                      <div class="path-input-wrapper">
-                        <input type="text" class="form-input" id="remoteSshKeyPath" placeholder="~/.ssh/id_rsa">
-                        <button type="button" class="path-browse-btn" id="remoteKeyBrowseBtn">Browse</button>
-                      </div>
-                      <div class="path-helper-actions">
-                        <button type="button" class="path-helper-btn" id="remoteTestBtn">Test Connection</button>
-                      </div>
-                      <div class="form-hint" id="remoteHint">Remote create uses SSH + rsync. Password auth is not enabled in this version.</div>
-                    </div>
+                    <div class="form-hint" id="remoteHint">We only support SSH key auth with known_hosts hardening for now.</div>
                   </div>
                 </div>
+              </div>
+
+              <div class="form-grid">
                 <div class="form-field full-width">
                   <label class="form-label">
                     <i data-lucide="file-text"></i>
                     Description
                   </label>
-                  <textarea class="form-textarea" id="description" placeholder="Optional. Describe the project goals and scope."></textarea>
+                  <textarea class="form-textarea" id="description" placeholder="Describe the workload, compliance context, or sizing facts."></textarea>
                 </div>
                 <div class="form-field full-width">
                   <details>
@@ -1399,7 +1770,7 @@
                         </select>
                       </div>
                     </div>
-                    <div class="form-hint">Use these only when you need to override automatic skill assignment.</div>
+                    <div class="form-hint">Only override when you must target a specific analyzer chain.</div>
                   </details>
                 </div>
               </div>
@@ -1414,18 +1785,12 @@
                 </h2>
               </div>
               <div class="form-grid">
-                <div class="form-field">
+                <div class="form-field full-width">
                   <label class="form-label">
                     <i data-lucide="cloud"></i>
-                    Platform
+                    Platform context
                   </label>
-                  <select class="form-select" id="platform">
-                    <option value="">Auto-detect</option>
-                    <option value="rke2">RKE2</option>
-                    <option value="proxmox">Proxmox (RKE2 on VMs)</option>
-                    <option value="openshift">OpenShift</option>
-                    <option value="aks">AKS (Azure)</option>
-                  </select>
+                  <p class="form-hint" id="platformBrief">Defaults inherit from the selected platform tab.</p>
                 </div>
                 <div class="form-field">
                   <label class="form-label">
@@ -1490,6 +1855,20 @@
                 </h2>
               </div>
               <div class="form-grid">
+                <div class="form-field full-width">
+                  <label class="form-label">
+                    <i data-lucide="bookmark"></i>
+                    Git Schema Preset
+                  </label>
+                  <select class="form-select" id="gitSchemaSelect">
+                    <option value="">No preset</option>
+                  </select>
+                  <div class="path-helper-actions">
+                    <button type="button" class="path-helper-btn" id="gitSchemaReloadBtn">Refresh list</button>
+                    <button type="button" class="path-helper-btn" id="gitSchemaClearBtn">Clear preset</button>
+                  </div>
+                  <div class="form-hint" id="gitSchemaHint">Tie into Git Workspace to reuse remotes, branches, and platform tags.</div>
+                </div>
                 <div class="form-field">
                   <label class="checkbox-wrapper">
                     <input type="checkbox" id="gitInit">
@@ -1654,47 +2033,169 @@
           <!-- Git Sync Page -->
           <section class="page-section" id="pageSync">
             <div class="section-header">
-              <h1 class="section-title">Git Sync</h1>
-              <p class="section-subtitle">Pull, rebase, and push existing repositories</p>
+              <h1 class="section-title">Git Workspace</h1>
+              <p class="section-subtitle">Enterprise-ready Git orchestration, credential hygiene, and SSH key management.</p>
             </div>
 
-            <div class="card sync-section">
-              <div class="form-grid single">
-                <div class="form-field">
-                  <label class="form-label">
-                    <i data-lucide="folder"></i>
-                    Repository Path
-                  </label>
-                  <div class="path-input-wrapper">
-                    <input type="text" class="form-input" id="syncRepoPath" placeholder="/path/to/repository">
-                    <button type="button" class="path-browse-btn" id="syncBrowseBtn">Browse</button>
-                    <div class="path-autocomplete" id="syncAutocomplete"></div>
+            <div class="git-workspace">
+              <div class="git-tabs" id="gitTabs">
+                <button class="git-tab-button active" data-tab="repos">Repositories</button>
+                <button class="git-tab-button" data-tab="credentials">Credentials</button>
+                <button class="git-tab-button" data-tab="keys">SSH Keys</button>
+              </div>
+
+              <div class="git-pane active" data-panel="repos">
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="folder"></i>
+                      Repository Path
+                    </label>
+                    <div class="path-input-wrapper">
+                      <input type="text" class="form-input" id="syncRepoPath" placeholder="/path/to/repository">
+                      <button type="button" class="path-browse-btn" id="syncBrowseBtn">Browse</button>
+                      <div class="path-autocomplete" id="syncAutocomplete"></div>
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="git-branch"></i>
+                      Branch
+                    </label>
+                    <input type="text" class="form-input" id="syncBranch" value="main">
                   </div>
                 </div>
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="hard-drive"></i>
+                      Scan root
+                    </label>
+                    <input type="text" class="form-input" id="gitDiscoverBase" placeholder="~/Projects">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="radar"></i>
+                      Repo Discovery
+                    </label>
+                    <div class="btn-group">
+                      <button class="btn btn-secondary" type="button" id="discoverReposBtn">
+                        <i data-lucide="search"></i>
+                        Scan for repos
+                      </button>
+                      <button class="btn btn-secondary" type="button" id="gitInspectBtn">
+                        <i data-lucide="file-text"></i>
+                        Inspect
+                      </button>
+                      <button class="btn btn-primary" type="button" id="syncBtn">
+                        <i data-lucide="refresh-cw"></i>
+                        Pull / Rebase / Push
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-hint">Discovery lists repositories created by Project Initializer or any Git working tree under the selected root.</div>
+                <div class="git-list" id="gitRepoList">
+                  <div class="form-hint">No repositories discovered yet.</div>
+                </div>
+                <div class="log-stream" id="syncOutput">Ready to sync repository...</div>
+                <div class="git-schema-panel">
+                  <h3 class="section-title" style="font-size: 1rem; margin-bottom: 6px;">Saved Git Schemas</h3>
+                  <p class="form-hint">Capture repo metadata that can be reused on any project or platform tab.</p>
+                  <div class="form-grid" style="margin-top: 12px;">
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="edit-3"></i>Schema Name</label>
+                      <input type="text" class="form-input" id="gitSchemaName" placeholder="Openshift prod repo">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="layers"></i>Platform Tag</label>
+                      <select class="form-select" id="gitSchemaPlatform">
+                        <option value="">Generic</option>
+                        <option value="openshift">OpenShift</option>
+                        <option value="proxmox">Proxmox + RKE2</option>
+                        <option value="rke2">RKE2 + Rancher</option>
+                        <option value="aks">Azure AKS</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="link"></i>Remote URL</label>
+                      <input type="text" class="form-input" id="gitSchemaRemote" placeholder="git@github.com:org/proj.git">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label"><i data-lucide="file-text"></i>Description</label>
+                      <textarea class="form-textarea" id="gitSchemaDescription" placeholder="What environment does this repo deploy?"></textarea>
+                    </div>
+                  </div>
+                  <div class="git-schema-actions">
+                    <button class="btn btn-secondary" type="button" id="prefillSchemaFieldsBtn">
+                      <i data-lucide="copy"></i>
+                      Use current repo inputs
+                    </button>
+                    <button class="btn btn-primary" type="button" id="saveGitSchemaBtn">
+                      <i data-lucide="save"></i>
+                      Save Git Schema
+                    </button>
+                  </div>
+                  <div class="form-hint">Schema path + branch come from Repository Path and Branch fields above.</div>
+                  <div class="git-schema-list" id="gitSchemaList">
+                    <div class="schema-empty">No schemas saved yet.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="git-pane" data-panel="credentials">
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="link"></i>
+                      Default remote URL
+                    </label>
+                    <input type="text" class="form-input" id="gitDefaultRemote" placeholder="git@github.com:org/repo.git">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="shield"></i>
+                      Personal Access Token (stored locally)
+                    </label>
+                    <input type="password" class="form-input" id="gitToken" placeholder="ghp_...">
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">
+                      <i data-lucide="key"></i>
+                      Preferred SSH Key Path
+                    </label>
+                    <input type="text" class="form-input" id="gitPreferredKey" placeholder="~/.ssh/id_ed25519">
+                  </div>
+                </div>
+                <div class="btn-group" style="margin-top: 12px;">
+                  <button class="btn btn-secondary" type="button" id="loadSavedGitPrefs">Load saved profile</button>
+                  <button class="btn btn-primary" type="button" id="saveGitPrefs">Save profile</button>
+                </div>
+                <p class="form-hint" id="gitPrefsHint">Credentials are encrypted by the browser runtime and never sent to the backend.</p>
+              </div>
+
+              <div class="git-pane" data-panel="keys">
                 <div class="form-field">
                   <label class="form-label">
-                    <i data-lucide="git-branch"></i>
-                    Branch
+                    <i data-lucide="key-round"></i>
+                    SSH key inventory
                   </label>
-                  <input type="text" class="form-input" id="syncBranch" value="main">
+                  <div class="btn-group">
+                    <button class="btn btn-secondary" type="button" id="loadSshKeysBtn">
+                      <i data-lucide="refresh-ccw"></i>
+                      Refresh keys from ~/.ssh
+                    </button>
+                    <button class="btn btn-secondary" type="button" id="importSshKeyBtn">
+                      <i data-lucide="upload"></i>
+                      Import from path
+                    </button>
+                  </div>
                 </div>
-                <div class="form-field">
-                  <button class="btn btn-primary" id="syncBtn">
-                    <i data-lucide="refresh-cw"></i>
-                    Pull / Rebase / Push
-                  </button>
+                <div class="git-list" id="sshKeyList">
+                  <div class="form-hint">Use refresh to load SSH keys detected on this machine.</div>
                 </div>
+                <div class="log-stream" id="sshKeyPreview">Select a key to preview public material.</div>
               </div>
-            </div>
-
-            <div class="result-card">
-              <div class="result-header">
-                <span class="result-title">
-                  <i data-lucide="terminal"></i>
-                  Sync Output
-                </span>
-              </div>
-              <div class="result-content" id="syncOutput">Ready to sync repository...</div>
             </div>
           </section>
 
@@ -1776,6 +2277,63 @@
       // Initialize Lucide icons
       lucide.createIcons();
 
+      const platformPresets = {
+        openshift: {
+          label: 'OpenShift',
+          hero: 'OpenShift delivery',
+          description: 'Enterprise-ready OpenShift automation with GitOps hand-offs and Terraform add-ons.',
+          highlights: ['FluxCD GitOps ready', 'Terraform cluster add-ons', 'Day 0-2 runbooks'],
+          platform: 'openshift',
+          gitops: 'flux',
+          accent: '#f97316',
+          accentSoft: 'rgba(249,115,22,0.15)',
+          brief: 'OCP blueprint with FluxCD defaults for regulated workloads.',
+          hint: 'Switch tabs or unlock to override.',
+          targetType: 'local',
+        },
+        proxmox: {
+          label: 'Proxmox + RKE2',
+          hero: 'Proxmox RKE2 automation',
+          description: 'Hardened VM automation that layers RKE2 clusters on Proxmox nodes.',
+          highlights: ['VM orchestration + Terraform', 'RKE2 cluster bootstrap', 'FluxCD GitOps ready'],
+          platform: 'proxmox',
+          gitops: 'flux',
+          accent: '#c084fc',
+          accentSoft: 'rgba(192,132,252,0.18)',
+          brief: 'Edge friendly footprints with VM-backed control planes.',
+          hint: 'Locked to Proxmox preset.',
+          targetType: 'local',
+        },
+        rke2: {
+          label: 'RKE2 + Rancher',
+          hero: 'Rancher governed RKE2',
+          description: 'Opinionated RKE2 stacks governed with Rancher policy catalogs and fleet GitOps.',
+          highlights: ['Fleet & policy bundles', 'Rancher cluster templates', 'ArgoCD optional'],
+          platform: 'rke2',
+          gitops: 'argo',
+          accent: '#22d3ee',
+          accentSoft: 'rgba(34,211,238,0.18)',
+          brief: 'Best for multi-cluster Rancher control planes.',
+          hint: 'Locked to RKE2 preset.',
+          targetType: 'local',
+        },
+        aks: {
+          label: 'Azure AKS',
+          hero: 'Azure AKS landing zone',
+          description: 'Opinionated AKS cluster deployment with Azure-native integrations and GitOps.',
+          highlights: ['Azure resource modules', 'AAD + RBAC bootstrap', 'ArgoCD & Flux options'],
+          platform: 'aks',
+          gitops: 'argo',
+          accent: '#60a5fa',
+          accentSoft: 'rgba(96,165,250,0.2)',
+          brief: 'Pipelines wire into Azure landing zones automatically.',
+          hint: 'Locked to AKS preset.',
+          targetType: 'local',
+        },
+      };
+
+      const savedPlatform = localStorage.getItem('pi-ui-platform') || 'openshift';
+
       // State
       const state = {
         lastCreatedPath: localStorage.getItem('pi-last-created-path') || '',
@@ -1789,6 +2347,20 @@
         dialogTargetField: null,
         lastCreatedTargetType: 'local',
         lastCreatedRemote: null,
+        activePlatform: platformPresets[savedPlatform] ? savedPlatform : 'openshift',
+        platformUnlocked: false,
+        gitopsTouched: false,
+        activeGitTab: 'repos',
+        discoveredRepos: [],
+        sshKeys: [],
+        selectedKey: null,
+        gitSchemas: [],
+        selectedGitSchema: '',
+        environment: {
+          headless: false,
+          supports_native_picker: true,
+          supports_gui_open: true,
+        },
       };
 
       const isDesktopRuntime = !window.location.protocol.startsWith('http');
@@ -1843,7 +2415,7 @@
         document.getElementById('breadcrumbCurrent').textContent = 
           pageId === 'create' ? 'Create Project' :
           pageId === 'analyze' ? 'Analyze' :
-          pageId === 'sync' ? 'Git Sync' : 'Settings';
+          pageId === 'sync' ? 'Git Workspace' : 'Settings';
         
         state.currentPage = pageId;
         
@@ -1988,6 +2560,7 @@
       const targetDirEl = document.getElementById('targetDir');
       const targetAutocompleteEl = document.getElementById('targetAutocomplete');
       const targetHintEl = document.getElementById('targetHint');
+      const gitRemoteUrlEl = document.getElementById('gitRemoteUrl');
 
       targetDirEl.addEventListener('input', async (e) => {
         const v = e.target.value.trim();
@@ -2000,6 +2573,26 @@
         }
         await loadPathSuggestions(v, 'target');
       });
+
+      function syncEnvironmentUi() {
+        const env = state.environment || {};
+        const openFileMgrBtn = document.getElementById('openFileMgrBtn');
+        const openTargetFolderBtn = document.getElementById('openTargetFolderBtn');
+        [openFileMgrBtn, openTargetFolderBtn].forEach(btn => {
+          if (!btn) return;
+          btn.disabled = !env.supports_gui_open;
+          btn.title = env.supports_gui_open ? btn.getAttribute('data-label') || btn.title : 'Disabled in remote/headless session';
+          if (!env.supports_gui_open) {
+            btn.classList.add('disabled');
+          } else {
+            btn.classList.remove('disabled');
+          }
+        });
+
+        if (!env.supports_native_picker && gitSchemaHintEl) {
+          gitSchemaHintEl.textContent = 'Inline folder browser enabled (native picker unavailable).';
+        }
+      }
 
       targetDirEl.addEventListener('blur', () => {
         setTimeout(() => {
@@ -2137,6 +2730,419 @@
       // Sync Path Input
       const syncRepoPathEl = document.getElementById('syncRepoPath');
       const syncAutocompleteEl = document.getElementById('syncAutocomplete');
+      const gitRepoListEl = document.getElementById('gitRepoList');
+      const gitDiscoverBaseEl = document.getElementById('gitDiscoverBase');
+      const gitTabButtons = document.querySelectorAll('.git-tab-button');
+      const gitPaneEls = document.querySelectorAll('.git-pane');
+      const gitDefaultRemoteEl = document.getElementById('gitDefaultRemote');
+      const gitTokenEl = document.getElementById('gitToken');
+      const gitPreferredKeyEl = document.getElementById('gitPreferredKey');
+      const sshKeyListEl = document.getElementById('sshKeyList');
+      const sshKeyPreviewEl = document.getElementById('sshKeyPreview');
+      const gitSchemaSelectEl = document.getElementById('gitSchemaSelect');
+      const gitSchemaHintEl = document.getElementById('gitSchemaHint');
+      const gitSchemaListEl = document.getElementById('gitSchemaList');
+      const gitSchemaNameEl = document.getElementById('gitSchemaName');
+      const gitSchemaPlatformEl = document.getElementById('gitSchemaPlatform');
+      const gitSchemaRemoteEl = document.getElementById('gitSchemaRemote');
+      const gitSchemaDescriptionEl = document.getElementById('gitSchemaDescription');
+      const gitSchemaReloadBtn = document.getElementById('gitSchemaReloadBtn');
+      const gitSchemaClearBtn = document.getElementById('gitSchemaClearBtn');
+      const saveGitSchemaBtn = document.getElementById('saveGitSchemaBtn');
+      const prefillSchemaFieldsBtn = document.getElementById('prefillSchemaFieldsBtn');
+      const gitPrefsStorageKey = 'pi-git-profile';
+
+      if (gitDiscoverBaseEl && !gitDiscoverBaseEl.value) {
+        gitDiscoverBaseEl.value = document.getElementById('targetDir').value;
+      }
+      if (gitDiscoverBaseEl) {
+        gitDiscoverBaseEl.addEventListener('input', () => {
+          gitDiscoverBaseEl.dataset.manual = 'true';
+        });
+      }
+      targetDirEl.addEventListener('input', () => {
+        if (gitDiscoverBaseEl && !gitDiscoverBaseEl.dataset.manual) {
+          gitDiscoverBaseEl.value = targetDirEl.value;
+        }
+      });
+
+      function setGitTab(tab) {
+        state.activeGitTab = tab;
+        gitTabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+        gitPaneEls.forEach(pane => {
+          pane.classList.toggle('active', pane.dataset.panel === tab);
+        });
+      }
+
+      setGitTab(state.activeGitTab);
+
+      gitTabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          if (tab) setGitTab(tab);
+        });
+      });
+
+      function renderGitRepoList() {
+        if (!gitRepoListEl) return;
+        if (!state.discoveredRepos.length) {
+          gitRepoListEl.innerHTML = '<div class="form-hint">No repositories discovered yet.</div>';
+          return;
+        }
+        gitRepoListEl.innerHTML = state.discoveredRepos.map(repo => `
+          <div class="git-repo-card">
+            <span class="path">${repo.path}</span>
+            <span class="form-hint">Branch: ${repo.branch || 'n/a'}</span>
+            <span class="form-hint">Last commit: ${repo.last_commit || 'n/a'}</span>
+            <div class="btn-group" style="margin-top:8px;">
+              <button type="button" data-repo="${repo.path}" data-action="fill">Use path</button>
+              <button type="button" data-repo="${repo.path}" data-action="inspect">Inspect</button>
+            </div>
+          </div>
+        `).join('');
+        gitRepoListEl.querySelectorAll('button[data-repo]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const repo = btn.dataset.repo;
+            if (!repo) return;
+            if (btn.dataset.action === 'fill') {
+              syncRepoPathEl.value = repo;
+            } else if (btn.dataset.action === 'inspect') {
+              inspectRepository(repo);
+            }
+          });
+        });
+        lucide.createIcons();
+      }
+
+      function renderGitSchemaSelect() {
+        if (!gitSchemaSelectEl) return;
+        const active = state.activePlatform;
+        const prioritized = state.gitSchemas.filter(s => s.platform === active);
+        const others = state.gitSchemas.filter(s => s.platform !== active);
+        const combined = [...prioritized, ...others];
+        const options = ['<option value="">No preset</option>'];
+        combined.forEach(schema => {
+          const label = schema.platform && schema.platform === active
+            ? `${schema.name} · ${schema.branch} (match)`
+            : `${schema.name} · ${schema.branch}`;
+          options.push(`<option value="${schema.id}">${label}</option>`);
+        });
+        gitSchemaSelectEl.innerHTML = options.join('');
+        if (state.selectedGitSchema) {
+          gitSchemaSelectEl.value = state.selectedGitSchema;
+        }
+      }
+
+      function renderGitSchemaList() {
+        if (!gitSchemaListEl) return;
+        if (!state.gitSchemas.length) {
+          gitSchemaListEl.innerHTML = '<div class="schema-empty">No schemas saved yet.</div>';
+          return;
+        }
+        gitSchemaListEl.innerHTML = state.gitSchemas.map(schema => `
+          <div class="git-repo-card" data-schema-id="${schema.id}">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <strong>${schema.name}</strong>
+              ${schema.platform ? `<span class="schema-badge">${schema.platform}</span>` : ''}
+            </div>
+            <span class="path">${schema.repo_path}</span>
+            <span class="form-hint">Remote: ${schema.remote_url || 'n/a'} · Branch: ${schema.branch}</span>
+            ${schema.description ? `<span class="form-hint">${schema.description}</span>` : ''}
+            <div class="btn-group" style="margin-top:8px;">
+              <button type="button" data-schema="${schema.id}" data-action="use">Use in Create form</button>
+              <button type="button" data-schema="${schema.id}" data-action="fill">Fill repo path</button>
+              <button type="button" data-schema="${schema.id}" data-action="delete">Delete</button>
+            </div>
+          </div>
+        `).join('');
+        gitSchemaListEl.querySelectorAll('button[data-schema]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.schema;
+            const action = btn.dataset.action;
+            if (!id) return;
+            if (action === 'use') {
+              applyGitSchemaById(id);
+            } else if (action === 'fill') {
+              const schema = state.gitSchemas.find(s => s.id === id);
+              if (schema && schema.repo_path) {
+                syncRepoPathEl.value = schema.repo_path;
+                document.getElementById('gitBranch').value = schema.branch || 'main';
+                showToast('Repository path filled from schema');
+              }
+            } else if (action === 'delete') {
+              deleteGitSchema(id);
+            }
+          });
+        });
+        lucide.createIcons();
+      }
+
+      async function loadGitSchemas() {
+        try {
+          const res = await fetch(apiUrl('/api/git/registry'));
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Failed to load git schemas', 'error');
+            return;
+          }
+          state.gitSchemas = data.entries || [];
+          renderGitSchemaSelect();
+          renderGitSchemaList();
+        } catch (err) {
+          showToast(`Failed to load git schemas: ${err}`, 'error');
+        }
+      }
+
+      function applyGitSchemaById(id) {
+        const schema = state.gitSchemas.find(s => s.id === id);
+        if (!schema) {
+          showToast('Schema not found', 'error');
+          return;
+        }
+        applyGitSchema(schema);
+      }
+
+      function applyGitSchema(schema) {
+        if (!schema) return;
+        state.selectedGitSchema = schema.id;
+        if (gitSchemaSelectEl) gitSchemaSelectEl.value = schema.id;
+        if (gitRemoteUrlEl) gitRemoteUrlEl.value = schema.remote_url || '';
+        document.getElementById('gitBranch').value = schema.branch || 'main';
+        document.getElementById('gitInit').checked = true;
+        if (gitSchemaHintEl) {
+          gitSchemaHintEl.textContent = `Using preset: ${schema.name}`;
+        }
+        showToast(`Applied git schema: ${schema.name}`);
+      }
+
+      function clearGitSchemaSelection() {
+        state.selectedGitSchema = '';
+        if (gitSchemaSelectEl) gitSchemaSelectEl.value = '';
+        if (gitSchemaHintEl) {
+          gitSchemaHintEl.textContent = 'Tie into Git Workspace to reuse remotes, branches, and platform tags.';
+        }
+      }
+
+      async function deleteGitSchema(id) {
+        if (!id) return;
+        if (!confirm('Delete this git schema?')) return;
+        try {
+          const res = await fetch(apiUrl(`/api/git/registry/${id}`), { method: 'DELETE' });
+          if (!res.ok) {
+            const data = await res.json();
+            showToast(data.detail || 'Failed to delete schema', 'error');
+            return;
+          }
+          showToast('Schema deleted');
+          await loadGitSchemas();
+          if (state.selectedGitSchema === id) {
+            clearGitSchemaSelection();
+          }
+        } catch (err) {
+          showToast(`Failed to delete schema: ${err}`, 'error');
+        }
+      }
+
+      async function saveGitSchema() {
+        if (!gitSchemaNameEl || !gitSchemaPlatformEl || !gitSchemaRemoteEl || !gitSchemaDescriptionEl) return;
+        const repoPath = syncRepoPathEl.value.trim();
+        const name = gitSchemaNameEl.value.trim();
+        const remote = gitSchemaRemoteEl.value.trim() || gitDefaultRemoteEl.value.trim() || gitRemoteUrlEl.value.trim();
+        const branch = document.getElementById('syncBranch').value.trim() || 'main';
+        if (!name || !repoPath) {
+          showToast('Schema name and repository path are required', 'error');
+          return;
+        }
+        try {
+          const fd = new FormData();
+          fd.append('name', name);
+          fd.append('repo_path', repoPath);
+          fd.append('remote_url', remote);
+          fd.append('branch', branch);
+          fd.append('platform', gitSchemaPlatformEl.value);
+          fd.append('description', gitSchemaDescriptionEl.value.trim());
+          const res = await fetch(apiUrl('/api/git/registry'), { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Failed to save schema', 'error');
+            return;
+          }
+          showToast('Git schema saved');
+          await loadGitSchemas();
+          gitSchemaNameEl.value = '';
+          gitSchemaDescriptionEl.value = '';
+        } catch (err) {
+          showToast(`Failed to save schema: ${err}`, 'error');
+        }
+      }
+
+      function prefillSchemaFields() {
+        if (!gitSchemaNameEl || !gitSchemaRemoteEl || !gitSchemaPlatformEl) return;
+        if (!gitSchemaNameEl.value && syncRepoPathEl.value) {
+          const parts = syncRepoPathEl.value.trim().split(/[\\/]/).filter(Boolean);
+          if (parts.length) gitSchemaNameEl.value = parts[parts.length - 1];
+        }
+        if (!gitSchemaRemoteEl.value) {
+          gitSchemaRemoteEl.value = gitRemoteUrlEl.value || gitDefaultRemoteEl.value || '';
+        }
+        if (state.activePlatform && gitSchemaPlatformEl.value === '') {
+          gitSchemaPlatformEl.value = state.activePlatform;
+        }
+        showToast('Filled schema fields from current inputs');
+      }
+
+      function renderGitLogEntries(logEntries) {
+        const outputEl = document.getElementById('syncOutput');
+        if (!outputEl) return;
+        if (!logEntries || !logEntries.length) {
+          outputEl.textContent = 'No git activity yet.';
+          return;
+        }
+        outputEl.textContent = logEntries.map(entry => {
+          const status = entry.ok ? '✓' : '✕';
+          const body = entry.stdout || entry.stderr || '';
+          return `[${status}] ${entry.command}\n${body}`;
+        }).join('\n\n');
+      }
+
+      async function discoverRepositories() {
+        const base = (gitDiscoverBaseEl?.value?.trim()) || state.lastCreatedPath || targetDirEl.value.trim();
+        if (!base) {
+          showToast('Set a scan root before discovering repositories', 'warning');
+          return;
+        }
+        try {
+          const res = await fetch(`${apiUrl('/api/git/discover')}?base_path=${encodeURIComponent(base)}&limit=50`);
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Discovery failed', 'error');
+            return;
+          }
+          state.discoveredRepos = data.repositories || [];
+          renderGitRepoList();
+          showToast(`Found ${state.discoveredRepos.length} repositories`, 'success');
+        } catch (err) {
+          showToast(`Discovery failed: ${err}`, 'error');
+        }
+      }
+
+      async function inspectRepository(repoPath) {
+        if (!repoPath) {
+          showToast('Repository path is required', 'error');
+          return;
+        }
+        try {
+          const fd = new FormData();
+          fd.append('repo_path', repoPath);
+          const res = await fetch(apiUrl('/api/git/inspect'), { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Inspect failed', 'error');
+            return;
+          }
+          const segments = [];
+          if (data.status) segments.push(`[status]\n${data.status.stdout || data.status.stderr || ''}`);
+          if (data.remotes) segments.push(`[remotes]\n${data.remotes.stdout || data.remotes.stderr || ''}`);
+          if (data.last_commit) segments.push(`[last commit]\n${data.last_commit.stdout || data.last_commit.stderr || ''}`);
+          document.getElementById('syncOutput').textContent = segments.join('\n\n');
+          showToast('Repository inspected');
+        } catch (err) {
+          showToast(`Inspect failed: ${err}`, 'error');
+        }
+      }
+
+      async function fetchSshKeys() {
+        try {
+          const res = await fetch(apiUrl('/api/git/keys'));
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Unable to load keys', 'error');
+            return;
+          }
+          renderSshKeyList(data);
+          showToast('SSH keys refreshed');
+        } catch (err) {
+          showToast(`SSH key refresh failed: ${err}`, 'error');
+        }
+      }
+
+      function renderSshKeyList(data) {
+        if (!sshKeyListEl) return;
+        const publicKeys = data.public_keys || [];
+        const privateKeys = data.private_keys || [];
+        const combined = [
+          ...publicKeys.map(k => ({ ...k, type: 'public' })),
+          ...privateKeys.map(k => ({ ...k, type: 'private' })),
+        ];
+        if (!combined.length) {
+          sshKeyListEl.innerHTML = '<div class="form-hint">No keys detected under ~/.ssh yet.</div>';
+          return;
+        }
+        sshKeyListEl.innerHTML = combined.map(key => `
+          <div class="key-item">
+            <strong>${key.name}</strong>
+            <span class="path">${key.path}</span>
+            <span class="form-hint">${key.type === 'public' ? 'Public key' : 'Private key'}</span>
+            <button type="button" data-key-path="${key.path}" data-key-type="${key.type}">
+              ${key.type === 'public' ? 'Preview' : 'Use path'}
+            </button>
+          </div>
+        `).join('');
+        sshKeyListEl.querySelectorAll('button[data-key-path]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const path = btn.dataset.keyPath;
+            if (!path) return;
+            if (btn.dataset.keyType === 'public') {
+              previewSshKey(path);
+            } else if (gitPreferredKeyEl) {
+              gitPreferredKeyEl.value = path;
+              showToast('SSH key path copied to preferences');
+            }
+          });
+        });
+      }
+
+      async function previewSshKey(path) {
+        if (!path) return;
+        try {
+          const fd = new FormData();
+          fd.append('path', path);
+          const res = await fetch(apiUrl('/api/git/keys/read'), { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Unable to read key', 'error');
+            return;
+          }
+          if (sshKeyPreviewEl) {
+            sshKeyPreviewEl.textContent = data.content || 'No content returned';
+          }
+          showToast('Loaded key material');
+        } catch (err) {
+          showToast(`Key preview failed: ${err}`, 'error');
+        }
+      }
+
+      function saveGitPrefs() {
+        const payload = {
+          remote: gitDefaultRemoteEl?.value?.trim() || '',
+          token: gitTokenEl?.value?.trim() || '',
+          key: gitPreferredKeyEl?.value?.trim() || '',
+        };
+        localStorage.setItem(gitPrefsStorageKey, JSON.stringify(payload));
+        showToast('Git profile saved locally');
+      }
+
+      function loadGitPrefs() {
+        try {
+          const payload = JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
+          if (gitDefaultRemoteEl) gitDefaultRemoteEl.value = payload.remote || '';
+          if (gitTokenEl) gitTokenEl.value = payload.token || '';
+          if (gitPreferredKeyEl) gitPreferredKeyEl.value = payload.key || '';
+          showToast('Git profile loaded');
+        } catch (_) {
+          showToast('No saved Git profile found', 'warning');
+        }
+      }
 
       syncRepoPathEl.addEventListener('input', async (e) => {
         const v = e.target.value.trim();
@@ -2160,9 +3166,20 @@
         pickDirectory('syncRepoPath');
       });
 
+      function openInlineDirectoryPicker(targetFieldId, message) {
+        if (message) showToast(message, 'warning');
+        const title = targetFieldId === 'targetDir' ? 'Select project folder' : 'Select repository folder';
+        openFolderDialog(targetFieldId, title);
+      }
+
       async function pickDirectory(targetFieldId) {
         const targetEl = document.getElementById(targetFieldId);
-        const initialPath = targetEl?.value?.trim() || '';
+        if (!targetEl) return;
+        if (!state.environment.supports_native_picker) {
+          openInlineDirectoryPicker(targetFieldId);
+          return;
+        }
+        const initialPath = targetEl.value.trim() || '';
         try {
           const res = await fetch(`${apiUrl('/api/fs/pick-directory')}?initial_path=${encodeURIComponent(initialPath)}`);
           const data = await res.json();
@@ -2171,15 +3188,14 @@
             showToast(data.detail || 'Directory selection failed', 'error');
             return;
           }
+          if (data.fallback) {
+            openInlineDirectoryPicker(targetFieldId, data.message);
+            return;
+          }
           targetEl.value = data.path || targetEl.value;
           if (targetFieldId === 'targetDir') validateTargetPath();
         } catch (_) {
-          showToast('Native folder picker unavailable. Showing inline picker.', 'warning');
-          if (targetFieldId === 'targetDir') {
-            loadPathSuggestions('', 'target');
-          } else {
-            loadPathSuggestions('', 'sync');
-          }
+          openInlineDirectoryPicker(targetFieldId, 'Native folder picker unavailable. Showing inline browser.');
         }
       }
 
@@ -2266,6 +3282,13 @@
         }
       }
 
+      const gitopsSelectEl = document.getElementById('gitopsTool');
+      if (gitopsSelectEl) {
+        gitopsSelectEl.addEventListener('change', () => {
+          state.gitopsTouched = true;
+        });
+      }
+
       // Base Fields
       function baseFields() {
         return {
@@ -2281,6 +3304,7 @@
           git_remote_url: document.getElementById('gitRemoteUrl').value,
           git_branch: document.getElementById('gitBranch').value,
           git_push: document.getElementById('gitPush').checked,
+          git_schema_id: gitSchemaSelectEl?.value || '',
           use_terraform_iac: document.getElementById('useTerraformIac').checked,
           run_terraform_apply: document.getElementById('runTerraformApply').checked,
           target_type: document.getElementById('targetType').value,
@@ -2296,6 +3320,10 @@
       // Open Project
       async function openProject(tool) {
         try {
+          if (tool === 'filemanager' && !state.environment.supports_gui_open) {
+            showToast('File manager open is disabled in headless sessions.', 'warning');
+            return;
+          }
           if (state.lastCreatedTargetType === 'remote' && state.lastCreatedRemote?.host && state.lastCreatedRemote?.user && state.lastCreatedRemote?.project_dir) {
             if (tool === 'filemanager') {
               showToast('File manager open is local-only. Use Zed/VSCode Remote for remote projects.', 'warning');
@@ -2347,8 +3375,117 @@
         targetDirFieldEl.style.display = isRemote ? 'none' : '';
       }
 
-      targetTypeEl.addEventListener('change', syncTargetModeUi);
+      const targetTypeToggleEl = document.getElementById('targetTypeToggle');
+
+      function updateTargetTypeToggle() {
+        if (!targetTypeToggleEl) return;
+        targetTypeToggleEl.querySelectorAll('button').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.value === targetTypeEl.value);
+        });
+      }
+
+      function setTargetType(value, fromPreset = false) {
+        if (!targetTypeEl) return;
+        targetTypeEl.value = value;
+        syncTargetModeUi();
+        updateTargetTypeToggle();
+        if (fromPreset && targetHintEl) {
+          targetHintEl.textContent = `Preset switched target type to ${value}.`;
+        }
+      }
+
+      targetTypeEl.addEventListener('change', () => {
+        syncTargetModeUi();
+        updateTargetTypeToggle();
+      });
       syncTargetModeUi();
+      updateTargetTypeToggle();
+
+      if (targetTypeToggleEl) {
+        targetTypeToggleEl.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            setTargetType(btn.dataset.value || 'local');
+          });
+        });
+      }
+
+      const platformTabsEl = document.getElementById('platformTabs');
+      const workspaceTitleEl = document.getElementById('workspaceTitle');
+      const workspaceDescriptionEl = document.getElementById('workspaceDescription');
+      const workspaceHighlightsEl = document.getElementById('workspaceHighlights');
+      const platformLockLabelEl = document.getElementById('platformLockLabel');
+      const platformHintEl = document.getElementById('platformHint');
+      const platformBriefEl = document.getElementById('platformBrief');
+      const platformSelectEl = document.getElementById('platform');
+      const platformOverrideBtn = document.getElementById('platformOverrideBtn');
+
+      function renderPlatformHighlights(highlights) {
+        if (!workspaceHighlightsEl) return;
+        workspaceHighlightsEl.innerHTML = highlights.map(h => `<span class="workspace-chip">${h}</span>`).join('');
+      }
+
+      function setActivePlatform(key) {
+        const preset = platformPresets[key] || platformPresets.openshift;
+        state.activePlatform = key;
+        localStorage.setItem('pi-ui-platform', key);
+        document.documentElement.style.setProperty('--workspace-accent', preset.accent);
+        document.documentElement.style.setProperty('--workspace-accent-soft', preset.accentSoft);
+        if (workspaceTitleEl) workspaceTitleEl.textContent = preset.hero;
+        if (workspaceDescriptionEl) workspaceDescriptionEl.textContent = preset.description;
+        renderPlatformHighlights(preset.highlights || []);
+        if (!state.platformUnlocked && platformSelectEl) {
+          platformSelectEl.value = preset.platform;
+          platformSelectEl.disabled = true;
+        }
+        if (!state.gitopsTouched && document.getElementById('gitopsTool')) {
+          document.getElementById('gitopsTool').value = preset.gitops || '';
+        }
+        if (platformLockLabelEl && !state.platformUnlocked) {
+          platformLockLabelEl.textContent = `Locked to ${preset.label} (from tab)`;
+        }
+        if (platformHintEl && !state.platformUnlocked) {
+          platformHintEl.textContent = preset.hint;
+        }
+        if (platformBriefEl) {
+          platformBriefEl.textContent = preset.brief;
+        }
+        if (preset.targetType) {
+          setTargetType(preset.targetType, true);
+        }
+        if (platformTabsEl) {
+          platformTabsEl.querySelectorAll('.tech-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.platform === key);
+          });
+        }
+        renderGitSchemaSelect();
+      }
+
+      if (platformTabsEl) {
+        platformTabsEl.querySelectorAll('.tech-tab').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const key = btn.dataset.platform;
+            if (key) setActivePlatform(key);
+          });
+        });
+      }
+
+      if (platformOverrideBtn) {
+        platformOverrideBtn.addEventListener('click', () => {
+          state.platformUnlocked = !state.platformUnlocked;
+          if (state.platformUnlocked) {
+            platformOverrideBtn.textContent = 'Lock to preset';
+            if (platformLockLabelEl) platformLockLabelEl.textContent = 'Manual override enabled';
+            if (platformHintEl) platformHintEl.textContent = 'Manual overrides are active; remember to align GitOps settings.';
+            if (platformSelectEl) platformSelectEl.disabled = false;
+          } else {
+            platformOverrideBtn.textContent = 'Override';
+            if (platformSelectEl) platformSelectEl.disabled = true;
+            setActivePlatform(state.activePlatform);
+          }
+        });
+      }
+
+      setActivePlatform(state.activePlatform);
 
       document.getElementById('remoteKeyBrowseBtn').addEventListener('click', () => {
         pickDirectory('remoteSshKeyPath');
@@ -2475,6 +3612,9 @@
                 localStorage.setItem('pi-recent-projects', JSON.stringify(state.recentProjects));
                 updateRecentProjects();
               }
+              if (gitDiscoverBaseEl && !gitDiscoverBaseEl.dataset.manual) {
+                gitDiscoverBaseEl.value = state.lastCreatedPath;
+              }
             }
             
             const statusBadge = document.getElementById('resultStatus');
@@ -2534,6 +3674,32 @@
         }
       });
 
+      document.getElementById('discoverReposBtn').addEventListener('click', discoverRepositories);
+      document.getElementById('gitInspectBtn').addEventListener('click', () => {
+        inspectRepository(syncRepoPathEl.value.trim());
+      });
+      document.getElementById('loadSshKeysBtn').addEventListener('click', fetchSshKeys);
+      document.getElementById('importSshKeyBtn').addEventListener('click', () => {
+        const customPath = prompt('Provide the absolute path to the SSH key (public preferred)');
+        if (customPath) {
+          previewSshKey(customPath.trim());
+        }
+      });
+      document.getElementById('saveGitPrefs').addEventListener('click', saveGitPrefs);
+      document.getElementById('loadSavedGitPrefs').addEventListener('click', loadGitPrefs);
+      gitSchemaReloadBtn?.addEventListener('click', loadGitSchemas);
+      gitSchemaClearBtn?.addEventListener('click', clearGitSchemaSelection);
+      saveGitSchemaBtn?.addEventListener('click', saveGitSchema);
+      prefillSchemaFieldsBtn?.addEventListener('click', prefillSchemaFields);
+      gitSchemaSelectEl?.addEventListener('change', () => {
+        const id = gitSchemaSelectEl.value;
+        if (id) {
+          applyGitSchemaById(id);
+        } else {
+          clearGitSchemaSelection();
+        }
+      });
+
       // Sync Button
       document.getElementById('syncBtn').addEventListener('click', async () => {
         const repoPath = document.getElementById('syncRepoPath').value.trim();
@@ -2554,8 +3720,7 @@
 
           const res = await fetch(apiUrl('/api/sync'), { method: 'POST', body: fd });
           const data = await res.json();
-          document.getElementById('syncOutput').textContent = JSON.stringify(data, null, 2);
-          
+          renderGitLogEntries(data.log || data.git?.log || []);
           if (res.ok) {
             showToast('Sync complete');
           } else {
@@ -2614,12 +3779,19 @@
       async function init() {
         try {
           await loadMeta();
+          await loadGitSchemas();
           updateRecentProjects();
           validateTargetPath();
           
           // Check API health
           const health = await fetch(apiUrl('/api/health'));
-          if (!health.ok) {
+          const healthData = await health.json().catch(() => ({}));
+          if (health.ok) {
+            if (healthData.environment) {
+              state.environment = { ...state.environment, ...healthData.environment };
+              syncEnvironmentUi();
+            }
+          } else {
             showToast('Backend API is not reachable', 'warning');
           }
         } catch (err) {

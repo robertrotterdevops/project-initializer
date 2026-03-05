@@ -10,8 +10,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from threading import RLock
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +29,9 @@ else:
 
 FRONTEND_DIR = ROOT_DIR / "ui-draft" / "frontend"
 SCRIPTS_DIR = ROOT_DIR / "scripts"
+DATA_DIR = ROOT_DIR / "ui-draft" / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+GIT_REGISTRY_PATH = DATA_DIR / "git_registry.json"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -35,6 +41,7 @@ from sizing_parser import parse_sizing_file  # type: ignore  # noqa: E402
 
 
 USER_HOME = Path.home()
+SSH_DIR = USER_HOME / ".ssh"
 SYSTEM_DIRECTORIES = {
     "/",
     "/root",
@@ -96,6 +103,200 @@ def _get_default_suggestions() -> List[str]:
     return suggestions[:5]
 
 
+def _utcnow() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+class GitRegistry:
+    def __init__(self, path: Path):
+        self.path = path
+        self.lock = RLock()
+        self._ensure_file()
+
+    def _ensure_file(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self.path.write_text(json.dumps({"entries": []}, indent=2), encoding="utf-8")
+
+    def _read_entries(self) -> List[Dict[str, Any]]:
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raw = {"entries": []}
+        entries = raw.get("entries") or []
+        if not isinstance(entries, list):  # pragma: no cover - safety guard
+            return []
+        return entries
+
+    def _write_entries(self, entries: List[Dict[str, Any]]) -> None:
+        payload = {"entries": entries}
+        self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def list(self) -> List[Dict[str, Any]]:
+        with self.lock:
+            return list(self._read_entries())
+
+    def add(self, name: str, repo_path: str, remote_url: str, branch: str, platform: str, description: str) -> Dict[str, Any]:
+        if not name.strip():
+            raise HTTPException(status_code=400, detail="name is required for git schema")
+        if not repo_path.strip():
+            raise HTTPException(status_code=400, detail="repo_path is required for git schema")
+        now = _utcnow()
+        entry = {
+            "id": str(uuid4()),
+            "name": name.strip(),
+            "repo_path": repo_path.strip(),
+            "remote_url": remote_url.strip(),
+            "branch": (branch or "main").strip() or "main",
+            "platform": platform.strip(),
+            "description": description.strip(),
+            "created_at": now,
+            "updated_at": now,
+            "last_used_at": None,
+        }
+        with self.lock:
+            entries = self._read_entries()
+            entries.append(entry)
+            self._write_entries(entries)
+        return entry
+
+    def update(self, entry_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            entries = self._read_entries()
+            for entry in entries:
+                if entry.get("id") == entry_id:
+                    entry.update({k: v for k, v in updates.items() if v is not None})
+                    entry["updated_at"] = _utcnow()
+                    self._write_entries(entries)
+                    return entry
+        raise HTTPException(status_code=404, detail="git schema not found")
+
+    def delete(self, entry_id: str) -> None:
+        with self.lock:
+            entries = self._read_entries()
+            new_entries = [e for e in entries if e.get("id") != entry_id]
+            if len(new_entries) == len(entries):
+                raise HTTPException(status_code=404, detail="git schema not found")
+            self._write_entries(new_entries)
+
+    def mark_used(self, entry_id: str, platform: Optional[str] = None) -> None:
+        with self.lock:
+            entries = self._read_entries()
+            changed = False
+            for entry in entries:
+                if entry.get("id") == entry_id:
+                    entry["last_used_at"] = _utcnow()
+                    if platform:
+                        entry["platform"] = platform
+                    entry["updated_at"] = _utcnow()
+                    changed = True
+                    break
+            if changed:
+                self._write_entries(entries)
+
+    def upsert_from_project(
+        self,
+        repo_path: Optional[str],
+        remote_url: str,
+        branch: str,
+        platform: Optional[str],
+        schema_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+    ) -> None:
+        if not (repo_path or schema_id):
+            return
+        normalized_branch = (branch or "main").strip() or "main"
+        with self.lock:
+            entries = self._read_entries()
+            target = None
+            for entry in entries:
+                if schema_id and entry.get("id") == schema_id:
+                    target = entry
+                    break
+                if repo_path and entry.get("repo_path"):
+                    try:
+                        if Path(entry["repo_path"]).resolve() == Path(repo_path).resolve():
+                            target = entry
+                            break
+                    except OSError:
+                        if entry["repo_path"].strip() == repo_path.strip():
+                            target = entry
+                            break
+            if target:
+                target["remote_url"] = remote_url.strip() or target.get("remote_url", "")
+                target["branch"] = normalized_branch
+                if platform:
+                    target["platform"] = platform
+                target["last_used_at"] = _utcnow()
+                target["updated_at"] = _utcnow()
+                self._write_entries(entries)
+                return
+            if not repo_path:
+                return
+            now = _utcnow()
+            entry = {
+                "id": str(uuid4()),
+                "name": project_name or Path(repo_path).name,
+                "repo_path": repo_path,
+                "remote_url": remote_url.strip(),
+                "branch": normalized_branch,
+                "platform": platform or "",
+                "description": "",  # auto-added
+                "created_at": now,
+                "updated_at": now,
+                "last_used_at": now,
+            }
+            entries.append(entry)
+            self._write_entries(entries)
+
+
+GIT_REGISTRY = GitRegistry(GIT_REGISTRY_PATH)
+
+
+def _detect_runtime_environment() -> Dict[str, Any]:
+    platform = sys.platform
+    display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    ssh_session = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"))
+    forced = os.environ.get("PI_FORCE_HEADLESS")
+    headless = False
+    if forced:
+        headless = forced.lower() in {"1", "true", "yes"}
+    else:
+        headless = not display or ssh_session
+
+    supports_gui_open = False
+    supports_native_picker = False
+    picker_message = ""
+
+    if platform.startswith("linux"):
+        has_xdg = shutil.which("xdg-open") is not None
+        has_zenity = shutil.which("zenity") is not None
+        supports_gui_open = (not headless) and has_xdg
+        supports_native_picker = supports_gui_open and has_zenity
+        if not supports_native_picker:
+            if headless:
+                picker_message = "Native folder picker disabled (headless session)"
+            elif not has_zenity:
+                picker_message = "Install 'zenity' to enable the native Linux folder picker"
+    elif platform == "darwin":
+        supports_gui_open = not headless
+        supports_native_picker = not headless
+        if headless:
+            picker_message = "Native dialogs unavailable in headless macOS session"
+    else:
+        picker_message = f"Native picker not supported on {platform}"
+
+    return {
+        "platform": platform,
+        "headless": headless,
+        "supports_gui_open": supports_gui_open,
+        "supports_native_picker": supports_native_picker,
+        "picker_message": picker_message,
+    }
+
+
+RUNTIME_ENV = _detect_runtime_environment()
+
 app = FastAPI(title="Project Initializer UI API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -130,6 +331,16 @@ def _run_git_command(command: List[str], cwd: Path) -> Dict[str, Any]:
             "stdout": (exc.stdout or "").strip(),
             "stderr": (exc.stderr or str(exc)).strip(),
         }
+
+
+def _git_repo_summary(path: Path) -> Dict[str, Any]:
+    branch = _run_git_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], path)
+    last_commit = _run_git_command(["git", "log", "-1", "--pretty=%h %s (%cr)"] , path)
+    return {
+        "path": str(path),
+        "branch": branch.get("stdout", ""),
+        "last_commit": last_commit.get("stdout", ""),
+    }
 
 
 def _run_shell_command(command: List[str], cwd: Path) -> Dict[str, Any]:
@@ -206,6 +417,14 @@ def _expand_input_path(raw_path: str) -> Path:
     if not p.is_absolute():
         p = Path.home() / p
     return p
+
+
+def _is_path_within(base: Path, target: Path) -> bool:
+    try:
+        target.resolve().relative_to(base.resolve())
+        return True
+    except (ValueError, RuntimeError, OSError):
+        return False
 
 
 def _infer_platform_from_text(text: str) -> Optional[str]:
@@ -350,8 +569,8 @@ def index() -> FileResponse:
 
 
 @app.get("/api/health")
-def health() -> Dict[str, str]:
-    return {"status": "ok"}
+def health() -> Dict[str, Any]:
+    return {"status": "ok", "environment": RUNTIME_ENV}
 
 
 @app.get("/api/meta")
@@ -431,9 +650,31 @@ def fs_stat(path: str) -> Dict[str, Any]:
 
 @app.get("/api/fs/pick-directory")
 def fs_pick_directory(initial_path: str = "") -> Dict[str, Any]:
-    selected = _pick_directory_os_dialog(initial_path=initial_path)
+    if not RUNTIME_ENV["supports_native_picker"]:
+        return {
+            "fallback": True,
+            "message": RUNTIME_ENV.get("picker_message", ""),
+            "supports_native_picker": False,
+        }
+
+    try:
+        selected = _pick_directory_os_dialog(initial_path=initial_path)
+    except HTTPException as exc:
+        if exc.status_code == 501:
+            return {
+                "fallback": True,
+                "message": exc.detail,
+                "supports_native_picker": False,
+            }
+        raise
+
     p = Path(selected).resolve()
-    return {"path": str(p), "exists": p.exists(), "is_dir": p.is_dir()}
+    return {
+        "path": str(p),
+        "exists": p.exists(),
+        "is_dir": p.is_dir(),
+        "fallback": False,
+    }
 
 
 
@@ -488,6 +729,7 @@ async def create_project(
     git_remote_url: str = Form(""),
     git_branch: str = Form("main"),
     git_push: bool = Form(False),
+    git_schema_id: str = Form(""),
     use_terraform_iac: bool = Form(False),
     run_terraform_apply: bool = Form(False),
     target_type: str = Form("local"),
@@ -499,6 +741,8 @@ async def create_project(
     remote_base_dir: str = Form(""),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> Dict[str, Any]:
+    schema_id_clean = git_schema_id.strip() or None
+
     if not name.strip() or not target_dir.strip():
         raise HTTPException(status_code=400, detail="name and target_dir are required")
 
@@ -510,6 +754,7 @@ async def create_project(
     normalized_target_dir = str((Path(normalized_target_parent) / safe_name).resolve())
 
     remote_cfg: Optional[Dict[str, str]] = None
+    registry_target_path: Optional[str] = None
     if effective_target_type == "remote":
         host = remote_host.strip()
         user = remote_user.strip()
@@ -530,6 +775,7 @@ async def create_project(
             "base_dir": remote_base,
             "project_dir": remote_project_dir,
         }
+        registry_target_path = remote_project_dir
 
     effective_desc = _apply_forced_type(description, forced_type)
     sizing_context: Optional[Dict[str, Any]] = None
@@ -676,6 +922,7 @@ async def create_project(
     else:
         result["normalized_target_dir"] = normalized_target_dir
         result["target_parent_dir"] = normalized_target_parent
+        registry_target_path = normalized_target_dir
 
     if use_terraform_iac and run_terraform_apply and effective_target_type == "local":
         terraform_dir = project_path / "terraform"
@@ -692,7 +939,139 @@ async def create_project(
     else:
         result["terraform"] = {"requested": False, "log": []}
 
+    if git_init:
+        GIT_REGISTRY.upsert_from_project(
+            repo_path=registry_target_path,
+            remote_url=git_remote_url,
+            branch=git_branch,
+            platform=final_platform,
+            schema_id=schema_id_clean,
+            project_name=name,
+        )
+    elif schema_id_clean:
+        GIT_REGISTRY.mark_used(schema_id_clean, platform=final_platform)
+
     return result
+
+
+@app.get("/api/git/discover")
+def git_discover(base_path: str = "", limit: int = 25, max_depth: int = 4) -> Dict[str, Any]:
+    base = _expand_input_path(base_path or str(USER_HOME / "Projects"))
+    root = base.resolve()
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=400, detail="base_path does not exist or is not a directory")
+    safe_limit = max(1, min(limit, 200))
+    max_depth = max(1, min(max_depth, 8))
+    repositories: List[Dict[str, Any]] = []
+    for current, dirs, _files in os.walk(root):
+        current_path = Path(current).resolve()
+        try:
+            relative_depth = len(current_path.relative_to(root).parts)
+        except ValueError:
+            relative_depth = 0
+        if relative_depth > max_depth:
+            dirs[:] = []
+            continue
+        if ".git" in dirs:
+            repositories.append(_git_repo_summary(current_path))
+            dirs[:] = [d for d in dirs if d != ".git"]
+            if len(repositories) >= safe_limit:
+                break
+    return {"base_path": str(root), "repositories": repositories}
+
+
+@app.post("/api/git/inspect")
+def git_inspect(repo_path: str = Form(...)) -> Dict[str, Any]:
+    path = _expand_input_path(repo_path).resolve()
+    if not path.exists() or not path.is_dir():
+        raise HTTPException(status_code=400, detail="repo_path does not exist")
+    if not (path / ".git").exists():
+        raise HTTPException(status_code=400, detail="repo_path is not a git repository")
+    return {
+        "path": str(path),
+        "status": _run_git_command(["git", "status", "-sb"], path),
+        "remotes": _run_git_command(["git", "remote", "-v"], path),
+        "last_commit": _run_git_command(["git", "log", "-1", "--pretty=%h %s (%cr)"] , path),
+    }
+
+
+@app.get("/api/git/keys")
+def git_keys() -> Dict[str, Any]:
+    public_keys: List[Dict[str, str]] = []
+    private_keys: List[Dict[str, str]] = []
+    if SSH_DIR.exists() and SSH_DIR.is_dir():
+        for item in SSH_DIR.iterdir():
+            if not item.is_file():
+                continue
+            entry = {"name": item.name, "path": str(item)}
+            if item.suffix == ".pub":
+                public_keys.append(entry)
+            else:
+                private_keys.append(entry)
+    return {"public_keys": public_keys, "private_keys": private_keys}
+
+
+@app.post("/api/git/keys/read")
+def git_key_read(path: str = Form(...)) -> Dict[str, Any]:
+    target = _expand_input_path(path).resolve()
+    if not _is_path_within(SSH_DIR, target):
+        raise HTTPException(status_code=400, detail="Only keys under ~/.ssh can be read")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=400, detail="Key path does not exist")
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Key is not readable text") from exc
+    return {"path": str(target), "content": content.strip()}
+
+
+@app.get("/api/git/registry")
+def git_registry_list() -> Dict[str, Any]:
+    return {"entries": GIT_REGISTRY.list()}
+
+
+@app.post("/api/git/registry")
+def git_registry_create(
+    name: str = Form(...),
+    repo_path: str = Form(...),
+    remote_url: str = Form(""),
+    branch: str = Form("main"),
+    platform: str = Form(""),
+    description: str = Form(""),
+) -> Dict[str, Any]:
+    entry = GIT_REGISTRY.add(name, repo_path, remote_url, branch, platform, description)
+    return entry
+
+
+@app.patch("/api/git/registry/{entry_id}")
+def git_registry_update(
+    entry_id: str,
+    name: str = Form(""),
+    repo_path: str = Form(""),
+    remote_url: str = Form(""),
+    branch: str = Form(""),
+    platform: str = Form(""),
+    description: str = Form(""),
+) -> Dict[str, Any]:
+    payload = {
+        "name": name.strip() or None,
+        "repo_path": repo_path.strip() or None,
+        "remote_url": remote_url.strip() or None,
+        "branch": (branch or "").strip() or None,
+        "platform": platform.strip() or None,
+        "description": description.strip() or None,
+    }
+    cleaned = {k: v for k, v in payload.items() if v is not None}
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="No updates supplied")
+    entry = GIT_REGISTRY.update(entry_id, cleaned)
+    return entry
+
+
+@app.delete("/api/git/registry/{entry_id}")
+def git_registry_delete(entry_id: str) -> Dict[str, Any]:
+    GIT_REGISTRY.delete(entry_id)
+    return {"ok": True}
 
 
 @app.post("/api/sync")
@@ -755,6 +1134,8 @@ def open_path(
     path: str = Form(...),
     tool: str = Form("zed"),
 ) -> Dict[str, Any]:
+    if tool == "filemanager" and not RUNTIME_ENV.get("supports_gui_open", False):
+        raise HTTPException(status_code=501, detail="GUI open is not available in this session")
     target = _expand_input_path(path).resolve()
     if not target.exists():
         raise HTTPException(status_code=400, detail="path does not exist")
