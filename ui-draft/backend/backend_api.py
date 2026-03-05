@@ -6,10 +6,14 @@ Draft API for a professional internal UI around project-initializer.
 
 import json
 import os
+import base64
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from threading import RLock
@@ -309,7 +313,7 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
-def _run_git_command(command: List[str], cwd: Path) -> Dict[str, Any]:
+def _run_git_command(command: List[str], cwd: Path, env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     try:
         proc = subprocess.run(
             command,
@@ -317,6 +321,7 @@ def _run_git_command(command: List[str], cwd: Path) -> Dict[str, Any]:
             capture_output=True,
             text=True,
             check=True,
+            env=env,
         )
         return {
             "ok": True,
@@ -331,6 +336,197 @@ def _run_git_command(command: List[str], cwd: Path) -> Dict[str, Any]:
             "stdout": (exc.stdout or "").strip(),
             "stderr": (exc.stderr or str(exc)).strip(),
         }
+
+
+def _git_username_for_remote(remote_url: str) -> Optional[str]:
+    lower = (remote_url or "").strip().lower()
+    if "github.com" in lower:
+        return "x-access-token"
+    if "gitlab.com" in lower:
+        return "oauth2"
+    return None
+
+
+def _http_json_request(url: str, method: str, headers: Dict[str, str], payload: Optional[Dict[str, Any]] = None) -> Any:
+    data_bytes = None
+    req_headers = dict(headers)
+    if payload is not None:
+        data_bytes = json.dumps(payload).encode("utf-8")
+        req_headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url=url, data=data_bytes, headers=req_headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode("utf-8") if resp else ""
+            if not body:
+                return {}
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            parsed = {"message": raw}
+        raise HTTPException(status_code=400, detail=f"Remote API error ({exc.code}): {parsed}") from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Remote API unavailable: {exc.reason}") from exc
+
+
+def _create_github_repo(namespace: str, project_name: str, token: str, private_repo: bool) -> str:
+    ns = namespace.strip().strip("/")
+    if not ns:
+        raise HTTPException(status_code=400, detail="git_namespace is required for github repository creation")
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "project-initializer",
+    }
+    payload = {"name": project_name, "private": private_repo}
+
+    # Try organization first; fallback to authenticated user namespace.
+    try:
+        response = _http_json_request(
+            url=f"https://api.github.com/orgs/{urllib.parse.quote(ns)}/repos",
+            method="POST",
+            headers=headers,
+            payload=payload,
+        )
+    except HTTPException:
+        me = _http_json_request(
+            url="https://api.github.com/user",
+            method="GET",
+            headers=headers,
+        )
+        login = (me.get("login") or "").strip()
+        if login.lower() != ns.lower():
+            raise
+        response = _http_json_request(
+            url="https://api.github.com/user/repos",
+            method="POST",
+            headers=headers,
+            payload=payload,
+        )
+
+    clone_url = (response.get("clone_url") or "").strip()
+    if not clone_url:
+        raise HTTPException(status_code=502, detail="GitHub API did not return clone_url")
+    return clone_url
+
+
+def _create_gitlab_repo(namespace: str, project_name: str, token: str, private_repo: bool) -> str:
+    ns = namespace.strip().strip("/")
+    if not ns:
+        raise HTTPException(status_code=400, detail="git_namespace is required for gitlab repository creation")
+
+    headers = {
+        "Accept": "application/json",
+        "PRIVATE-TOKEN": token,
+        "User-Agent": "project-initializer",
+    }
+    namespaces = _http_json_request(
+        url=f"https://gitlab.com/api/v4/namespaces?search={urllib.parse.quote(ns)}",
+        method="GET",
+        headers=headers,
+    )
+    if not isinstance(namespaces, list):
+        raise HTTPException(status_code=502, detail="Unexpected GitLab namespace response")
+
+    exact = None
+    for item in namespaces:
+        full_path = (item.get("full_path") or item.get("path") or "").strip()
+        if full_path.lower() == ns.lower():
+            exact = item
+            break
+    if exact is None:
+        raise HTTPException(status_code=404, detail=f"GitLab namespace not found: {ns}")
+
+    visibility = "private" if private_repo else "public"
+    response = _http_json_request(
+        url="https://gitlab.com/api/v4/projects",
+        method="POST",
+        headers=headers,
+        payload={
+            "name": project_name,
+            "path": project_name,
+            "namespace_id": exact.get("id"),
+            "visibility": visibility,
+        },
+    )
+
+    clone_url = (response.get("http_url_to_repo") or "").strip()
+    if not clone_url:
+        raise HTTPException(status_code=502, detail="GitLab API did not return http_url_to_repo")
+    return clone_url
+
+
+def _create_remote_repo(provider: str, namespace: str, project_name: str, token: str, private_repo: bool) -> str:
+    p = (provider or "").strip().lower()
+    if p == "github":
+        return _create_github_repo(namespace, project_name, token, private_repo)
+    if p == "gitlab":
+        return _create_gitlab_repo(namespace, project_name, token, private_repo)
+    raise HTTPException(status_code=400, detail="git_provider must be 'github' or 'gitlab' for remote repo creation")
+
+
+def _detect_provider(provider: str, remote_url: str) -> str:
+    p = (provider or "").strip().lower()
+    if p in {"github", "gitlab"}:
+        return p
+    lower = (remote_url or "").strip().lower()
+    if "github.com" in lower:
+        return "github"
+    if "gitlab.com" in lower:
+        return "gitlab"
+    return ""
+
+
+def _looks_like_namespace_url(remote_url: str) -> bool:
+    raw = (remote_url or "").strip()
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        return False
+    parsed = urllib.parse.urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if not any(h in host for h in ("gitlab.com", "github.com")):
+        return False
+    parts = [p for p in (parsed.path or "").split("/") if p]
+    return len(parts) < 2
+
+
+def _prepare_git_pat_env(remote_url: str, git_token: str) -> tuple[Optional[Dict[str, str]], Optional[Path]]:
+    token = (git_token or "").strip()
+    if not token:
+        return None, None
+
+    username = _git_username_for_remote(remote_url)
+    if not username:
+        return None, None
+
+    # `git` invokes askpass for both username and password prompts.
+    script = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".sh")
+    username_escaped = username.replace("'", "'\"'\"'")
+    token_escaped = token.replace("'", "'\"'\"'")
+    script.write("#!/usr/bin/env sh\n")
+    script.write('prompt="$1"\n')
+    script.write('case "$prompt" in\n')
+    script.write("  *Username*) echo '" + username_escaped + "' ;;\n")
+    script.write("  *) echo '" + token_escaped + "' ;;\n")
+    script.write("esac\n")
+    script.flush()
+    script.close()
+    script_path = Path(script.name)
+    script_path.chmod(0o700)
+
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = str(script_path)
+    # Force PAT auth and bypass stale credentials from global/system helper.
+    basic = base64.b64encode(f"{username}:{token}".encode("utf-8")).decode("ascii")
+    env["GIT_CONFIG_COUNT"] = "2"
+    env["GIT_CONFIG_KEY_0"] = "credential.helper"
+    env["GIT_CONFIG_VALUE_0"] = ""
+    env["GIT_CONFIG_KEY_1"] = "http.extraheader"
+    env["GIT_CONFIG_VALUE_1"] = f"AUTHORIZATION: basic {basic}"
+    return env, script_path
 
 
 def _git_repo_summary(path: Path) -> Dict[str, Any]:
@@ -729,6 +925,11 @@ async def create_project(
     git_remote_url: str = Form(""),
     git_branch: str = Form("main"),
     git_push: bool = Form(False),
+    git_token: str = Form(""),
+    git_provider: str = Form(""),
+    git_namespace: str = Form(""),
+    create_remote_repo: bool = Form(False),
+    git_private_repo: bool = Form(True),
     git_schema_id: str = Form(""),
     use_terraform_iac: bool = Form(False),
     run_terraform_apply: bool = Form(False),
@@ -839,6 +1040,37 @@ async def create_project(
     else:
         local_build_dir = Path(normalized_target_dir)
 
+    effective_remote_url = git_remote_url.strip()
+    if git_push and effective_remote_url and not create_remote_repo and _looks_like_namespace_url(effective_remote_url):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "git_remote_url points to a namespace/group URL, not a repository URL. "
+                "Enable 'create_remote_repo' or provide full repo URL like "
+                "https://gitlab.com/<group>/<repo>.git"
+            ),
+        )
+    created_remote: Optional[Dict[str, Any]] = None
+    if create_remote_repo:
+        if not git_token.strip():
+            raise HTTPException(status_code=400, detail="git_token is required when create_remote_repo is enabled")
+        if not git_provider.strip() or not git_namespace.strip():
+            raise HTTPException(status_code=400, detail="git_provider and git_namespace are required when create_remote_repo is enabled")
+        effective_remote_url = _create_remote_repo(
+            provider=git_provider,
+            namespace=git_namespace,
+            project_name=safe_name,
+            token=git_token.strip(),
+            private_repo=git_private_repo,
+        )
+        created_remote = {
+            "created": True,
+            "provider": git_provider.strip().lower(),
+            "namespace": git_namespace.strip(),
+            "url": effective_remote_url,
+            "private": git_private_repo,
+        }
+
     result = initialize_project(
         project_name=name,
         description=effective_desc,
@@ -847,7 +1079,7 @@ async def create_project(
         platform=final_platform or None,
         gitops_tool=final_gitops,
         iac_tool="terraform" if use_terraform_iac else "",
-        repo_url=git_remote_url.strip() or None,
+        repo_url=effective_remote_url or None,
         target_revision=(git_branch.strip() or "main"),
         sizing_context=sizing_context,
     )
@@ -855,18 +1087,23 @@ async def create_project(
     git_log: List[Dict[str, Any]] = []
     project_path = Path(result["project_path"]).resolve()
 
-    if git_init:
-        git_log.append(_run_git_command(["git", "init"], project_path))
-        git_log.append(_run_git_command(["git", "add", "."], project_path))
-        git_log.append(_run_git_command(["git", "commit", "-m", git_commit_message], project_path))
+    git_env, askpass_path = _prepare_git_pat_env(effective_remote_url, git_token)
+    try:
+        if git_init:
+            git_log.append(_run_git_command(["git", "init"], project_path, env=git_env))
+            git_log.append(_run_git_command(["git", "add", "."], project_path, env=git_env))
+            git_log.append(_run_git_command(["git", "commit", "-m", git_commit_message], project_path, env=git_env))
 
-        if git_remote_url.strip():
-            git_log.append(_run_git_command(["git", "remote", "remove", "origin"], project_path))
-            git_log.append(_run_git_command(["git", "remote", "add", "origin", git_remote_url.strip()], project_path))
+            if effective_remote_url:
+                git_log.append(_run_git_command(["git", "remote", "remove", "origin"], project_path, env=git_env))
+                git_log.append(_run_git_command(["git", "remote", "add", "origin", effective_remote_url], project_path, env=git_env))
 
-        if git_push and git_remote_url.strip():
-            git_log.append(_run_git_command(["git", "branch", "-M", git_branch], project_path))
-            git_log.append(_run_git_command(["git", "push", "-u", "origin", git_branch], project_path))
+            if git_push and effective_remote_url:
+                git_log.append(_run_git_command(["git", "branch", "-M", git_branch], project_path, env=git_env))
+                git_log.append(_run_git_command(["git", "push", "-u", "origin", git_branch], project_path, env=git_env))
+    finally:
+        if askpass_path is not None:
+            askpass_path.unlink(missing_ok=True)
 
     remote_log: List[Dict[str, Any]] = []
     remote_result: Dict[str, Any] = {"enabled": effective_target_type == "remote", "ok": True, "log": []}
@@ -890,11 +1127,13 @@ async def create_project(
 
     result["git"] = {
         "enabled": git_init,
-        "remote": git_remote_url,
+        "remote": effective_remote_url,
         "branch": git_branch,
         "push": git_push,
         "log": git_log,
     }
+    if created_remote is not None:
+        result["git"]["remote_repo"] = created_remote
     result["effective_platform"] = final_platform
     result["detected_workload_platform"] = detected_platform
     result["platform_source"] = platform_source
@@ -942,7 +1181,7 @@ async def create_project(
     if git_init:
         GIT_REGISTRY.upsert_from_project(
             repo_path=registry_target_path,
-            remote_url=git_remote_url,
+            remote_url=effective_remote_url,
             branch=git_branch,
             platform=final_platform,
             schema_id=schema_id_clean,
@@ -1025,6 +1264,29 @@ def git_key_read(path: str = Form(...)) -> Dict[str, Any]:
     return {"path": str(target), "content": content.strip()}
 
 
+@app.post("/api/git/token/test")
+def git_token_test(
+    git_token: str = Form(...),
+    git_provider: str = Form(""),
+    remote_url: str = Form(""),
+) -> Dict[str, Any]:
+    token = (git_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="git_token is required")
+    provider = _detect_provider(git_provider, remote_url)
+    if not provider:
+        raise HTTPException(status_code=400, detail="git_provider is required (github/gitlab) when remote_url is not set")
+
+    if provider == "gitlab":
+        headers = {"PRIVATE-TOKEN": token, "Accept": "application/json", "User-Agent": "project-initializer"}
+        me = _http_json_request("https://gitlab.com/api/v4/user", "GET", headers)
+        return {"ok": True, "provider": "gitlab", "user": me.get("username") or me.get("name") or "", "scopes_hint": "Needs read_repository + write_repository (or api)."}
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "project-initializer"}
+    me = _http_json_request("https://api.github.com/user", "GET", headers)
+    return {"ok": True, "provider": "github", "user": me.get("login") or me.get("name") or "", "scopes_hint": "Needs repo scope for private repositories."}
+
+
 @app.get("/api/git/registry")
 def git_registry_list() -> Dict[str, Any]:
     return {"entries": GIT_REGISTRY.list()}
@@ -1078,6 +1340,7 @@ def git_registry_delete(entry_id: str) -> Dict[str, Any]:
 def sync_repo(
     repo_path: str = Form(...),
     branch: str = Form("main"),
+    git_token: str = Form(""),
 ) -> Dict[str, Any]:
     path = Path(repo_path).expanduser().resolve()
     if not path.exists() or not path.is_dir():
@@ -1086,11 +1349,18 @@ def sync_repo(
     if not (path / ".git").exists():
         raise HTTPException(status_code=400, detail="repo_path is not a git repository")
 
-    log = [
-        _run_git_command(["git", "checkout", branch], path),
-        _run_git_command(["git", "pull", "--rebase", "origin", branch], path),
-        _run_git_command(["git", "push", "origin", branch], path),
-    ]
+    origin_lookup = _run_git_command(["git", "remote", "get-url", "origin"], path)
+    remote_url = origin_lookup.get("stdout", "") if origin_lookup.get("ok") else ""
+    git_env, askpass_path = _prepare_git_pat_env(remote_url, git_token)
+    try:
+        log = [
+            _run_git_command(["git", "checkout", branch], path, env=git_env),
+            _run_git_command(["git", "pull", "--rebase", "origin", branch], path, env=git_env),
+            _run_git_command(["git", "push", "origin", branch], path, env=git_env),
+        ]
+    finally:
+        if askpass_path is not None:
+            askpass_path.unlink(missing_ok=True)
     return {"repo_path": str(path), "branch": branch, "log": log}
 
 
