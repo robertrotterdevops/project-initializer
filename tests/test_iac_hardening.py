@@ -68,6 +68,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertTrue((out_dir / "ansible/rke2-bootstrap.yml").exists())
             self.assertTrue((out_dir / "docs/DEPLOYMENT_ATTENTION.md").exists())
             self.assertTrue((out_dir / "docs/RKE2_BOOTSTRAP.md").exists())
+            self.assertTrue((out_dir / "sizing/config.json").exists())
             tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
             versions_tf = (out_dir / "terraform/versions.tf").read_text()
             providers_tf = (out_dir / "terraform/providers.tf").read_text()

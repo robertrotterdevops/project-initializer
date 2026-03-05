@@ -161,11 +161,11 @@ class AddonLoader:
         sizing_context = context.get("sizing_context") or {}
 
         for spec in self.discover_addons():
-            # If sizing report context exists, always include ECK addon.
-            # This ensures ES/ECK scaffolding is generated even when the
-            # free-text description does not classify as "elasticsearch".
+            # If sizing report context exists, always include ECK + sizing addons.
+            # This ensures ES/ECK scaffolding and sizing artifacts are generated
+            # even when free-text description does not classify as "elasticsearch".
             if (
-                spec.name == "eck_deployment"
+                spec.name in {"eck_deployment", "sizing_integration"}
                 and sizing_context.get("source") == "sizing_report"
             ):
                 matched.append(spec)
