@@ -17,7 +17,24 @@ ADDON_META = {
 }
 
 
-def _script_header(project_name: str) -> str:
+def _script_header(project_name: str, platform: str = "") -> str:
+    rke2_kubeconfig_block = ""
+    if platform in ("rke2", "proxmox"):
+        rke2_kubeconfig_block = """
+# Fetch kubeconfig from the RKE2 server node — used by bootstrap-flux and reconcile
+SERVER_IP=$(cd "$ROOT_DIR/terraform" && terraform output -json vm_ips | \\
+  python3 -c "import sys,json; ips=json.load(sys.stdin); \\
+  print(next(v for k,v in ips.items() if 'system' in k))")
+
+KUBECONFIG_TMP=$(mktemp /tmp/rke2-kubeconfig.XXXXXX)
+trap "rm -f $KUBECONFIG_TMP" EXIT
+
+sshpass -p "${ANSIBLE_SSH_PASS:-ubuntu}" ssh -o StrictHostKeyChecking=no ubuntu@"$SERVER_IP" \\
+  "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_TMP"
+
+sed -i "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" "$KUBECONFIG_TMP"
+export KUBECONFIG="$KUBECONFIG_TMP"
+"""
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -25,32 +42,39 @@ PROJECT_NAME="{project_name}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT_DIR/terraform"
-echo "[1/5] Running terraform apply..."
+echo "[1/6] Running terraform apply..."
 terraform init
 terraform apply -auto-approve
 cd "$ROOT_DIR"
 
 if [ -x "$ROOT_DIR/scripts/bootstrap-rke2.sh" ]; then
-  echo "[2/5] Running RKE2 bootstrap..."
+  echo "[2/6] Running RKE2 bootstrap..."
   "$ROOT_DIR/scripts/bootstrap-rke2.sh"
 else
-  echo "[2/5] No RKE2 bootstrap script found; skipping."
+  echo "[2/6] No RKE2 bootstrap script found; skipping."
 fi
-"""
+{rke2_kubeconfig_block}"""
 
 
 def _flux_tail(project_name: str) -> str:
     return f"""if command -v flux >/dev/null 2>&1; then
-  echo "[4/5] Triggering Flux reconcile..."
+  echo "[4/6] Bootstrapping Flux..."
+  if [ -x "$ROOT_DIR/scripts/bootstrap-flux.sh" ]; then
+    "$ROOT_DIR/scripts/bootstrap-flux.sh"
+  else
+    echo "bootstrap-flux.sh not found; skipping."
+  fi
+
+  echo "[5/6] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
 else
-  echo "Flux CLI not installed; skipped reconcile trigger."
+  echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[5/5] Deployment trigger finished."
+echo "[6/6] Deployment trigger finished."
 """
 
 
@@ -74,11 +98,12 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
         return {}
 
     gitops = (ctx.get("gitops_tool") or "").lower()
+    platform = (ctx.get("platform") or "").lower()
     repo_url = (ctx.get("repo_url") or "").strip()
     target_revision = (ctx.get("target_revision") or "main").strip() or "main"
 
     git_push_block = f"""
-echo "[3/5] Updating Git repository..."
+echo "[3/6] Updating Git repository..."
 cd "$ROOT_DIR"
 git add .
 git commit -m "Post-terraform deployment update for $PROJECT_NAME" || true
@@ -95,7 +120,7 @@ fi
 
     if gitops not in {"flux", "argo"}:
         return {
-            "scripts/post-terraform-deploy.sh": _script_header(project_name)
+            "scripts/post-terraform-deploy.sh": _script_header(project_name, platform)
             + git_push_block
             + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
             "docs/DEPLOYMENT_PIPELINE.md": (
@@ -108,7 +133,7 @@ fi
 
     tail = _flux_tail(project_name) if gitops == "flux" else _argo_tail(project_name)
     return {
-        "scripts/post-terraform-deploy.sh": _script_header(project_name) + git_push_block + tail,
+        "scripts/post-terraform-deploy.sh": _script_header(project_name, platform) + git_push_block + tail,
         "docs/DEPLOYMENT_PIPELINE.md": (
             "# Deployment Pipeline\n\n"
             "Use this sequence to complete deployment:\n\n"

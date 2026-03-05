@@ -122,9 +122,12 @@ spec:
   prune: true
   wait: true
   timeout: {"2m" if self.complexity_score < 1.3 else "5m"}
-  validation: server
 """
 
+        apps_depends_on = f"""  dependsOn:
+  - name: {self.project_name}
+  - name: {self.project_name}-infra
+"""
         manifests["kustomization-apps.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -138,9 +141,7 @@ spec:
   path: ./apps
   prune: true
   wait: true
-  dependsOn:
-  - name: {self.project_name}
-"""
+{apps_depends_on}"""
 
         manifests["kustomization-infra.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -295,7 +296,8 @@ if echo "$REPO_URL" | grep -q "github.com"; then
     --namespace="${{FLUX_NAMESPACE}}" \\
     {"--personal" if self.complexity_score < 1.3 else "--team"}
 else
-  echo "Non-GitHub URL detected. Creating GitRepository/Kustomization only."
+  echo "Non-GitHub URL detected. Installing Flux and creating GitRepository/Kustomization..."
+  flux install --namespace="${{FLUX_NAMESPACE}}"
   kubectl apply -f "$PWD/flux-system"
 fi
 
@@ -476,9 +478,9 @@ spec:
     # Apps directory with initial application definitions
     app_resources = ["../../base"]
     if eck_enabled:
+        # ECK operator goes to infrastructure (provides CRDs); ES/Kibana/Agents go here
         app_resources.extend(
             [
-                "../../platform/eck-operator",
                 "../../elasticsearch",
                 "../../kibana",
                 "../../agents",
@@ -559,6 +561,11 @@ metadata:
         files[filepath] = content
 
     # Infrastructure directory
+    infra_resources = ["network-policy.yaml"]
+    if eck_enabled:
+        infra_resources.append("../platform/eck-operator")
+    infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
+
     infrastructure_files = {
         "infrastructure/README.md": """# Shared Infrastructure Components
 
@@ -568,6 +575,11 @@ This directory contains shared infrastructure components used across environment
 - Common configurations
 - Shared resources
 - Cross-cutting concerns
+""",
+        "infrastructure/kustomization.yaml": f"""apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+{infra_resources_yaml}
 """,
         "infrastructure/network-policy.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
