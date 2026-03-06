@@ -1080,6 +1080,7 @@ async def create_project(
         gitops_tool=final_gitops,
         iac_tool="terraform" if use_terraform_iac else "",
         repo_url=effective_remote_url or None,
+        git_token=git_token.strip() or None,
         target_revision=(git_branch.strip() or "main"),
         sizing_context=sizing_context,
     )

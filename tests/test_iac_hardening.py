@@ -93,6 +93,47 @@ class TestIacHardening(unittest.TestCase):
             mode = os.stat(out_dir / "scripts/post-terraform-deploy.sh").st_mode
             self.assertTrue(mode & 0o100)
 
+    def test_flux_gitlab_repo_and_token_flow_are_generated(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "rke2": {"pools": [{"name": "system_pool", "nodes": 1}]},
+        }
+        repo_url = "https://gitlab.com/acme/platform/gitops-check.git"
+        git_token = "glpat-EXAMPLE"
+        with tempfile.TemporaryDirectory(prefix="pi-flux-gitlab-") as td:
+            out_dir = Path(td) / "gitops-check"
+            initialize_project(
+                project_name="gitops-check",
+                description="Elasticsearch platform validation",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                repo_url=repo_url,
+                git_token=git_token,
+                target_revision="main",
+                sizing_context=sizing_context,
+            )
+
+            gitrepo = (out_dir / "flux-system/gitrepository.yaml").read_text()
+            self.assertIn(f"url: {repo_url}", gitrepo)
+            self.assertIn("branch: main", gitrepo)
+            self.assertIn("secretRef:", gitrepo)
+            self.assertIn("name: gitops-check-git-auth", gitrepo)
+
+            secret = (out_dir / "flux-system/git-auth-secret.yaml").read_text()
+            self.assertIn("name: gitops-check-git-auth", secret)
+            self.assertIn("username: oauth2", secret)
+            self.assertIn(f"password: {git_token}", secret)
+
+            deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            self.assertIn(
+                f'git remote set-url origin "https://oauth2:{git_token}@gitlab.com/acme/platform/gitops-check.git"',
+                deploy_script,
+            )
+            self.assertIn(f'git remote set-url origin "{repo_url}"', deploy_script)
+
 
 if __name__ == "__main__":
     unittest.main()

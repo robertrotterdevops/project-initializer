@@ -100,7 +100,11 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     gitops = (ctx.get("gitops_tool") or "").lower()
     platform = (ctx.get("platform") or "").lower()
     repo_url = (ctx.get("repo_url") or "").strip()
+    git_token = (ctx.get("git_token") or "").strip()
     target_revision = (ctx.get("target_revision") or "main").strip() or "main"
+    remote_with_token = repo_url
+    if git_token and repo_url.startswith("https://"):
+        remote_with_token = "https://oauth2:" + git_token + "@" + repo_url[len("https://"):]
 
     git_push_block = f"""
 echo "[3/6] Updating Git repository..."
@@ -111,8 +115,14 @@ if [ -n "{repo_url}" ]; then
   git remote get-url origin >/dev/null 2>&1 || git remote add origin "{repo_url}"
 fi
 if git remote get-url origin >/dev/null 2>&1; then
+  if [ -n "{git_token}" ] && [ -n "{repo_url}" ]; then
+    git remote set-url origin "{remote_with_token}"
+  fi
   git checkout -B "{target_revision}" || true
   git push -u origin "{target_revision}" || true
+  if [ -n "{git_token}" ] && [ -n "{repo_url}" ]; then
+    git remote set-url origin "{repo_url}"
+  fi
 else
   echo "No git remote configured; push skipped."
 fi

@@ -8,6 +8,7 @@ Extends the project initialization process with robust Flux GitOps deployment ca
 import json
 import os
 import re
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 
@@ -40,7 +41,24 @@ class FluxDeploymentGenerator:
         self.platform = self.context.get("platform", "kubernetes")
         self.repo_url = self.context.get("repo_url", f"https://github.com/your-org/{project_name}.git")
         self.target_revision = self.context.get("target_revision", "main")
+        self.git_token = (self.context.get("git_token") or "").strip()
         self.complexity_score = self._calculate_complexity()
+
+    def _repo_url_for_flux(self) -> str:
+        if not self.repo_url:
+            return f"https://github.com/your-org/{self.project_name}.git"
+        return self.repo_url
+
+    def _flux_secret_name(self) -> str:
+        return f"{self.project_name}-git-auth"
+
+    def _flux_secret_ref_block(self) -> str:
+        if not self.git_token:
+            return ""
+        return (
+            "  secretRef:\n"
+            f"    name: {self._flux_secret_name()}\n"
+        )
 
     def _calculate_complexity(self) -> float:
         """
@@ -95,15 +113,15 @@ metadata:
   namespace: flux-system
 spec:
   interval: 1m
-  url: https://github.com/your-org/{self.project_name}
+  url: {self._repo_url_for_flux()}
   ref:
-    branch: main
+    branch: {self.target_revision}
+{self._flux_secret_ref_block()}  timeout: 2m
   ignore: |
     # Exclude files from synchronization
     /*.md
     /docs
     /scripts
-    /overlays
 """
 
         # Kustomization manifest with dynamic reconciliation
@@ -158,6 +176,19 @@ spec:
   wait: true
   dependsOn:
   - name: {self.project_name}
+"""
+
+        # Auth secret for private repositories when token is provided.
+        if self.git_token:
+            manifests["git-auth-secret.yaml"] = f"""apiVersion: v1
+kind: Secret
+metadata:
+  name: {self._flux_secret_name()}
+  namespace: flux-system
+type: Opaque
+stringData:
+  username: oauth2
+  password: {self.git_token}
 """
 
         # RBAC for more complex deployments
@@ -273,6 +304,25 @@ spec:
 
         :return: Bootstrap script content
         """
+        parsed = urlparse(self._repo_url_for_flux())
+        host = parsed.netloc or ""
+        path = (parsed.path or "").lstrip("/")
+        owner = ""
+        repo = ""
+        if "/" in path:
+            owner, repo = path.split("/", 1)
+            repo = repo[:-4] if repo.endswith(".git") else repo
+
+        extra_complex_block = ""
+        if self.complexity_score > 1.3 and owner:
+            extra_complex_block = f'''
+# Additional setup for complex scenarios
+flux create source git additional-configs \\
+  --url=https://{host}/{owner}/additional-configs.git \\
+  --branch=main \\
+  --namespace="${{FLUX_NAMESPACE}}" || true
+'''
+
         return f'''#!/bin/bash
 # Flux Bootstrap Script for {self.project_name}
 set -e
@@ -281,7 +331,7 @@ set -e
 command -v flux >/dev/null 2>&1 || {{ echo >&2 "Flux CLI is not installed. Please install Flux."; exit 1; }}
 command -v kubectl >/dev/null 2>&1 || {{ echo >&2 "kubectl is not installed. Please install kubectl."; exit 1; }}
 
-REPO_URL="{self.repo_url}"
+REPO_URL="{self._repo_url_for_flux()}"
 TARGET_REVISION="{self.target_revision}"
 FLUX_NAMESPACE="flux-system"
 
@@ -300,20 +350,7 @@ else
   flux install --namespace="${{FLUX_NAMESPACE}}"
   kubectl apply -f "$PWD/flux-system"
 fi
-
-# Additional setup for more complex scenarios
-if [ {self.complexity_score} -gt 1.3 ]; then
-    flux create source git additional-configs \\
-      --url=https://github.com/${{GITHUB_OWNER}}/additional-configs \\
-      --branch=main \\
-      --namespace=${{FLUX_NAMESPACE}}
-    
-    flux create kustomization additional-configs \\
-      --source=additional-configs \\
-      --path=./clusters/${{CLUSTER_NAME}} \\
-      --prune=true \\
-      --wait=true
-fi
+{extra_complex_block}
 
 echo "Flux bootstrap/configuration complete."
 '''
