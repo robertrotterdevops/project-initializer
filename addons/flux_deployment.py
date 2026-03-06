@@ -8,6 +8,7 @@ Extends the project initialization process with robust Flux GitOps deployment ca
 import json
 import os
 import re
+from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
@@ -124,9 +125,9 @@ spec:
     /scripts
 """
 
-        # Kustomization manifest with dynamic reconciliation
+        # Root Flux Kustomization CR (gotk-sync).
         reconciliation_interval = "5m" if self.complexity_score < 1.3 else "1m"
-        manifests["kustomization.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+        manifests["gotk-sync.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: {self.project_name}
@@ -138,7 +139,7 @@ spec:
     name: {self.project_name}
   path: ./clusters/management
   prune: true
-  wait: true
+  wait: false
   timeout: {"2m" if self.complexity_score < 1.3 else "5m"}
 """
 
@@ -190,6 +191,24 @@ stringData:
   username: oauth2
   password: {self.git_token}
 """
+
+        # flux-system directory overlay for kubectl/kustomize entrypoint.
+        flux_resources = [
+            "- namespace.yaml",
+            "- gitrepository.yaml",
+            "- gotk-sync.yaml",
+            "- kustomization-apps.yaml",
+            "- kustomization-infra.yaml",
+        ]
+        if self.git_token:
+            flux_resources.insert(1, "- git-auth-secret.yaml")
+        manifests["kustomization.yaml"] = (
+            "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+            "kind: Kustomization\n"
+            "resources:\n"
+            + "\n".join(flux_resources)
+            + "\n"
+        )
 
         # RBAC for more complex deployments
         if self.complexity_score > 1.3:
@@ -348,7 +367,7 @@ if echo "$REPO_URL" | grep -q "github.com"; then
 else
   echo "Non-GitHub URL detected. Installing Flux and creating GitRepository/Kustomization..."
   flux install --namespace="${{FLUX_NAMESPACE}}"
-  kubectl apply -f "$PWD/flux-system"
+  kubectl apply -k "$PWD/flux-system"
 fi
 {extra_complex_block}
 
@@ -427,8 +446,9 @@ def main(
 
     # Base configuration for all services
     base_files = {
-        "base/kustomization.yaml": """apiVersion: kustomize.config.k8s.io/v1beta1
+        "base/kustomization.yaml": f"""apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: {project_name}
 resources:
 - deployment.yaml
 - service.yaml
@@ -513,7 +533,7 @@ spec:
         files[filepath] = content
 
     # Apps directory with initial application definitions
-    app_resources = ["../../base"]
+    app_resources: List[str] = []
     if eck_enabled:
         # ECK operator goes to infrastructure (provides CRDs); ES/Kibana/Agents go here
         app_resources.extend(
@@ -582,7 +602,6 @@ This directory contains cluster-specific configurations and GitOps management.
 kind: Kustomization
 resources:
 - ../../flux-system
-- ../../apps
 - namespace.yaml
 """,
         "clusters/management/namespace.yaml": f"""apiVersion: v1
@@ -598,7 +617,12 @@ metadata:
         files[filepath] = content
 
     # Infrastructure directory
-    infra_resources = ["network-policy.yaml"]
+    infra_resources = [
+        "../k8s/namespace.yaml",
+        "local-path-provisioner.yaml",
+        "storageclasses.yaml",
+        "network-policy.yaml",
+    ]
     if eck_enabled:
         infra_resources.append("../platform/eck-operator")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
@@ -622,12 +646,38 @@ resources:
 kind: NetworkPolicy
 metadata:
   name: {project_name}-default-deny
+  namespace: {project_name}
 spec:
   podSelector: {{}}
   policyTypes:
   - Ingress
   - Egress
 """,
+        "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: premium
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+""",
+        "infrastructure/local-path-provisioner.yaml": Path(
+            __file__
+        ).resolve().parent.joinpath(
+            "assets", "infrastructure", "local-path-provisioner.yaml"
+        ).read_text(),
     }
     for filepath, content in infrastructure_files.items():
         files[filepath] = content

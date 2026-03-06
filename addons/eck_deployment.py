@@ -8,6 +8,7 @@ Supports multi-tier deployments (hot/cold/frozen) when sizing context is provide
 Zero external dependencies -- Python 3.9+ stdlib only.
 """
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -86,12 +87,24 @@ class ECKDeploymentGenerator:
         self.es_version = "8.17.0"
         self.eck_operator = self.sizing.get("eck_operator") or {}
         self.eck_version = self.eck_operator.get("version", "2.16.0")
+        self.fallback_storage_class = (
+            str(self.context.get("fallback_storage_class") or "").strip().lower()
+            or "local-path"
+        )
+
+    def _resolve_storage_class(self, value: Any, default: str) -> str:
+        requested = str(value or default).strip().lower()
+        # Allowed classes in generated skeleton. Anything else falls back.
+        if requested in {"premium", "standard", "local-path"}:
+            return requested
+        return self.fallback_storage_class
 
     def generate(self) -> Dict[str, str]:
         """Generate all ECK manifests."""
         files = {}
 
         # ECK operator manifests (Flux-managed)
+        files["platform/eck-operator/crds.yaml"] = self._generate_eck_crds_manifest()
         files["platform/eck-operator/operator.yaml"] = (
             self._generate_eck_operator_manifest()
         )
@@ -137,6 +150,14 @@ class ECKDeploymentGenerator:
 
         return files
 
+    def _generate_eck_crds_manifest(self) -> str:
+        crds_yaml = self.eck_operator.get("crds_yaml")
+        if crds_yaml:
+            return crds_yaml if crds_yaml.endswith("\n") else crds_yaml + "\n"
+        return Path(__file__).resolve().parent.joinpath(
+            "assets", "eck-operator", "crds.yaml"
+        ).read_text()
+
     def _generate_eck_operator_manifest(self) -> str:
         """Return ECK operator manifest from sizing export or fallback default."""
         operator_yaml = self.eck_operator.get("yaml")
@@ -144,16 +165,9 @@ class ECKDeploymentGenerator:
             return (
                 operator_yaml if operator_yaml.endswith("\n") else operator_yaml + "\n"
             )
-
-        # Fallback to official upstream manifest reference content
-        return f"""# Fallback ECK operator manifest
-# Source: https://download.elastic.co/downloads/eck/{self.eck_version}/operator.yaml
-# This file is intentionally minimal when sizing export did not include embedded operator YAML.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: elastic-system
-"""
+        return Path(__file__).resolve().parent.joinpath(
+            "assets", "eck-operator", "operator.yaml"
+        ).read_text()
 
     def _generate_eck_operator_kustomization(self) -> str:
         """Generate Flux-friendly kustomization for ECK operator + CRDs."""
@@ -161,7 +175,7 @@ metadata:
 kind: Kustomization
 
 resources:
-  - https://download.elastic.co/downloads/eck/{self.eck_version}/crds.yaml
+  - crds.yaml
   - operator.yaml
 """
 
@@ -176,7 +190,7 @@ This directory contains Flux-managed ECK operator resources.
 - Namespace: `{namespace}`
 
 Deploy order:
-1. CRDs (`crds.yaml` via remote URL)
+1. CRDs (`crds.yaml`)
 2. Operator (`operator.yaml`)
 
 Validate:
@@ -305,7 +319,9 @@ spec:
         memory = self.data_nodes.get("memory", "8Gi")
         cpu = self.data_nodes.get("cpu", "2")
         storage = self.data_nodes.get("storage", "100Gi")
-        storage_class = self.data_nodes.get("storage_class", "premium")
+        storage_class = self._resolve_storage_class(
+            self.data_nodes.get("storage_class"), "premium"
+        )
 
         # Hot tier gets premium storage
         if storage_class == "standard" and self.is_multi_tier:
@@ -374,7 +390,9 @@ spec:
         memory = self.cold_nodes.get("memory", "16Gi")
         cpu = self.cold_nodes.get("cpu", "4")
         storage = self.cold_nodes.get("storage", "2000Gi")
-        storage_class = self.cold_nodes.get("storage_class", "standard")
+        storage_class = self._resolve_storage_class(
+            self.cold_nodes.get("storage_class"), "standard"
+        )
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
@@ -462,7 +480,7 @@ spec:
             resources:
               requests:
                 storage: {cache_storage}
-            storageClassName: standard"""
+            storageClassName: local-path"""
 
     def _generate_commented_warm_nodeset(self) -> str:
         """Generate commented warm tier node set as template example."""

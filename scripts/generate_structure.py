@@ -324,6 +324,7 @@ def initialize_project(
     iac_tool: Optional[str] = None,
     repo_url: Optional[str] = None,
     git_token: Optional[str] = None,
+    fallback_storage_class: Optional[str] = None,
     target_revision: Optional[str] = None,
     sizing_context: Optional[Dict] = None,
     forced_chain: Optional[str] = None,
@@ -438,6 +439,7 @@ def initialize_project(
         "target_revision": target_revision or "main",
         "platform": platform or "",
         "sizing_context": sizing_context,
+        "fallback_storage_class": fallback_storage_class or "",
     }
 
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)

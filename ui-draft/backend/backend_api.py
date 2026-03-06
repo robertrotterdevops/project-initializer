@@ -932,6 +932,7 @@ async def create_project(
     git_private_repo: bool = Form(True),
     git_schema_id: str = Form(""),
     use_terraform_iac: bool = Form(False),
+    fallback_storage_class: str = Form(""),
     run_terraform_apply: bool = Form(False),
     target_type: str = Form("local"),
     remote_host: str = Form(""),
@@ -1081,6 +1082,7 @@ async def create_project(
         iac_tool="terraform" if use_terraform_iac else "",
         repo_url=effective_remote_url or None,
         git_token=git_token.strip() or None,
+        fallback_storage_class=fallback_storage_class.strip() or None,
         target_revision=(git_branch.strip() or "main"),
         sizing_context=sizing_context,
     )

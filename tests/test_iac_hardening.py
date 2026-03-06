@@ -127,12 +127,115 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("username: oauth2", secret)
             self.assertIn(f"password: {git_token}", secret)
 
+            flux_dir_kustomization = (out_dir / "flux-system/kustomization.yaml").read_text()
+            self.assertIn("apiVersion: kustomize.config.k8s.io/v1beta1", flux_dir_kustomization)
+            self.assertIn("- gotk-sync.yaml", flux_dir_kustomization)
+
+            gotk_sync = (out_dir / "flux-system/gotk-sync.yaml").read_text()
+            self.assertIn("kind: Kustomization", gotk_sync)
+            self.assertIn("wait: false", gotk_sync)
+
+            cluster_kustomization = (out_dir / "clusters/management/kustomization.yaml").read_text()
+            self.assertIn("- ../../flux-system", cluster_kustomization)
+            self.assertNotIn("- ../../apps", cluster_kustomization)
+
+            base_kustomization = (out_dir / "base/kustomization.yaml").read_text()
+            self.assertIn("namespace: gitops-check", base_kustomization)
+
+            infra_kustomization = (out_dir / "infrastructure/kustomization.yaml").read_text()
+            self.assertIn("- ../k8s/namespace.yaml", infra_kustomization)
+            self.assertIn("- local-path-provisioner.yaml", infra_kustomization)
+            self.assertIn("- storageclasses.yaml", infra_kustomization)
+
+            network_policy = (out_dir / "infrastructure/network-policy.yaml").read_text()
+            self.assertIn("namespace: gitops-check", network_policy)
+
+            app_kustomization = (out_dir / "apps/gitops-check/kustomization.yaml").read_text()
+            self.assertNotIn("../../base", app_kustomization)
+
+            self.assertTrue((out_dir / "platform/eck-operator/crds.yaml").exists())
+            eck_kustomization = (out_dir / "platform/eck-operator/kustomization.yaml").read_text()
+            self.assertIn("- crds.yaml", eck_kustomization)
+
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
             self.assertIn(
                 f'git remote set-url origin "https://oauth2:{git_token}@gitlab.com/acme/platform/gitops-check.git"',
                 deploy_script,
             )
             self.assertIn(f'git remote set-url origin "{repo_url}"', deploy_script)
+
+    def test_eck_storage_class_falls_back_to_local_path(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "data_nodes": {
+                "count": 3,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "100Gi",
+                "storage_class": "nfs",
+            },
+            "cold_nodes": {
+                "count": 2,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "200Gi",
+                "storage_class": "unknown-class",
+            },
+            "frozen_nodes": {
+                "count": 1,
+                "memory": "16Gi",
+                "cpu": "4",
+                "cache_storage": "200Gi",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-storage-fallback-") as td:
+            out_dir = Path(td) / "storage-fallback"
+            initialize_project(
+                project_name="storage-fallback",
+                description="Elasticsearch storage fallback check",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn("storageClassName: local-path", es_cluster)
+
+    def test_eck_storage_class_uses_configured_fallback(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "data_nodes": {
+                "count": 3,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "100Gi",
+                "storage_class": "nfs",
+            },
+            "cold_nodes": {
+                "count": 1,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "150Gi",
+                "storage_class": "does-not-exist",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-storage-fallback-custom-") as td:
+            out_dir = Path(td) / "storage-fallback-custom"
+            initialize_project(
+                project_name="storage-fallback-custom",
+                description="Elasticsearch storage fallback custom check",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                fallback_storage_class="standard",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn("storageClassName: standard", es_cluster)
 
 
 if __name__ == "__main__":
