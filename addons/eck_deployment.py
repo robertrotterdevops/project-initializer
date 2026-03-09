@@ -91,9 +91,20 @@ class ECKDeploymentGenerator:
             str(self.context.get("fallback_storage_class") or "").strip().lower()
             or "local-path"
         )
+        self.force_premium_to_fallback = (
+            str(self.context.get("force_premium_to_fallback") or "true").strip().lower()
+            != "false"
+        )
 
     def _resolve_storage_class(self, value: Any, default: str) -> str:
         requested = str(value or default).strip().lower()
+        # On local/on-prem cluster skeletons, premium is often unavailable.
+        if (
+            requested == "premium"
+            and self.platform in {"rke2", "proxmox"}
+            and self.force_premium_to_fallback
+        ):
+            return self.fallback_storage_class
         # Allowed classes in generated skeleton. Anything else falls back.
         if requested in {"premium", "standard", "local-path"}:
             return requested
@@ -322,10 +333,6 @@ spec:
         storage_class = self._resolve_storage_class(
             self.data_nodes.get("storage_class"), "premium"
         )
-
-        # Hot tier gets premium storage
-        if storage_class == "standard" and self.is_multi_tier:
-            storage_class = "premium"
 
         # Calculate limits
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu

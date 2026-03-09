@@ -87,6 +87,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn('resource "proxmox_virtual_environment_vm" "nodes"', proxmox_module_tf)
             self.assertNotIn('resource "local_file"', proxmox_module_tf)
             self.assertIn('scripts/bootstrap-rke2.sh', deploy_script)
+            self.assertIn("terraform apply -auto-approve -parallelism=4", deploy_script)
             self.assertFalse((out_dir / "terraform/modules/aks/main.tf").exists())
             self.assertEqual(result.get("iac_tool"), "terraform")
 
@@ -235,6 +236,41 @@ class TestIacHardening(unittest.TestCase):
                 sizing_context=sizing_context,
             )
             es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn("storageClassName: standard", es_cluster)
+
+    def test_eck_premium_remaps_to_fallback_on_proxmox(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "data_nodes": {
+                "count": 2,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "100Gi",
+                "storage_class": "premium",
+            },
+            "cold_nodes": {
+                "count": 1,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "200Gi",
+                "storage_class": "premium",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-premium-remap-") as td:
+            out_dir = Path(td) / "premium-remap"
+            initialize_project(
+                project_name="premium-remap",
+                description="Elasticsearch premium remap check",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                fallback_storage_class="standard",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertNotIn("storageClassName: premium", es_cluster)
             self.assertIn("storageClassName: standard", es_cluster)
 
 

@@ -44,7 +44,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR/terraform"
 echo "[1/6] Running terraform apply..."
 terraform init
-terraform apply -auto-approve
+terraform apply -auto-approve -parallelism=4
 cd "$ROOT_DIR"
 
 if [ -x "$ROOT_DIR/scripts/bootstrap-rke2.sh" ]; then
