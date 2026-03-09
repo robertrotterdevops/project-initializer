@@ -160,6 +160,80 @@ rke2_version=v1.30.4+rke2r1
 
 def _ansible_playbook() -> str:
     return """---
+- name: Grow root partition and filesystem on all nodes
+  hosts: all
+  become: true
+  tasks:
+    - name: Install growpart tooling on Debian/Ubuntu
+      apt:
+        name: cloud-guest-utils
+        state: present
+        update_cache: false
+      when: (ansible_os_family | lower) == "debian"
+
+    - name: Install growpart tooling on RHEL family
+      package:
+        name: cloud-utils-growpart
+        state: present
+      when: (ansible_os_family | lower) == "redhat"
+
+    - name: Ensure xfs resize tool exists on Debian/Ubuntu
+      apt:
+        name: xfsprogs
+        state: present
+        update_cache: false
+      when: (ansible_os_family | lower) == "debian"
+
+    - name: Ensure xfs resize tool exists on RHEL family
+      package:
+        name: xfsprogs
+        state: present
+      when: (ansible_os_family | lower) == "redhat"
+
+    - name: Detect root source device
+      shell: findmnt -n -o SOURCE /
+      register: root_source_cmd
+      changed_when: false
+
+    - name: Detect parent disk and partition number
+      shell: |
+        set -eu
+        ROOT_SRC="{{ root_source_cmd.stdout | trim }}"
+        PKNAME="$(lsblk -no PKNAME "$ROOT_SRC")"
+        PARTNUM="$(lsblk -no PARTN "$ROOT_SRC")"
+        echo "${PKNAME} ${PARTNUM}"
+      register: root_disk_parts
+      changed_when: false
+
+    - name: Parse root disk metadata
+      set_fact:
+        root_pkname: "{{ (root_disk_parts.stdout | trim).split()[0] }}"
+        root_partnum: "{{ (root_disk_parts.stdout | trim).split()[1] }}"
+        root_device: "{{ root_source_cmd.stdout | trim }}"
+
+    - name: Grow root partition
+      command: "growpart /dev/{{ root_pkname }} {{ root_partnum }}"
+      register: growpart_result
+      failed_when: growpart_result.rc not in [0, 1]
+      changed_when: growpart_result.rc == 0
+
+    - name: Detect root filesystem type
+      shell: findmnt -n -o FSTYPE /
+      register: root_fstype
+      changed_when: false
+
+    - name: Resize ext filesystem
+      command: "resize2fs {{ root_device }}"
+      when:
+        - growpart_result.rc == 0
+        - root_fstype.stdout | trim in ["ext2", "ext3", "ext4"]
+
+    - name: Resize xfs filesystem
+      command: xfs_growfs /
+      when:
+        - growpart_result.rc == 0
+        - root_fstype.stdout | trim == "xfs"
+
 - name: Bootstrap RKE2 servers
   hosts: rke2_servers
   become: true

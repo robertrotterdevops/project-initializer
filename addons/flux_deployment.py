@@ -622,6 +622,8 @@ metadata:
         "local-path-provisioner.yaml",
         "storageclasses.yaml",
         "network-policy.yaml",
+        "network-policy-allow-dns.yaml",
+        "network-policy-allow-intra-namespace.yaml",
     ]
     if eck_enabled:
         infra_resources.append("../platform/eck-operator")
@@ -652,6 +654,43 @@ spec:
   policyTypes:
   - Ingress
   - Egress
+""",
+        "infrastructure/network-policy-allow-dns.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-dns
+  namespace: {project_name}
+spec:
+  podSelector: {{}}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+""",
+        "infrastructure/network-policy-allow-intra-namespace.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-intra-namespace
+  namespace: {project_name}
+spec:
+  podSelector: {{}}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector: {{}}
+  egress:
+  - to:
+    - podSelector: {{}}
 """,
         "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
 kind: StorageClass

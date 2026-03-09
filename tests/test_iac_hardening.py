@@ -83,8 +83,17 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("endpoint", providers_tf)
             self.assertIn("api_token", providers_tf)
             self.assertIn('variable "proxmox_endpoint" {', variables_tf)
+            self.assertIn('variable "proxmox_snippets_storage" {', variables_tf)
+            self.assertIn('variable "proxmox_enable_cloud_init_growpart" {', variables_tf)
             self.assertNotIn(", default =", variables_tf)
             self.assertIn('resource "proxmox_virtual_environment_vm" "nodes"', proxmox_module_tf)
+            self.assertIn('resource "proxmox_virtual_environment_file" "cloud_init_growpart"', proxmox_module_tf)
+            self.assertIn("count        = var.proxmox_enable_cloud_init_growpart ? 1 : 0", proxmox_module_tf)
+            self.assertIn(
+                "user_data_file_id = var.proxmox_enable_cloud_init_growpart ? proxmox_virtual_environment_file.cloud_init_growpart[0].id : null",
+                proxmox_module_tf,
+            )
+            self.assertIn("proxmox_enable_cloud_init_growpart = false", tfvars)
             self.assertNotIn('resource "local_file"', proxmox_module_tf)
             self.assertIn('scripts/bootstrap-rke2.sh', deploy_script)
             self.assertIn("terraform apply -auto-approve -parallelism=4", deploy_script)
@@ -93,6 +102,10 @@ class TestIacHardening(unittest.TestCase):
 
             mode = os.stat(out_dir / "scripts/post-terraform-deploy.sh").st_mode
             self.assertTrue(mode & 0o100)
+            bootstrap_playbook = (out_dir / "ansible/rke2-bootstrap.yml").read_text()
+            self.assertIn("Grow root partition and filesystem on all nodes", bootstrap_playbook)
+            self.assertIn('findmnt -n -o SOURCE /', bootstrap_playbook)
+            self.assertIn("growpart /dev/", bootstrap_playbook)
 
     def test_flux_gitlab_repo_and_token_flow_are_generated(self) -> None:
         sizing_context = {
@@ -147,9 +160,15 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("- ../k8s/namespace.yaml", infra_kustomization)
             self.assertIn("- local-path-provisioner.yaml", infra_kustomization)
             self.assertIn("- storageclasses.yaml", infra_kustomization)
+            self.assertIn("- network-policy-allow-dns.yaml", infra_kustomization)
+            self.assertIn("- network-policy-allow-intra-namespace.yaml", infra_kustomization)
 
             network_policy = (out_dir / "infrastructure/network-policy.yaml").read_text()
             self.assertIn("namespace: gitops-check", network_policy)
+            dns_policy = (out_dir / "infrastructure/network-policy-allow-dns.yaml").read_text()
+            self.assertIn("port: 53", dns_policy)
+            intra_policy = (out_dir / "infrastructure/network-policy-allow-intra-namespace.yaml").read_text()
+            self.assertIn("podSelector: {}", intra_policy)
 
             app_kustomization = (out_dir / "apps/gitops-check/kustomization.yaml").read_text()
             self.assertNotIn("../../base", app_kustomization)
@@ -238,6 +257,44 @@ class TestIacHardening(unittest.TestCase):
             es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
             self.assertIn("storageClassName: standard", es_cluster)
 
+    def test_eck_storage_class_aliases_normalize(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "data_nodes": {
+                "count": 2,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "100Gi",
+                "storage_class": "Managed-Premium",
+            },
+            "cold_nodes": {
+                "count": 1,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "200Gi",
+                "storage_class": "Local_Path",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-storage-aliases-") as td:
+            out_dir = Path(td) / "storage-aliases"
+            initialize_project(
+                project_name="storage-aliases",
+                description="Elasticsearch storage aliases normalization",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                fallback_storage_class="STANDARD_RWO",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            # managed-premium remaps to premium, then proxmox premium remaps to fallback.
+            self.assertIn("storageClassName: standard", es_cluster)
+            self.assertIn("storageClassName: local-path", es_cluster)
+            self.assertNotIn("storageClassName: Managed-Premium", es_cluster)
+            self.assertNotIn("storageClassName: Local_Path", es_cluster)
+
     def test_eck_premium_remaps_to_fallback_on_proxmox(self) -> None:
         sizing_context = {
             "source": "sizing_report",
@@ -272,6 +329,57 @@ class TestIacHardening(unittest.TestCase):
             es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
             self.assertNotIn("storageClassName: premium", es_cluster)
             self.assertIn("storageClassName: standard", es_cluster)
+
+    def test_eck_master_nodeset_has_minimum_pvc(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "master_nodes": {
+                "count": 3,
+                "memory": "2Gi",
+                "cpu": "1",
+                "storage": "0Gi",
+                "storage_class": "Standard_RWO",
+            },
+            "data_nodes": {
+                "count": 1,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "50Gi",
+                "storage_class": "standard",
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-master-pvc-") as td:
+            out_dir = Path(td) / "master-pvc"
+            initialize_project(
+                project_name="master-pvc",
+                description="Master PVC defaults",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn("- name: master", es_cluster)
+            self.assertIn("storage: 1Gi", es_cluster)
+            self.assertIn("storageClassName: standard", es_cluster)
+
+    def test_rke2_bootstrap_handles_os_family_conventions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-rke2-os-family-") as td:
+            out_dir = Path(td) / "rke2-os-family"
+            initialize_project(
+                project_name="rke2-os-family",
+                description="RKE2 os family handling check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            bootstrap_playbook = (out_dir / "ansible/rke2-bootstrap.yml").read_text()
+            self.assertIn('(ansible_os_family | lower) == "debian"', bootstrap_playbook)
+            self.assertIn('(ansible_os_family | lower) == "redhat"', bootstrap_playbook)
+            self.assertIn("name: xfsprogs", bootstrap_playbook)
 
 
 if __name__ == "__main__":

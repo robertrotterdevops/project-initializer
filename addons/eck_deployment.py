@@ -10,6 +10,7 @@ Zero external dependencies -- Python 3.9+ stdlib only.
 
 from pathlib import Path
 from typing import Any, Dict, Optional
+import re
 
 
 ADDON_META = {
@@ -88,7 +89,9 @@ class ECKDeploymentGenerator:
         self.eck_operator = self.sizing.get("eck_operator") or {}
         self.eck_version = self.eck_operator.get("version", "2.16.0")
         self.fallback_storage_class = (
-            str(self.context.get("fallback_storage_class") or "").strip().lower()
+            self._canonical_storage_class(
+                str(self.context.get("fallback_storage_class") or "")
+            )
             or "local-path"
         )
         self.force_premium_to_fallback = (
@@ -96,8 +99,36 @@ class ECKDeploymentGenerator:
             != "false"
         )
 
+    @staticmethod
+    def _canonical_storage_class(value: str) -> str:
+        raw = str(value or "").strip().lower()
+        if not raw:
+            return ""
+        token = re.sub(r"[^a-z0-9]+", "", raw)
+        aliases = {
+            "premium": "premium",
+            "premiumrwo": "premium",
+            "managedpremium": "premium",
+            "managedpremiumrwo": "premium",
+            "gold": "premium",
+            "standard": "standard",
+            "standardrwo": "standard",
+            "managedstandard": "standard",
+            "managedstandardrwo": "standard",
+            "silver": "standard",
+            "localpath": "local-path",
+            "localstorage": "local-path",
+            "local": "local-path",
+            "hostpath": "local-path",
+            "nfs": "nfs",
+            "nfsclient": "nfs",
+            "nfsstorage": "nfs",
+            "rookcephfs": "nfs",
+        }
+        return aliases.get(token, raw)
+
     def _resolve_storage_class(self, value: Any, default: str) -> str:
-        requested = str(value or default).strip().lower()
+        requested = self._canonical_storage_class(str(value or default))
         # On local/on-prem cluster skeletons, premium is often unavailable.
         if (
             requested == "premium"
@@ -109,6 +140,17 @@ class ECKDeploymentGenerator:
         if requested in {"premium", "standard", "local-path"}:
             return requested
         return self.fallback_storage_class
+
+    @staticmethod
+    def _min_storage_gi(value: Any, minimum_gi: int = 1) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return f"{minimum_gi}Gi"
+        m = re.match(r"^(\d+)\s*Gi$", raw, re.IGNORECASE)
+        if not m:
+            return raw
+        gi = int(m.group(1))
+        return f"{max(gi, minimum_gi)}Gi"
 
     def generate(self) -> Dict[str, str]:
         """Generate all ECK manifests."""
@@ -288,6 +330,10 @@ spec:
         count = self.master_nodes.get("count", 3)
         memory = self.master_nodes.get("memory", "2Gi")
         cpu = self.master_nodes.get("cpu", "1")
+        storage = self._min_storage_gi(self.master_nodes.get("storage", "1Gi"), 1)
+        storage_class = self._resolve_storage_class(
+            self.master_nodes.get("storage_class"), "standard"
+        )
 
         # Calculate limits (2x requests for CPU)
         cpu_request = cpu.replace("m", "") if "m" in str(cpu) else str(int(cpu) * 1000)
@@ -322,7 +368,17 @@ spec:
               securityContext:
                 privileged: true
                 runAsUser: 0
-              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']"""
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {storage}
+            storageClassName: {storage_class}"""
 
     def _generate_hot_nodeset(self) -> str:
         """Generate hot tier node set configuration."""
