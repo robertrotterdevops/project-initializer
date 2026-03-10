@@ -63,6 +63,7 @@ class TestIacHardening(unittest.TestCase):
             )
             self.assertTrue((out_dir / "terraform/modules/proxmox_cluster/main.tf").exists())
             self.assertTrue((out_dir / "scripts/post-terraform-deploy.sh").exists())
+            self.assertTrue((out_dir / "scripts/cluster-healthcheck.sh").exists())
             self.assertTrue((out_dir / "scripts/bootstrap-rke2.sh").exists())
             self.assertTrue((out_dir / "scripts/render-rke2-inventory.py").exists())
             self.assertTrue((out_dir / "ansible/rke2-bootstrap.yml").exists())
@@ -75,6 +76,7 @@ class TestIacHardening(unittest.TestCase):
             variables_tf = (out_dir / "terraform/variables.tf").read_text()
             proxmox_module_tf = (out_dir / "terraform/modules/proxmox_cluster/main.tf").read_text()
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
             self.assertIn("proxmox_node_pools", tfvars)
             self.assertIn("proxmox_endpoint", tfvars)
             self.assertIn("gitops_flux_path", tfvars)
@@ -97,11 +99,18 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('resource "local_file"', proxmox_module_tf)
             self.assertIn('scripts/bootstrap-rke2.sh', deploy_script)
             self.assertIn("terraform apply -auto-approve -parallelism=4", deploy_script)
+            self.assertIn('NAMESPACE="sample-project"', healthcheck_script)
+            self.assertIn('ES_NAME="sample-project"', healthcheck_script)
+            self.assertIn('KB_NAME="sample-project-kb"', healthcheck_script)
+            self.assertIn('KIBANA_INGRESS="sample-project-kibana"', healthcheck_script)
+            self.assertIn('flux get kustomizations', healthcheck_script)
             self.assertFalse((out_dir / "terraform/modules/aks/main.tf").exists())
             self.assertEqual(result.get("iac_tool"), "terraform")
 
             mode = os.stat(out_dir / "scripts/post-terraform-deploy.sh").st_mode
             self.assertTrue(mode & 0o100)
+            mode_healthcheck = os.stat(out_dir / "scripts/cluster-healthcheck.sh").st_mode
+            self.assertTrue(mode_healthcheck & 0o100)
             bootstrap_playbook = (out_dir / "ansible/rke2-bootstrap.yml").read_text()
             self.assertIn("Grow root partition and filesystem on all nodes", bootstrap_playbook)
             self.assertIn('findmnt -n -o SOURCE /', bootstrap_playbook)
@@ -144,12 +153,17 @@ class TestIacHardening(unittest.TestCase):
             flux_dir_kustomization = (out_dir / "flux-system/kustomization.yaml").read_text()
             self.assertIn("apiVersion: kustomize.config.k8s.io/v1beta1", flux_dir_kustomization)
             self.assertIn("- gotk-sync.yaml", flux_dir_kustomization)
+            self.assertIn("- kustomization-agents.yaml", flux_dir_kustomization)
 
             gotk_sync = (out_dir / "flux-system/gotk-sync.yaml").read_text()
             self.assertIn("kind: Kustomization", gotk_sync)
             self.assertIn("wait: false", gotk_sync)
             apps_kustomization = (out_dir / "flux-system/kustomization-apps.yaml").read_text()
             self.assertIn("timeout: 20m", apps_kustomization)
+            agents_kustomization = (out_dir / "flux-system/kustomization-agents.yaml").read_text()
+            self.assertIn("name: gitops-check-agents", agents_kustomization)
+            self.assertIn("path: ./agents", agents_kustomization)
+            self.assertIn("- name: gitops-check-apps", agents_kustomization)
 
             cluster_kustomization = (out_dir / "clusters/management/kustomization.yaml").read_text()
             self.assertIn("- ../../flux-system", cluster_kustomization)
@@ -164,6 +178,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("- storageclasses.yaml", infra_kustomization)
             self.assertIn("- network-policy-allow-dns.yaml", infra_kustomization)
             self.assertIn("- network-policy-allow-intra-namespace.yaml", infra_kustomization)
+            self.assertIn("- network-policy-allow-eck-operator.yaml", infra_kustomization)
 
             network_policy = (out_dir / "infrastructure/network-policy.yaml").read_text()
             self.assertIn("namespace: gitops-check", network_policy)
@@ -171,15 +186,21 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("port: 53", dns_policy)
             intra_policy = (out_dir / "infrastructure/network-policy-allow-intra-namespace.yaml").read_text()
             self.assertIn("podSelector: {}", intra_policy)
+            eck_operator_policy = (out_dir / "infrastructure/network-policy-allow-eck-operator.yaml").read_text()
+            self.assertIn("kubernetes.io/metadata.name: elastic-system", eck_operator_policy)
 
             app_kustomization = (out_dir / "apps/gitops-check/kustomization.yaml").read_text()
             self.assertNotIn("../../base", app_kustomization)
+            self.assertNotIn("../../agents", app_kustomization)
+            self.assertIn("../../elasticsearch", app_kustomization)
+            self.assertIn("../../kibana", app_kustomization)
 
             self.assertTrue((out_dir / "platform/eck-operator/crds.yaml").exists())
             eck_kustomization = (out_dir / "platform/eck-operator/kustomization.yaml").read_text()
             self.assertIn("- crds.yaml", eck_kustomization)
 
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
             self.assertIn(
                 f'git remote set-url origin "https://oauth2:{git_token}@gitlab.com/acme/platform/gitops-check.git"',
                 deploy_script,
@@ -197,8 +218,11 @@ class TestIacHardening(unittest.TestCase):
                 deploy_script.find('flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true'),
                 deploy_script.find('flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true'),
             )
+            self.assertIn('flux reconcile kustomization "$PROJECT_NAME-agents" -n flux-system || true', deploy_script)
             self.assertNotIn("rke2-4-apps", deploy_script)
             self.assertNotIn("rke2-4-infra", deploy_script)
+            self.assertIn('NAMESPACE="gitops-check"', healthcheck_script)
+            self.assertNotIn('NAMESPACE="rke2-4"', healthcheck_script)
 
     def test_argo_post_terraform_script_keeps_flux_logic_out(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pi-argo-post-tf-") as td:
@@ -216,6 +240,28 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-apps"', deploy_script)
             self.assertNotIn("kubectl -n flux-system wait gitrepository", deploy_script)
             self.assertIn('argocd app sync "$PROJECT_NAME" || true', deploy_script)
+            self.assertTrue((out_dir / "scripts/cluster-healthcheck.sh").exists())
+
+    def test_healthcheck_script_generated_without_terraform_when_sizing_present(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "rke2": {"pools": [{"name": "system_pool", "nodes": 1}]},
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-healthcheck-no-tf-") as td:
+            out_dir = Path(td) / "no-tf-healthcheck"
+            initialize_project(
+                project_name="no-tf-healthcheck",
+                description="Elasticsearch sizing flow without terraform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                sizing_context=sizing_context,
+            )
+            healthcheck = out_dir / "scripts/cluster-healthcheck.sh"
+            self.assertTrue(healthcheck.exists())
+            content = healthcheck.read_text()
+            self.assertIn('NAMESPACE="no-tf-healthcheck"', content)
+            self.assertIn('ES_NAME="no-tf-healthcheck"', content)
 
     def test_eck_storage_class_falls_back_to_local_path(self) -> None:
         sizing_context = {
