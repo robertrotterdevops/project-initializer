@@ -46,6 +46,12 @@ uvicorn app:app --app-dir ui-draft/backend --reload --host 0.0.0.0 --port 8787
 http://localhost:8787
 ```
 
+4. Open documentation portal (separate tab from UI sidebar):
+
+```
+http://localhost:8787/documentation
+```
+
 ### Desktop Mode (Tauri)
 
 The UI can be packaged as a native desktop app:

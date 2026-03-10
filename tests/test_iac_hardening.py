@@ -181,6 +181,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("- network-policy-allow-dns.yaml", infra_kustomization)
             self.assertIn("- network-policy-allow-intra-namespace.yaml", infra_kustomization)
             self.assertIn("- network-policy-allow-eck-operator.yaml", infra_kustomization)
+            self.assertIn("- network-policy-allow-ingress-nginx.yaml", infra_kustomization)
 
             network_policy = (out_dir / "infrastructure/network-policy.yaml").read_text()
             self.assertIn("namespace: gitops-check", network_policy)
@@ -190,6 +191,9 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("podSelector: {}", intra_policy)
             eck_operator_policy = (out_dir / "infrastructure/network-policy-allow-eck-operator.yaml").read_text()
             self.assertIn("kubernetes.io/metadata.name: elastic-system", eck_operator_policy)
+            ingress_nginx_policy = (out_dir / "infrastructure/network-policy-allow-ingress-nginx.yaml").read_text()
+            self.assertIn("kubernetes.io/metadata.name: kube-system", ingress_nginx_policy)
+            self.assertIn("port: 5601", ingress_nginx_policy)
 
             app_kustomization = (out_dir / "apps/gitops-check/kustomization.yaml").read_text()
             self.assertNotIn("../../base", app_kustomization)
@@ -204,6 +208,12 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("xpack.fleet.agentPolicies:", kibana_yaml)
             self.assertIn("is_default_fleet_server: true", kibana_yaml)
             self.assertIn("id: elastic-agent-policy", kibana_yaml)
+            kibana_kustomization = (out_dir / "kibana/kustomization.yaml").read_text()
+            self.assertIn("- ingress.yaml", kibana_kustomization)
+            kibana_ingress = (out_dir / "kibana/ingress.yaml").read_text()
+            self.assertIn("ingressClassName: nginx", kibana_ingress)
+            self.assertIn("nginx.ingress.kubernetes.io/backend-protocol: \"HTTPS\"", kibana_ingress)
+            self.assertIn("name: gitops-check-kb-http", kibana_ingress)
 
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
             healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
@@ -307,6 +317,51 @@ class TestIacHardening(unittest.TestCase):
             )
             es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
             self.assertIn("storageClassName: local-path", es_cluster)
+
+    def test_eck_nodesets_support_tier_node_selectors(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "data_nodes": {
+                "count": 2,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "100Gi",
+                "storage_class": "standard",
+                "node_selector": {"node-role.kubernetes.io/hot": "true"},
+            },
+            "cold_nodes": {
+                "count": 1,
+                "memory": "8Gi",
+                "cpu": "2",
+                "storage": "200Gi",
+                "storage_class": "standard",
+                "node_selector": {"node-role.kubernetes.io/cold": "true"},
+            },
+            "frozen_nodes": {
+                "count": 1,
+                "memory": "16Gi",
+                "cpu": "4",
+                "cache_storage": "200Gi",
+                "node_selector": {"node-role.kubernetes.io/frozen": "true"},
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck-node-selector-") as td:
+            out_dir = Path(td) / "node-selector-check"
+            initialize_project(
+                project_name="node-selector-check",
+                description="Elasticsearch node selector routing check",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn('nodeSelector:', es_cluster)
+            self.assertIn('"node-role.kubernetes.io/hot": "true"', es_cluster)
+            self.assertIn('"node-role.kubernetes.io/cold": "true"', es_cluster)
+            self.assertIn('"node-role.kubernetes.io/frozen": "true"', es_cluster)
 
     def test_eck_storage_class_uses_configured_fallback(self) -> None:
         sizing_context = {

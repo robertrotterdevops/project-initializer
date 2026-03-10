@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Initializer Documentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg: #fbf7ef;
+        --panel: #fffdf8;
+        --ink: #1d252f;
+        --muted: #566474;
+        --brand: #0f766e;
+        --brand-strong: #115e59;
+        --line: #e6dfd0;
+        --warn: #9a3412;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top right, #e6f4f1 0, transparent 44%), var(--bg);
+      }
+      .hero {
+        padding: 42px 22px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .hero-wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--brand);
+        font-weight: 600;
+      }
+      h1 {
+        font-family: "Space Grotesk", sans-serif;
+        margin: 10px 0 8px;
+        font-size: clamp(2rem, 3.6vw, 3rem);
+      }
+      .lead {
+        margin: 0;
+        color: var(--muted);
+        max-width: 760px;
+      }
+      .layout {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 28px 22px 60px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 22px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 14px;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 1.25rem;
+      }
+      h3 { margin: 16px 0 8px; font-size: 1rem; }
+      p, li { color: #22303d; line-height: 1.55; }
+      ul, ol { margin: 8px 0 0 20px; padding: 0; }
+      pre {
+        margin: 10px 0 0;
+        background: #101a24;
+        color: #d7e7ff;
+        border-radius: 10px;
+        padding: 12px;
+        overflow-x: auto;
+        border: 1px solid #1f3347;
+      }
+      code {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.9em;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      }
+      .pill {
+        background: #f0f7f6;
+        color: var(--brand-strong);
+        border: 1px solid #cfe5e2;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        display: inline-block;
+        margin-right: 6px;
+        margin-bottom: 6px;
+      }
+      .aside .card { position: sticky; top: 20px; }
+      .toc a {
+        display: block;
+        color: var(--muted);
+        text-decoration: none;
+        padding: 5px 0;
+      }
+      .toc a:hover { color: var(--brand-strong); }
+      .badge {
+        display: inline-block;
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 8px;
+        background: #fff2e8;
+        border: 1px solid #ffd7bd;
+        color: var(--warn);
+      }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .aside .card { position: static; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-wrap">
+        <div class="eyebrow">Project Initializer</div>
+        <h1>Enterprise Documentation Portal</h1>
+        <p class="lead">
+          Production-grade guide for generating, validating, and operating GitOps-ready platform projects
+          with Flux/Argo, Terraform, ECK, and RKE2-oriented bootstrap workflows.
+        </p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section>
+        <article class="card" id="overview">
+          <h2>1. Overview</h2>
+          <p>
+            Project Initializer creates repeatable infrastructure/project skeletons from a single form or API call,
+            including platform manifests, GitOps controllers, automation scripts, and operational runbooks.
+          </p>
+          <div class="grid">
+            <div><span class="pill">FluxCD</span><span class="pill">ArgoCD</span><span class="pill">Terraform</span></div>
+            <div><span class="pill">RKE2</span><span class="pill">Proxmox</span><span class="pill">AKS</span></div>
+            <div><span class="pill">ECK</span><span class="pill">Fleet/Agents</span><span class="pill">Healthchecks</span></div>
+          </div>
+        </article>
+
+        <article class="card" id="quickstart">
+          <h2>2. Quick Start</h2>
+          <ol>
+            <li>Open the UI front page at <code>http://localhost:8787</code>.</li>
+            <li>Create project with target platform + GitOps + IaC options.</li>
+            <li>Run generated deployment scripts in order (bootstrap, terraform, post-deploy).</li>
+            <li>Verify minimum cluster health with <code>scripts/cluster-healthcheck.sh</code>.</li>
+          </ol>
+          <pre><code>./start-ui.sh
+# then open http://localhost:8787</code></pre>
+        </article>
+
+        <article class="card" id="architecture">
+          <h2>3. Architecture</h2>
+          <h3>UI + API</h3>
+          <ul>
+            <li>Frontend: single-page UI in <code>ui-draft/frontend/index.html</code>.</li>
+            <li>Backend: FastAPI service in <code>ui-draft/backend/backend_api.py</code>.</li>
+            <li>Generated output: project folders with manifests/scripts/docs for deployment lifecycle.</li>
+          </ul>
+          <h3>Deployment Model</h3>
+          <ul>
+            <li>Root GitOps kustomization reconciles infra before apps.</li>
+            <li>Agents are isolated in dedicated Flux kustomization for independent status/reconcile.</li>
+            <li>Kibana ingress and ECK network policies are generated automatically.</li>
+          </ul>
+        </article>
+
+        <article class="card" id="operations">
+          <h2>4. Operations and Reliability</h2>
+          <ul>
+            <li>Use explicit Flux timeouts for heavy first syncs (ECK stack bootstrap).</li>
+            <li>Use healthcheck script to validate nodes, pods, ECK resources, ingress, credentials, Flux state.</li>
+            <li>For tier placement, provide <code>node_selector</code> per hot/cold/frozen nodeSet in sizing context.</li>
+          </ul>
+          <pre><code>{
+  "data_nodes": { "node_selector": { "node-role.kubernetes.io/hot": "true" } },
+  "cold_nodes": { "node_selector": { "node-role.kubernetes.io/cold": "true" } },
+  "frozen_nodes": { "node_selector": { "node-role.kubernetes.io/frozen": "true" } }
+}</code></pre>
+        </article>
+
+        <article class="card" id="license">
+          <h2>5. Open Source License</h2>
+          <p>
+            This application is distributed under the <strong>Apache License 2.0</strong> for enterprise-friendly open-source use.
+            The license provides broad usage rights with explicit patent grant and clear obligations.
+          </p>
+          <p><span class="badge">SPDX: Apache-2.0</span></p>
+          <ul>
+            <li>Commercial use, modification, distribution, private use allowed.</li>
+            <li>Patent grant included.</li>
+            <li>Preserve copyright and license notices.</li>
+          </ul>
+        </article>
+      </section>
+
+      <aside class="aside">
+        <div class="card">
+          <h2>Sections</h2>
+          <nav class="toc">
+            <a href="#overview">Overview</a>
+            <a href="#quickstart">Quick Start</a>
+            <a href="#architecture">Architecture</a>
+            <a href="#operations">Operations</a>
+            <a href="#license">License</a>
+          </nav>
+        </div>
+      </aside>
+    </main>
+  </body>
+</html>

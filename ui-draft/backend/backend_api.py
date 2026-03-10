@@ -764,6 +764,16 @@ def index() -> FileResponse:
     return FileResponse(str(FRONTEND_DIR / "index.html"))
 
 
+@app.get("/documentation")
+def documentation() -> FileResponse:
+    if not FRONTEND_DIR.exists():
+        raise HTTPException(status_code=404, detail="Frontend assets not bundled")
+    doc_page = FRONTEND_DIR / "documentation.html"
+    if not doc_page.exists():
+        raise HTTPException(status_code=404, detail="Documentation page not found")
+    return FileResponse(str(doc_page))
+
+
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
     return {"status": "ok", "environment": RUNTIME_ENV}
