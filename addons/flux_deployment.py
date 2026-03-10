@@ -43,6 +43,14 @@ class FluxDeploymentGenerator:
         self.repo_url = self.context.get("repo_url", f"https://github.com/your-org/{project_name}.git")
         self.target_revision = self.context.get("target_revision", "main")
         self.git_token = (self.context.get("git_token") or "").strip()
+        sizing_context = self.context.get("sizing_context") or {}
+        self.eck_enabled = bool(
+            sizing_context
+            and (
+                sizing_context.get("eck_operator")
+                or sizing_context.get("source") == "sizing_report"
+            )
+        )
         self.complexity_score = self._calculate_complexity()
 
     def _repo_url_for_flux(self) -> str:
@@ -180,6 +188,25 @@ spec:
   - name: {self.project_name}
 """
 
+        if self.eck_enabled:
+            manifests["kustomization-agents.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {self.project_name}-agents
+  namespace: flux-system
+spec:
+  interval: {reconciliation_interval}
+  sourceRef:
+    kind: GitRepository
+    name: {self.project_name}
+  path: ./agents
+  prune: true
+  wait: true
+  timeout: 20m
+  dependsOn:
+  - name: {self.project_name}-apps
+"""
+
         # Auth secret for private repositories when token is provided.
         if self.git_token:
             manifests["git-auth-secret.yaml"] = f"""apiVersion: v1
@@ -201,6 +228,8 @@ stringData:
             "- kustomization-apps.yaml",
             "- kustomization-infra.yaml",
         ]
+        if self.eck_enabled:
+            flux_resources.append("- kustomization-agents.yaml")
         if self.git_token:
             flux_resources.insert(1, "- git-auth-secret.yaml")
         manifests["kustomization.yaml"] = (
@@ -536,12 +565,11 @@ spec:
     # Apps directory with initial application definitions
     app_resources: List[str] = []
     if eck_enabled:
-        # ECK operator goes to infrastructure (provides CRDs); ES/Kibana/Agents go here
+        # ECK operator goes to infrastructure (provides CRDs); ES/Kibana app resources stay in apps.
         app_resources.extend(
             [
                 "../../elasticsearch",
                 "../../kibana",
-                "../../agents",
             ]
         )
     app_resources_yaml = "\n".join([f"- {res}" for res in app_resources])

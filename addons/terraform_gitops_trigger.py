@@ -74,6 +74,9 @@ def _flux_tail(project_name: str) -> str:
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true
+  if flux get kustomizations "$PROJECT_NAME-agents" -n flux-system >/dev/null 2>&1; then
+    flux reconcile kustomization "$PROJECT_NAME-agents" -n flux-system || true
+  fi
 else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
