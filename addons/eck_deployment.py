@@ -212,6 +212,24 @@ NAMESPACE="{self.project_name}"
 ES_NAME="{self.project_name}"
 KB_NAME="{self.project_name}-kb"
 KIBANA_INGRESS="{self.project_name}-kibana"
+INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
+KUBECONFIG_FILE="$HOME/.kube/{self.project_name}"
+
+if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
+  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/')
+  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/')
+  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/')
+  if [[ -n "$SERVER_IP" && -n "$SSH_USER" && -n "$SSH_PASS" ]]; then
+    mkdir -p "$(dirname "$KUBECONFIG_FILE")"
+    echo ">>> Fetching kubeconfig from $SSH_USER@$SERVER_IP"
+    sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" \
+      "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_FILE"
+    chmod 600 "$KUBECONFIG_FILE"
+    sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$KUBECONFIG_FILE"
+    export KUBECONFIG="$KUBECONFIG_FILE"
+    echo ">>> KUBECONFIG set to $KUBECONFIG"
+  fi
+fi
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
 
@@ -763,6 +781,37 @@ metadata:
 spec:
   version: {self.es_version}
   count: {count}
+  config:
+    xpack.fleet.packages:
+      - name: fleet_server
+        version: latest
+      - name: elastic_agent
+        version: latest
+      - name: system
+        version: latest
+      - name: kubernetes
+        version: latest
+    xpack.fleet.agentPolicies:
+      - name: Fleet Server Policy
+        id: fleet-server-policy
+        is_default_fleet_server: true
+        package_policies:
+          - name: fleet_server-1
+            id: fleet_server-1
+            package:
+              name: fleet_server
+      - name: Elastic Agent Policy
+        id: elastic-agent-policy
+        is_default: true
+        package_policies:
+          - name: system-1
+            id: system-1
+            package:
+              name: system
+          - name: kubernetes-1
+            id: kubernetes-1
+            package:
+              name: kubernetes
   
   elasticsearchRef:
     name: {self.project_name}

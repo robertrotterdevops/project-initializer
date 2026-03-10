@@ -104,6 +104,8 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn('KB_NAME="sample-project-kb"', healthcheck_script)
             self.assertIn('KIBANA_INGRESS="sample-project-kibana"', healthcheck_script)
             self.assertIn('flux get kustomizations', healthcheck_script)
+            self.assertIn('INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"', healthcheck_script)
+            self.assertIn('KUBECONFIG_FILE="$HOME/.kube/sample-project"', healthcheck_script)
             self.assertFalse((out_dir / "terraform/modules/aks/main.tf").exists())
             self.assertEqual(result.get("iac_tool"), "terraform")
 
@@ -198,6 +200,10 @@ class TestIacHardening(unittest.TestCase):
             self.assertTrue((out_dir / "platform/eck-operator/crds.yaml").exists())
             eck_kustomization = (out_dir / "platform/eck-operator/kustomization.yaml").read_text()
             self.assertIn("- crds.yaml", eck_kustomization)
+            kibana_yaml = (out_dir / "kibana/kibana.yaml").read_text()
+            self.assertIn("xpack.fleet.agentPolicies:", kibana_yaml)
+            self.assertIn("is_default_fleet_server: true", kibana_yaml)
+            self.assertIn("id: elastic-agent-policy", kibana_yaml)
 
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
             healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()

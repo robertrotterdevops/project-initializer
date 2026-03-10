@@ -106,6 +106,24 @@ NAMESPACE="{project_name}"
 ES_NAME="{project_name}"
 KB_NAME="{project_name}-kb"
 KIBANA_INGRESS="{project_name}-kibana"
+INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
+KUBECONFIG_FILE="$HOME/.kube/{project_name}"
+
+if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
+  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/')
+  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/')
+  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/')
+  if [[ -n "$SERVER_IP" && -n "$SSH_USER" && -n "$SSH_PASS" ]]; then
+    mkdir -p "$(dirname "$KUBECONFIG_FILE")"
+    echo ">>> Fetching kubeconfig from $SSH_USER@$SERVER_IP"
+    sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" \
+      "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_FILE"
+    chmod 600 "$KUBECONFIG_FILE"
+    sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$KUBECONFIG_FILE"
+    export KUBECONFIG="$KUBECONFIG_FILE"
+    echo ">>> KUBECONFIG set to $KUBECONFIG"
+  fi
+fi
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
 
