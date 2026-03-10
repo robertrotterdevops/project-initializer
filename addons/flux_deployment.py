@@ -655,6 +655,7 @@ metadata:
         "network-policy-allow-intra-namespace.yaml",
     ]
     if eck_enabled:
+        infra_resources.append("network-policy-allow-eck-operator.yaml")
         infra_resources.append("../platform/eck-operator")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
 
@@ -720,6 +721,27 @@ spec:
   egress:
   - to:
     - podSelector: {{}}
+""",
+        "infrastructure/network-policy-allow-eck-operator.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-eck-operator
+  namespace: {project_name}
+spec:
+  podSelector: {{}}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: elastic-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: elastic-system
 """,
         "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
 kind: StorageClass
