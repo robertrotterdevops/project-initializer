@@ -95,6 +95,75 @@ echo "[5/5] Deployment trigger finished."
 """
 
 
+def _cluster_healthcheck_script(project_name: str) -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="{project_name}"
+ES_NAME="{project_name}"
+KB_NAME="{project_name}-kb"
+KIBANA_INGRESS="{project_name}-kibana"
+
+sep() {{ echo; echo "=== $* ==="; echo; }}
+
+sep "NODES"
+kubectl get nodes -o wide
+
+sep "PODS ($NAMESPACE)"
+kubectl get pods -n "$NAMESPACE" -o wide \\
+  --sort-by='.status.phase' \\
+  | awk 'NR==1 || /[0-9]+\\/[0-9]+/'
+
+sep "ELASTICSEARCH STATUS"
+kubectl get elasticsearch -n "$NAMESPACE" 2>/dev/null || echo "No Elasticsearch resources found"
+
+sep "KIBANA STATUS"
+kubectl get kibana -n "$NAMESPACE" 2>/dev/null || echo "No Kibana resources found"
+
+sep "ELASTICSEARCH CLUSTER HEALTH"
+ES_POD=$(kubectl get pod -n "$NAMESPACE" -l "elasticsearch.k8s.elastic.co/cluster-name=${{ES_NAME}}" \\
+  --field-selector=status.phase=Running -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
+if [[ -n "$ES_POD" ]]; then
+  kubectl exec -n "$NAMESPACE" "$ES_POD" -- \\
+    curl -sk -u "elastic:$(kubectl get secret "${{ES_NAME}}-es-elastic-user" -n "$NAMESPACE" -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
+    "https://localhost:9200/_cluster/health?pretty" 2>/dev/null || echo "Could not reach ES cluster health API"
+else
+  echo "No running Elasticsearch pod found"
+fi
+
+sep "INGRESS ($NAMESPACE)"
+kubectl get ingress -n "$NAMESPACE" 2>/dev/null || echo "No ingress resources found"
+KIBANA_HOST=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
+  -o jsonpath='{{.spec.rules[0].host}}' 2>/dev/null || true)
+KIBANA_ADDR=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
+  -o jsonpath='{{.status.loadBalancer.ingress[0].ip}}{{.status.loadBalancer.ingress[0].hostname}}' 2>/dev/null || true)
+if [[ -n "$KIBANA_HOST" ]]; then
+  echo
+  echo "  Kibana URL : https://${{KIBANA_HOST}}"
+  [[ -n "$KIBANA_ADDR" ]] && echo "  LB address : ${{KIBANA_ADDR}}"
+fi
+
+sep "NETWORK POLICIES ($NAMESPACE)"
+kubectl get networkpolicies -n "$NAMESPACE" 2>/dev/null || echo "No network policies found"
+
+sep "ELASTIC CREDENTIALS"
+ELASTIC_PASS=$(kubectl get secret "${{ES_NAME}}-es-elastic-user" -n "$NAMESPACE" \\
+  -o go-template='{{{{.data.elastic | base64decode}}}}' 2>/dev/null || true)
+if [[ -n "$ELASTIC_PASS" ]]; then
+  echo "  Username : elastic"
+  echo "  Password : ${{ELASTIC_PASS}}"
+  [[ -n "$KIBANA_HOST" ]] && echo "  Login URL: https://${{KIBANA_HOST}}"
+else
+  echo "Secret ${{ES_NAME}}-es-elastic-user not found"
+fi
+
+sep "FLUX KUSTOMIZATIONS"
+flux get kustomizations 2>/dev/null || echo "flux CLI not available or not configured"
+
+sep "DONE"
+"""
+
+
 def main(project_name: str, description: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     ctx = context or {}
     iac_tool = (ctx.get("iac_tool") or "").lower()
@@ -137,6 +206,7 @@ fi
             "scripts/post-terraform-deploy.sh": _script_header(project_name, platform)
             + git_push_block
             + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
+            "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name),
             "docs/DEPLOYMENT_PIPELINE.md": (
                 "# Deployment Pipeline\n\n"
                 "1. Terraform creates infrastructure and VMs.\n"
@@ -148,6 +218,7 @@ fi
     tail = _flux_tail(project_name) if gitops == "flux" else _argo_tail(project_name)
     return {
         "scripts/post-terraform-deploy.sh": _script_header(project_name, platform) + git_push_block + tail,
+        "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name),
         "docs/DEPLOYMENT_PIPELINE.md": (
             "# Deployment Pipeline\n\n"
             "Use this sequence to complete deployment:\n\n"
@@ -155,6 +226,10 @@ fi
             "2. `scripts/bootstrap-rke2.sh` (if present for RKE2/Proxmox projects)\n"
             "3. Commit and push generated changes to Git remote\n"
             "4. Trigger GitOps reconciliation\n\n"
+            "After the first reconcile completes, run:\n\n"
+            "```bash\n"
+            "./scripts/cluster-healthcheck.sh\n"
+            "```\n\n"
             "Generated helper:\n\n"
             "```bash\n"
             "./scripts/post-terraform-deploy.sh\n"
@@ -176,5 +251,6 @@ fi
             "3. `./scripts/bootstrap-rke2.sh` (if generated)\n"
             "4. `./scripts/post-terraform-deploy.sh`\n"
             "5. Validate GitOps health (`flux get kustomizations` or `argocd app list`).\n"
+            "6. Verify minimum cluster health with `./scripts/cluster-healthcheck.sh`.\n"
         ),
     }
