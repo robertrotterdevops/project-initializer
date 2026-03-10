@@ -160,6 +160,7 @@ spec:
   path: ./apps
   prune: true
   wait: true
+  timeout: 20m
 {apps_depends_on}"""
 
         manifests["kustomization-infra.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1

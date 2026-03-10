@@ -148,6 +148,8 @@ class TestIacHardening(unittest.TestCase):
             gotk_sync = (out_dir / "flux-system/gotk-sync.yaml").read_text()
             self.assertIn("kind: Kustomization", gotk_sync)
             self.assertIn("wait: false", gotk_sync)
+            apps_kustomization = (out_dir / "flux-system/kustomization-apps.yaml").read_text()
+            self.assertIn("timeout: 20m", apps_kustomization)
 
             cluster_kustomization = (out_dir / "clusters/management/kustomization.yaml").read_text()
             self.assertIn("- ../../flux-system", cluster_kustomization)
@@ -183,6 +185,37 @@ class TestIacHardening(unittest.TestCase):
                 deploy_script,
             )
             self.assertIn(f'git remote set-url origin "{repo_url}"', deploy_script)
+            self.assertIn(
+                'kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m',
+                deploy_script,
+            )
+            self.assertIn(
+                'kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m',
+                deploy_script,
+            )
+            self.assertLess(
+                deploy_script.find('flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true'),
+                deploy_script.find('flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true'),
+            )
+            self.assertNotIn("rke2-4-apps", deploy_script)
+            self.assertNotIn("rke2-4-infra", deploy_script)
+
+    def test_argo_post_terraform_script_keeps_flux_logic_out(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-argo-post-tf-") as td:
+            out_dir = Path(td) / "argo-check"
+            initialize_project(
+                project_name="argo-check",
+                description="Argo deployment behavior check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+            )
+            deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-infra"', deploy_script)
+            self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-apps"', deploy_script)
+            self.assertNotIn("kubectl -n flux-system wait gitrepository", deploy_script)
+            self.assertIn('argocd app sync "$PROJECT_NAME" || true', deploy_script)
 
     def test_eck_storage_class_falls_back_to_local_path(self) -> None:
         sizing_context = {

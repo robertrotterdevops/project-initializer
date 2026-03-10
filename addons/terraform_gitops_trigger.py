@@ -65,11 +65,15 @@ def _flux_tail(project_name: str) -> str:
     echo "bootstrap-flux.sh not found; skipping."
   fi
 
+  echo "[5/6] Waiting for Flux source and root kustomization..."
+  kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m
+  kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m
+
   echo "[5/6] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
-  flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
+  flux reconcile kustomization "$PROJECT_NAME-apps" -n flux-system || true
 else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
