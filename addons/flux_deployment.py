@@ -656,6 +656,7 @@ metadata:
     ]
     if eck_enabled:
         infra_resources.append("network-policy-allow-eck-operator.yaml")
+        infra_resources.append("network-policy-allow-ingress-nginx.yaml")
         infra_resources.append("../platform/eck-operator")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
 
@@ -742,6 +743,24 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: elastic-system
+""",
+        "infrastructure/network-policy-allow-ingress-nginx.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-ingress-nginx
+  namespace: {project_name}
+spec:
+  podSelector: {{}}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 5601
 """,
         "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
 kind: StorageClass

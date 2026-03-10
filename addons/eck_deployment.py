@@ -65,6 +65,7 @@ class ECKDeploymentGenerator:
         # Multi-tier nodes (from sizing report)
         self.cold_nodes = self.sizing.get("cold_nodes")
         self.frozen_nodes = self.sizing.get("frozen_nodes")
+        self.node_selectors = self.sizing.get("node_selectors") or {}
 
         # Kibana and Fleet from sizing
         self.kibana_config = self.sizing.get(
@@ -152,6 +153,25 @@ class ECKDeploymentGenerator:
         gi = int(m.group(1))
         return f"{max(gi, minimum_gi)}Gi"
 
+    def _render_node_selector(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
+        selector: Any = None
+        if isinstance(tier_config, dict):
+            selector = tier_config.get("node_selector") or tier_config.get("nodeSelector")
+        if not selector and isinstance(self.node_selectors, dict):
+            selector = self.node_selectors.get(tier)
+        if not isinstance(selector, dict) or not selector:
+            return ""
+
+        lines = []
+        for key, value in selector.items():
+            if key is None or value is None:
+                continue
+            lines.append(f'            "{str(key)}": "{str(value)}"')
+        if not lines:
+            return ""
+
+        return "\n          nodeSelector:\n" + "\n".join(lines)
+
     def generate(self) -> Dict[str, str]:
         """Generate all ECK manifests."""
         files = {}
@@ -176,6 +196,7 @@ class ECKDeploymentGenerator:
 
         # Kibana in its own folder
         files["kibana/kibana.yaml"] = self._generate_kibana()
+        files["kibana/ingress.yaml"] = self._generate_kibana_ingress()
         files["kibana/kustomization.yaml"] = self._generate_kibana_kustomization()
 
         # Agents in their own folder
@@ -498,6 +519,7 @@ spec:
                         elasticsearch.k8s.elastic.co/cluster-name: {self.project_name}
                         elasticsearch.k8s.elastic.co/node-data: "true"
                     topologyKey: topology.kubernetes.io/zone"""
+        node_selector = self._render_node_selector("hot", self.data_nodes)
 
         return f"""
     # Hot tier - data nodes (ingest, recent data)
@@ -523,7 +545,7 @@ spec:
               securityContext:
                 privileged: true
                 runAsUser: 0
-              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']{affinity}
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']{node_selector}{affinity}
       volumeClaimTemplates:
         - metadata:
             name: elasticsearch-data
@@ -547,6 +569,7 @@ spec:
         storage_class = self._resolve_storage_class(
             self.cold_nodes.get("storage_class"), "standard"
         )
+        node_selector = self._render_node_selector("cold", self.cold_nodes)
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
@@ -574,7 +597,7 @@ spec:
               securityContext:
                 privileged: true
                 runAsUser: 0
-              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']{node_selector}
       volumeClaimTemplates:
         - metadata:
             name: elasticsearch-data
@@ -595,6 +618,7 @@ spec:
         memory = self.frozen_nodes.get("memory", "32Gi")
         cpu = self.frozen_nodes.get("cpu", "8")
         cache_storage = self.frozen_nodes.get("cache_storage", "2400Gi")
+        node_selector = self._render_node_selector("frozen", self.frozen_nodes)
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
@@ -624,7 +648,7 @@ spec:
               securityContext:
                 privileged: true
                 runAsUser: 0
-              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']{node_selector}
       volumeClaimTemplates:
         - metadata:
             name: elasticsearch-data
@@ -843,11 +867,37 @@ namespace: {self.project_name}
 
 resources:
   - kibana.yaml
+  - ingress.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: {self.project_name}
   app.kubernetes.io/component: kibana
   app.kubernetes.io/managed-by: eck
+"""
+
+    def _generate_kibana_ingress(self) -> str:
+        """Generate ingress for Kibana service exposed by ECK."""
+        return f"""apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {self.project_name}-kibana
+  namespace: {self.project_name}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {self.project_name}.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {self.project_name}-kb-http
+                port:
+                  number: 5601
 """
 
     def _generate_fleet_server(self) -> str:
