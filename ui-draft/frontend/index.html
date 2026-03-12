@@ -517,6 +517,34 @@
         cursor: pointer;
       }
 
+      .credential-provider-row {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        margin-bottom: 12px;
+        background: var(--bg-primary);
+      }
+      .provider-row-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .provider-row-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .provider-scope-hint {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin-left: auto;
+      }
+
       .git-workspace {
         background: var(--bg-secondary);
         border: 1px solid var(--border-color);
@@ -1881,20 +1909,6 @@
               </div>
               <div class="form-grid">
                 <div class="form-field full-width">
-                  <label class="form-label">
-                    <i data-lucide="bookmark"></i>
-                    Git Schema Preset
-                  </label>
-                  <select class="form-select" id="gitSchemaSelect">
-                    <option value="">No preset</option>
-                  </select>
-                  <div class="path-helper-actions">
-                    <button type="button" class="path-helper-btn" id="gitSchemaReloadBtn">Refresh list</button>
-                    <button type="button" class="path-helper-btn" id="gitSchemaClearBtn">Clear preset</button>
-                  </div>
-                  <div class="form-hint" id="gitSchemaHint">Tie into Git Workspace to reuse remotes, branches, and platform tags.</div>
-                </div>
-                <div class="form-field full-width">
                   <button class="btn btn-secondary" type="button" id="applyGitProfileBtn">
                     <i data-lucide="wand-sparkles"></i>
                     Apply Git Workspace Profile
@@ -2169,99 +2183,89 @@
                   <div class="form-hint">No repositories discovered yet.</div>
                 </div>
                 <div class="log-stream" id="syncOutput">Ready to sync repository...</div>
-                <div class="git-schema-panel">
-                  <h3 class="section-title" style="font-size: 1rem; margin-bottom: 6px;">Saved Git Schemas</h3>
-                  <p class="form-hint">Capture repo metadata that can be reused on any project or platform tab.</p>
-                  <div class="form-grid" style="margin-top: 12px;">
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="edit-3"></i>Schema Name</label>
-                      <input type="text" class="form-input" id="gitSchemaName" placeholder="Openshift prod repo">
-                    </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="layers"></i>Platform Tag</label>
-                      <select class="form-select" id="gitSchemaPlatform">
-                        <option value="">Generic</option>
-                        <option value="openshift">OpenShift</option>
-                        <option value="proxmox">Proxmox + RKE2</option>
-                        <option value="rke2">RKE2 + Rancher</option>
-                        <option value="aks">Azure AKS</option>
-                      </select>
-                    </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="link"></i>Remote URL</label>
-                      <input type="text" class="form-input" id="gitSchemaRemote" placeholder="git@github.com:org/proj.git">
-                    </div>
-                    <div class="form-field">
-                      <label class="form-label"><i data-lucide="file-text"></i>Description</label>
-                      <textarea class="form-textarea" id="gitSchemaDescription" placeholder="What environment does this repo deploy?"></textarea>
-                    </div>
-                  </div>
-                  <div class="git-schema-actions">
-                    <button class="btn btn-secondary" type="button" id="prefillSchemaFieldsBtn">
-                      <i data-lucide="copy"></i>
-                      Use current repo inputs
-                    </button>
-                    <button class="btn btn-primary" type="button" id="saveGitSchemaBtn">
-                      <i data-lucide="save"></i>
-                      Save Git Schema
-                    </button>
-                  </div>
-                  <div class="form-hint">Schema path + branch come from Repository Path and Branch fields above.</div>
-                  <div class="git-schema-list" id="gitSchemaList">
-                    <div class="schema-empty">No schemas saved yet.</div>
-                  </div>
-                </div>
               </div>
 
               <div class="git-pane" data-panel="credentials">
-                <div class="form-grid">
-                  <div class="form-field">
-                    <label class="form-label">
-                      <i data-lucide="link"></i>
-                      Default remote URL
-                    </label>
-                    <input type="text" class="form-input" id="gitDefaultRemote" placeholder="git@github.com:org/repo.git">
+                <!-- GitLab -->
+                <div class="credential-provider-row">
+                  <div class="provider-row-title"><i data-lucide="gitlab"></i> GitLab</div>
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="form-label">URL</label>
+                      <input type="text" class="form-input" id="credGitlabUrl" value="https://gitlab.com">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label">Username / Namespace</label>
+                      <input type="text" class="form-input" id="credGitlabUsername" placeholder="my-group">
+                    </div>
+                    <div class="form-field full-width">
+                      <label class="form-label">Personal Access Token</label>
+                      <input type="password" class="form-input" id="credGitlabToken" placeholder="glpat-...">
+                    </div>
                   </div>
-                  <div class="form-field">
-                    <label class="form-label">
-                      <i data-lucide="building-2"></i>
-                      Default Git Provider
-                    </label>
-                    <select class="form-select" id="gitDefaultProvider">
-                      <option value="">Auto detect</option>
-                      <option value="gitlab">GitLab</option>
-                      <option value="github">GitHub</option>
-                    </select>
+                  <div class="provider-row-actions">
+                    <button class="btn btn-primary" type="button" id="saveCredGitlab"><i data-lucide="save"></i> Save</button>
+                    <button class="btn btn-secondary" type="button" id="testCredGitlab"><i data-lucide="check-circle"></i> Test</button>
+                    <span class="provider-scope-hint">Needs read_repository + write_repository (or api)</span>
                   </div>
-                  <div class="form-field">
-                    <label class="form-label">
-                      <i data-lucide="folder-git-2"></i>
-                      Default Namespace
-                    </label>
-                    <input type="text" class="form-input" id="gitDefaultNamespace" placeholder="rke2-elastic">
+                </div>
+
+                <!-- GitHub -->
+                <div class="credential-provider-row">
+                  <div class="provider-row-title"><i data-lucide="github"></i> GitHub</div>
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="form-label">URL</label>
+                      <input type="text" class="form-input" id="credGithubUrl" value="https://github.com">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label">Username / Namespace</label>
+                      <input type="text" class="form-input" id="credGithubUsername" placeholder="my-org">
+                    </div>
+                    <div class="form-field full-width">
+                      <label class="form-label">Personal Access Token</label>
+                      <input type="password" class="form-input" id="credGithubToken" placeholder="ghp_...">
+                    </div>
                   </div>
-                  <div class="form-field">
-                    <label class="form-label">
-                      <i data-lucide="shield"></i>
-                      Personal Access Token (stored locally)
-                    </label>
-                    <input type="password" class="form-input" id="gitToken" placeholder="ghp_...">
+                  <div class="provider-row-actions">
+                    <button class="btn btn-primary" type="button" id="saveCredGithub"><i data-lucide="save"></i> Save</button>
+                    <button class="btn btn-secondary" type="button" id="testCredGithub"><i data-lucide="check-circle"></i> Test</button>
+                    <span class="provider-scope-hint">Needs repo scope for private repositories</span>
                   </div>
+                </div>
+
+                <!-- Azure DevOps -->
+                <div class="credential-provider-row">
+                  <div class="provider-row-title"><i data-lucide="cloud"></i> Azure DevOps</div>
+                  <div class="form-grid">
+                    <div class="form-field">
+                      <label class="form-label">URL</label>
+                      <input type="text" class="form-input" id="credAzdoUrl" value="https://dev.azure.com" readonly style="opacity:0.7;cursor:not-allowed;">
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label">Organization</label>
+                      <input type="text" class="form-input" id="credAzdoOrg" placeholder="my-org">
+                    </div>
+                    <div class="form-field full-width">
+                      <label class="form-label">Personal Access Token</label>
+                      <input type="password" class="form-input" id="credAzdoToken" placeholder="PAT...">
+                    </div>
+                  </div>
+                  <div class="provider-row-actions">
+                    <button class="btn btn-primary" type="button" id="saveCredAzdo"><i data-lucide="save"></i> Save</button>
+                    <button class="btn btn-secondary" type="button" id="testCredAzdo"><i data-lucide="check-circle"></i> Test</button>
+                    <span class="provider-scope-hint">Needs Code (Read &amp; Write) scope</span>
+                  </div>
+                </div>
+
+                <!-- Shared: SSH key path -->
+                <div style="margin-top: 16px;">
                   <div class="form-field">
-                    <label class="form-label">
-                      <i data-lucide="key"></i>
-                      Preferred SSH Key Path
-                    </label>
+                    <label class="form-label"><i data-lucide="key"></i> Preferred SSH Key Path</label>
                     <input type="text" class="form-input" id="gitPreferredKey" placeholder="~/.ssh/id_ed25519">
                   </div>
                 </div>
-                <div class="btn-group" style="margin-top: 12px;">
-                  <button class="btn btn-secondary" type="button" id="loadSavedGitPrefs">Load saved profile</button>
-                  <button class="btn btn-primary" type="button" id="saveGitPrefs">Save profile</button>
-                  <button class="btn btn-secondary" type="button" id="testGitTokenBtn">Test token</button>
-                </div>
-                <p class="form-hint" id="gitPrefsHint">Credentials are stored locally and sent to backend only for git operations you trigger.</p>
-                <p class="form-hint" id="gitScopeHint">Scope hint: GitLab needs `read_repository` + `write_repository` (or `api`). GitHub needs `repo` for private repos.</p>
+                <p class="form-hint" style="margin-top: 8px;">Credentials are stored locally and sent to backend only for git operations you trigger.</p>
               </div>
 
               <div class="git-pane" data-panel="keys">
@@ -2445,8 +2449,6 @@
         discoveredRepos: [],
         sshKeys: [],
         selectedKey: null,
-        gitSchemas: [],
-        selectedGitSchema: '',
         environment: {
           headless: false,
           supports_native_picker: true,
@@ -2681,9 +2683,6 @@
           }
         });
 
-        if (!env.supports_native_picker && gitSchemaHintEl) {
-          gitSchemaHintEl.textContent = 'Inline folder browser enabled (native picker unavailable).';
-        }
       }
 
       targetDirEl.addEventListener('blur', () => {
@@ -2826,12 +2825,18 @@
       const gitDiscoverBaseEl = document.getElementById('gitDiscoverBase');
       const gitTabButtons = document.querySelectorAll('.git-tab-button');
       const gitPaneEls = document.querySelectorAll('.git-pane');
-      const gitDefaultRemoteEl = document.getElementById('gitDefaultRemote');
-      const gitDefaultProviderEl = document.getElementById('gitDefaultProvider');
-      const gitDefaultNamespaceEl = document.getElementById('gitDefaultNamespace');
-      const gitTokenEl = document.getElementById('gitToken');
+      // Per-provider credential refs
+      const credGitlabUrlEl = document.getElementById('credGitlabUrl');
+      const credGitlabUsernameEl = document.getElementById('credGitlabUsername');
+      const credGitlabTokenEl = document.getElementById('credGitlabToken');
+      const credGithubUrlEl = document.getElementById('credGithubUrl');
+      const credGithubUsernameEl = document.getElementById('credGithubUsername');
+      const credGithubTokenEl = document.getElementById('credGithubToken');
+      const credAzdoUrlEl = document.getElementById('credAzdoUrl');
+      const credAzdoOrgEl = document.getElementById('credAzdoOrg');
+      const credAzdoTokenEl = document.getElementById('credAzdoToken');
       const gitPreferredKeyEl = document.getElementById('gitPreferredKey');
-      const gitScopeHintEl = document.getElementById('gitScopeHint');
+      // Create page refs
       const gitRemotePreviewEl = document.getElementById('gitRemotePreview');
       const gitProviderEl = document.getElementById('gitProvider');
       const gitNamespaceEl = document.getElementById('gitNamespace');
@@ -2839,19 +2844,7 @@
       const createRemoteRepoEl = document.getElementById('createRemoteRepo');
       const sshKeyListEl = document.getElementById('sshKeyList');
       const sshKeyPreviewEl = document.getElementById('sshKeyPreview');
-      const gitSchemaSelectEl = document.getElementById('gitSchemaSelect');
-      const gitSchemaHintEl = document.getElementById('gitSchemaHint');
-      const gitSchemaListEl = document.getElementById('gitSchemaList');
-      const gitSchemaNameEl = document.getElementById('gitSchemaName');
-      const gitSchemaPlatformEl = document.getElementById('gitSchemaPlatform');
-      const gitSchemaRemoteEl = document.getElementById('gitSchemaRemote');
-      const gitSchemaDescriptionEl = document.getElementById('gitSchemaDescription');
-      const gitSchemaReloadBtn = document.getElementById('gitSchemaReloadBtn');
-      const gitSchemaClearBtn = document.getElementById('gitSchemaClearBtn');
-      const saveGitSchemaBtn = document.getElementById('saveGitSchemaBtn');
-      const prefillSchemaFieldsBtn = document.getElementById('prefillSchemaFieldsBtn');
       const applyGitProfileBtn = document.getElementById('applyGitProfileBtn');
-      const testGitTokenBtn = document.getElementById('testGitTokenBtn');
 
       if (gitDiscoverBaseEl && !gitDiscoverBaseEl.value) {
         gitDiscoverBaseEl.value = document.getElementById('targetDir').value;
@@ -2915,189 +2908,78 @@
         lucide.createIcons();
       }
 
-      function renderGitSchemaSelect() {
-        if (!gitSchemaSelectEl) return;
-        const active = state.activePlatform;
-        const prioritized = state.gitSchemas.filter(s => s.platform === active);
-        const others = state.gitSchemas.filter(s => s.platform !== active);
-        const combined = [...prioritized, ...others];
-        const options = ['<option value="">No preset</option>'];
-        combined.forEach(schema => {
-          const label = schema.platform && schema.platform === active
-            ? `${schema.name} · ${schema.branch} (match)`
-            : `${schema.name} · ${schema.branch}`;
-          options.push(`<option value="${schema.id}">${label}</option>`);
-        });
-        gitSchemaSelectEl.innerHTML = options.join('');
-        if (state.selectedGitSchema) {
-          gitSchemaSelectEl.value = state.selectedGitSchema;
+      // --- Provider credential helpers ---
+
+      function getCredentialForProvider(provider) {
+        if (provider === 'gitlab') {
+          return { token: credGitlabTokenEl?.value?.trim() || '', namespace: credGitlabUsernameEl?.value?.trim() || '' };
         }
+        if (provider === 'github') {
+          return { token: credGithubTokenEl?.value?.trim() || '', namespace: credGithubUsernameEl?.value?.trim() || '' };
+        }
+        if (provider === 'azure_devops') {
+          return { token: credAzdoTokenEl?.value?.trim() || '', namespace: credAzdoOrgEl?.value?.trim() || '' };
+        }
+        return { token: '', namespace: '' };
       }
 
-      function renderGitSchemaList() {
-        if (!gitSchemaListEl) return;
-        if (!state.gitSchemas.length) {
-          gitSchemaListEl.innerHTML = '<div class="schema-empty">No schemas saved yet.</div>';
-          return;
-        }
-        gitSchemaListEl.innerHTML = state.gitSchemas.map(schema => `
-          <div class="git-repo-card" data-schema-id="${schema.id}">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-              <strong>${schema.name}</strong>
-              ${schema.platform ? `<span class="schema-badge">${schema.platform}</span>` : ''}
-            </div>
-            <span class="path">${schema.repo_path}</span>
-            <span class="form-hint">Remote: ${schema.remote_url || 'n/a'} · Branch: ${schema.branch}</span>
-            ${schema.description ? `<span class="form-hint">${schema.description}</span>` : ''}
-            <div class="btn-group" style="margin-top:8px;">
-              <button type="button" data-schema="${schema.id}" data-action="use">Use in Create form</button>
-              <button type="button" data-schema="${schema.id}" data-action="fill">Fill repo path</button>
-              <button type="button" data-schema="${schema.id}" data-action="delete">Delete</button>
-            </div>
-          </div>
-        `).join('');
-        gitSchemaListEl.querySelectorAll('button[data-schema]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const id = btn.dataset.schema;
-            const action = btn.dataset.action;
-            if (!id) return;
-            if (action === 'use') {
-              applyGitSchemaById(id);
-            } else if (action === 'fill') {
-              const schema = state.gitSchemas.find(s => s.id === id);
-              if (schema && schema.repo_path) {
-                syncRepoPathEl.value = schema.repo_path;
-                document.getElementById('gitBranch').value = schema.branch || 'main';
-                showToast('Repository path filled from schema');
-              }
-            } else if (action === 'delete') {
-              deleteGitSchema(id);
-            }
+      async function saveCredentials(provider) {
+        const creds = {
+          gitlab:       { url: credGitlabUrlEl?.value?.trim() || 'https://gitlab.com', username: credGitlabUsernameEl?.value?.trim() || '', token: credGitlabTokenEl?.value?.trim() || '' },
+          github:       { url: credGithubUrlEl?.value?.trim() || 'https://github.com', username: credGithubUsernameEl?.value?.trim() || '', token: credGithubTokenEl?.value?.trim() || '' },
+          azure_devops: { url: credAzdoUrlEl?.value?.trim() || 'https://dev.azure.com', organization: credAzdoOrgEl?.value?.trim() || '', token: credAzdoTokenEl?.value?.trim() || '' },
+        };
+        const preferredKey = gitPreferredKeyEl?.value?.trim() || '';
+        // Also write legacy git_profile from the provider that was just saved
+        const cur = creds[provider] || {};
+        const legacyProfile = {
+          remote: '',
+          provider: provider === 'azure_devops' ? '' : provider,
+          namespace: cur.username || cur.organization || '',
+          token: cur.token || '',
+          key: preferredKey,
+        };
+        localStorage.setItem(gitPrefsStorageKey, JSON.stringify(legacyProfile));
+        try {
+          const res = await fetch(apiUrl('/api/preferences'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ git_credentials: creds, git_preferred_key: preferredKey, git_profile: legacyProfile }),
           });
-        });
-        lucide.createIcons();
-      }
-
-      async function loadGitSchemas() {
-        try {
-          const res = await fetch(apiUrl('/api/git/registry'));
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            showToast(data.detail || 'Failed to load git schemas', 'error');
+            showToast(data.detail || 'Failed to save credentials', 'error');
             return;
           }
-          state.gitSchemas = data.entries || [];
-          renderGitSchemaSelect();
-          renderGitSchemaList();
+          showToast(`${provider.replace('_', ' ')} credentials saved`);
         } catch (err) {
-          showToast(`Failed to load git schemas: ${err}`, 'error');
+          showToast(`Failed to save credentials: ${err}`, 'error');
         }
       }
 
-      function applyGitSchemaById(id) {
-        const schema = state.gitSchemas.find(s => s.id === id);
-        if (!schema) {
-          showToast('Schema not found', 'error');
-          return;
-        }
-        applyGitSchema(schema);
-      }
-
-      function applyGitSchema(schema) {
-        if (!schema) return;
-        state.selectedGitSchema = schema.id;
-        if (gitSchemaSelectEl) gitSchemaSelectEl.value = schema.id;
-        if (gitRemoteUrlEl) gitRemoteUrlEl.value = schema.remote_url || '';
-        if (gitProviderEl) {
-          const inferredProvider = inferProviderFromRemote(schema.remote_url || '');
-          if (inferredProvider) gitProviderEl.value = inferredProvider;
-        }
-        if (gitNamespaceEl) {
-          const inferredNamespace = inferNamespaceFromRemote(schema.remote_url || '');
-          if (inferredNamespace) gitNamespaceEl.value = inferredNamespace;
-        }
-        document.getElementById('gitBranch').value = schema.branch || 'main';
-        document.getElementById('gitInit').checked = true;
-        if (gitSchemaHintEl) {
-          gitSchemaHintEl.textContent = `Using preset: ${schema.name}`;
-        }
-        showToast(`Applied git schema: ${schema.name}`);
-      }
-
-      function clearGitSchemaSelection() {
-        state.selectedGitSchema = '';
-        if (gitSchemaSelectEl) gitSchemaSelectEl.value = '';
-        if (gitSchemaHintEl) {
-          gitSchemaHintEl.textContent = 'Tie into Git Workspace to reuse remotes, branches, and platform tags.';
-        }
-      }
-
-      async function deleteGitSchema(id) {
-        if (!id) return;
-        if (!confirm('Delete this git schema?')) return;
-        try {
-          const res = await fetch(apiUrl(`/api/git/registry/${id}`), { method: 'DELETE' });
-          if (!res.ok) {
-            const data = await res.json();
-            showToast(data.detail || 'Failed to delete schema', 'error');
-            return;
-          }
-          showToast('Schema deleted');
-          await loadGitSchemas();
-          if (state.selectedGitSchema === id) {
-            clearGitSchemaSelection();
-          }
-        } catch (err) {
-          showToast(`Failed to delete schema: ${err}`, 'error');
-        }
-      }
-
-      async function saveGitSchema() {
-        if (!gitSchemaNameEl || !gitSchemaPlatformEl || !gitSchemaRemoteEl || !gitSchemaDescriptionEl) return;
-        const repoPath = syncRepoPathEl.value.trim();
-        const name = gitSchemaNameEl.value.trim();
-        const remote = gitSchemaRemoteEl.value.trim() || gitDefaultRemoteEl.value.trim() || gitRemoteUrlEl.value.trim();
-        const branch = document.getElementById('syncBranch').value.trim() || 'main';
-        if (!name || !repoPath) {
-          showToast('Schema name and repository path are required', 'error');
+      async function testCredential(provider) {
+        const cred = getCredentialForProvider(provider);
+        if (!cred.token) {
+          showToast('Enter token first', 'warning');
           return;
         }
         try {
           const fd = new FormData();
-          fd.append('name', name);
-          fd.append('repo_path', repoPath);
-          fd.append('remote_url', remote);
-          fd.append('branch', branch);
-          fd.append('platform', gitSchemaPlatformEl.value);
-          fd.append('description', gitSchemaDescriptionEl.value.trim());
-          const res = await fetch(apiUrl('/api/git/registry'), { method: 'POST', body: fd });
+          fd.append('git_token', cred.token);
+          fd.append('git_provider', provider);
+          if (provider === 'azure_devops') {
+            fd.append('organization', cred.namespace);
+          }
+          const res = await fetch(apiUrl('/api/git/token/test'), { method: 'POST', body: fd });
           const data = await res.json();
           if (!res.ok) {
-            showToast(data.detail || 'Failed to save schema', 'error');
+            showToast(data.detail || 'Token test failed', 'error');
             return;
           }
-          showToast('Git schema saved');
-          await loadGitSchemas();
-          gitSchemaNameEl.value = '';
-          gitSchemaDescriptionEl.value = '';
+          showToast(`Token OK (${data.provider}: ${data.user || 'authenticated'})`);
         } catch (err) {
-          showToast(`Failed to save schema: ${err}`, 'error');
+          showToast(`Token test failed: ${err}`, 'error');
         }
-      }
-
-      function prefillSchemaFields() {
-        if (!gitSchemaNameEl || !gitSchemaRemoteEl || !gitSchemaPlatformEl) return;
-        if (!gitSchemaNameEl.value && syncRepoPathEl.value) {
-          const parts = syncRepoPathEl.value.trim().split(/[\\/]/).filter(Boolean);
-          if (parts.length) gitSchemaNameEl.value = parts[parts.length - 1];
-        }
-        if (!gitSchemaRemoteEl.value) {
-          gitSchemaRemoteEl.value = gitRemoteUrlEl.value || gitDefaultRemoteEl.value || '';
-        }
-        if (state.activePlatform && gitSchemaPlatformEl.value === '') {
-          gitSchemaPlatformEl.value = state.activePlatform;
-        }
-        showToast('Filled schema fields from current inputs');
       }
 
       function renderGitLogEntries(logEntries) {
@@ -3231,32 +3113,11 @@
         }
       }
 
-      async function saveGitPrefs() {
-        const payload = {
-          remote: gitDefaultRemoteEl?.value?.trim() || '',
-          provider: gitDefaultProviderEl?.value || '',
-          namespace: gitDefaultNamespaceEl?.value?.trim() || '',
-          token: gitTokenEl?.value?.trim() || '',
-          key: gitPreferredKeyEl?.value?.trim() || '',
-        };
-        localStorage.setItem(gitPrefsStorageKey, JSON.stringify(payload));
-        const res = await fetch(apiUrl('/api/preferences'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ git_profile: payload }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showToast(data.detail || 'Failed to save Git profile', 'error');
-          return;
-        }
-        showToast('Git profile saved');
-      }
-
       function inferProviderFromRemote(remote) {
         const r = (remote || '').toLowerCase();
         if (r.includes('gitlab.com')) return 'gitlab';
         if (r.includes('github.com')) return 'github';
+        if (r.includes('dev.azure.com')) return 'azure_devops';
         return '';
       }
 
@@ -3270,20 +3131,6 @@
         return '';
       }
 
-      function updateGitScopeHint() {
-        if (!gitScopeHintEl) return;
-        const provider = (gitProviderEl?.value || gitDefaultProviderEl?.value || inferProviderFromRemote(gitRemoteUrlEl?.value || '')).toLowerCase();
-        if (provider === 'gitlab') {
-          gitScopeHintEl.textContent = 'Scope hint: GitLab PAT should include read_repository + write_repository (or api).';
-          return;
-        }
-        if (provider === 'github') {
-          gitScopeHintEl.textContent = 'Scope hint: GitHub PAT should include repo scope for private repositories.';
-          return;
-        }
-        gitScopeHintEl.textContent = 'Scope hint: choose provider to show exact token scope requirement.';
-      }
-
       function updateRemotePreview() {
         if (!gitRemotePreviewEl) return;
         const remote = gitRemoteUrlEl?.value?.trim() || '';
@@ -3291,8 +3138,9 @@
           gitRemotePreviewEl.textContent = `Final remote URL preview: ${remote}`;
           return;
         }
-        const provider = (gitProviderEl?.value || gitDefaultProviderEl?.value || '').toLowerCase();
-        const ns = (gitNamespaceEl?.value?.trim() || gitDefaultNamespaceEl?.value?.trim() || '').replace(/^\/+|\/+$/g, '');
+        const provider = (gitProviderEl?.value || inferProviderFromRemote(gitRemoteUrlEl?.value || '')).toLowerCase();
+        const cred = getCredentialForProvider(provider);
+        const ns = (gitNamespaceEl?.value?.trim() || cred.namespace || '').replace(/^\/+|\/+$/g, '');
         const name = document.getElementById('name')?.value?.trim() || '<project-name>';
         if (!provider || !ns) {
           gitRemotePreviewEl.textContent = 'Final remote URL preview: n/a';
@@ -3302,70 +3150,66 @@
           gitRemotePreviewEl.textContent = `Final remote URL preview: https://gitlab.com/${ns}/${name}.git`;
           return;
         }
-        gitRemotePreviewEl.textContent = `Final remote URL preview: https://github.com/${ns}/${name}.git`;
+        if (provider === 'github') {
+          gitRemotePreviewEl.textContent = `Final remote URL preview: https://github.com/${ns}/${name}.git`;
+          return;
+        }
+        gitRemotePreviewEl.textContent = `Final remote URL preview: n/a`;
       }
 
       function applyGitWorkspaceProfileToCreate() {
-        const remote = gitDefaultRemoteEl?.value?.trim() || '';
-        const provider = gitDefaultProviderEl?.value || inferProviderFromRemote(remote);
-        const namespace = (gitDefaultNamespaceEl?.value?.trim() || inferNamespaceFromRemote(remote));
+        const remote = gitRemoteUrlEl?.value?.trim() || '';
+        const provider = gitProviderEl?.value || inferProviderFromRemote(remote);
         if (provider && gitProviderEl) gitProviderEl.value = provider;
-        if (namespace && gitNamespaceEl) gitNamespaceEl.value = namespace;
-        if (!gitRemoteUrlEl?.value && remote && gitRemoteUrlEl) gitRemoteUrlEl.value = remote;
+        const cred = getCredentialForProvider(provider);
+        if (cred.namespace && gitNamespaceEl && !gitNamespaceEl.value) gitNamespaceEl.value = cred.namespace;
         const gitInitToggle = document.getElementById('gitInit');
         if (gitInitToggle) gitInitToggle.checked = true;
-        updateGitScopeHint();
         updateRemotePreview();
         showToast('Applied Git Workspace profile to Create form');
       }
 
-      async function testGitToken() {
-        const token = gitTokenEl?.value?.trim() || '';
-        const provider = gitDefaultProviderEl?.value || gitProviderEl?.value || inferProviderFromRemote(gitRemoteUrlEl?.value || '');
-        if (!token) {
-          showToast('Enter token first', 'warning');
-          return;
-        }
-        if (!provider) {
-          showToast('Select provider first (GitHub/GitLab)', 'warning');
-          return;
-        }
-        try {
-          const fd = new FormData();
-          fd.append('git_token', token);
-          fd.append('git_provider', provider);
-          fd.append('remote_url', gitRemoteUrlEl?.value || '');
-          const res = await fetch(apiUrl('/api/git/token/test'), { method: 'POST', body: fd });
-          const data = await res.json();
-          if (!res.ok) {
-            showToast(data.detail || 'Token test failed', 'error');
-            return;
-          }
-          showToast(`Token OK (${data.provider}: ${data.user || 'authenticated'})`);
-        } catch (err) {
-          showToast(`Token test failed: ${err}`, 'error');
-        }
-      }
-
       async function loadGitPrefs(silent = false) {
         try {
-          let payload = JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
           const res = await fetch(apiUrl('/api/preferences'));
+          let prefs = {};
           if (res.ok) {
-            const remotePrefs = await res.json().catch(() => ({}));
-            payload = remotePrefs.git_profile || payload;
-            localStorage.setItem(gitPrefsStorageKey, JSON.stringify(payload));
+            prefs = await res.json().catch(() => ({}));
           }
-          if (gitDefaultRemoteEl) gitDefaultRemoteEl.value = payload.remote || '';
-          if (gitDefaultProviderEl) gitDefaultProviderEl.value = payload.provider || '';
-          if (gitDefaultNamespaceEl) gitDefaultNamespaceEl.value = payload.namespace || '';
-          if (gitTokenEl) gitTokenEl.value = payload.token || '';
-          if (gitPreferredKeyEl) gitPreferredKeyEl.value = payload.key || '';
-          updateGitScopeHint();
+          // New format: git_credentials
+          const creds = prefs.git_credentials || {};
+          // Fallback: migrate from old git_profile
+          const legacy = prefs.git_profile || JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
+          // Populate GitLab row
+          if (creds.gitlab) {
+            if (credGitlabUrlEl) credGitlabUrlEl.value = creds.gitlab.url || 'https://gitlab.com';
+            if (credGitlabUsernameEl) credGitlabUsernameEl.value = creds.gitlab.username || '';
+            if (credGitlabTokenEl) credGitlabTokenEl.value = creds.gitlab.token || '';
+          } else if (legacy.provider === 'gitlab') {
+            if (credGitlabUsernameEl) credGitlabUsernameEl.value = legacy.namespace || '';
+            if (credGitlabTokenEl) credGitlabTokenEl.value = legacy.token || '';
+          }
+          // Populate GitHub row
+          if (creds.github) {
+            if (credGithubUrlEl) credGithubUrlEl.value = creds.github.url || 'https://github.com';
+            if (credGithubUsernameEl) credGithubUsernameEl.value = creds.github.username || '';
+            if (credGithubTokenEl) credGithubTokenEl.value = creds.github.token || '';
+          } else if (legacy.provider === 'github') {
+            if (credGithubUsernameEl) credGithubUsernameEl.value = legacy.namespace || '';
+            if (credGithubTokenEl) credGithubTokenEl.value = legacy.token || '';
+          }
+          // Populate Azure DevOps row
+          if (creds.azure_devops) {
+            if (credAzdoOrgEl) credAzdoOrgEl.value = creds.azure_devops.organization || '';
+            if (credAzdoTokenEl) credAzdoTokenEl.value = creds.azure_devops.token || '';
+          }
+          // Preferred SSH key
+          const preferredKey = prefs.git_preferred_key || legacy.key || '';
+          if (gitPreferredKeyEl) gitPreferredKeyEl.value = preferredKey;
           updateRemotePreview();
-          if (!silent) showToast('Git profile loaded');
+          if (!silent) showToast('Credentials loaded');
         } catch (_) {
-          if (!silent) showToast('No saved Git profile found', 'warning');
+          if (!silent) showToast('No saved credentials found', 'warning');
         }
       }
 
@@ -3590,12 +3434,11 @@
           git_remote_url: document.getElementById('gitRemoteUrl').value,
           git_branch: document.getElementById('gitBranch').value,
           git_push: document.getElementById('gitPush').checked,
-          git_token: gitTokenEl?.value?.trim() || '',
+          git_token: (() => { const p = gitProviderEl?.value || inferProviderFromRemote(document.getElementById('gitRemoteUrl').value); return getCredentialForProvider(p).token; })(),
           create_remote_repo: createRemoteRepoEl?.checked || false,
-          git_provider: gitProviderEl?.value || gitDefaultProviderEl?.value || inferProviderFromRemote(document.getElementById('gitRemoteUrl').value),
-          git_namespace: gitNamespaceEl?.value?.trim() || gitDefaultNamespaceEl?.value?.trim() || inferNamespaceFromRemote(document.getElementById('gitRemoteUrl').value),
+          git_provider: gitProviderEl?.value || inferProviderFromRemote(document.getElementById('gitRemoteUrl').value),
+          git_namespace: (() => { const p = gitProviderEl?.value || inferProviderFromRemote(document.getElementById('gitRemoteUrl').value); return gitNamespaceEl?.value?.trim() || getCredentialForProvider(p).namespace || inferNamespaceFromRemote(document.getElementById('gitRemoteUrl').value); })(),
           git_private_repo: gitPrivateRepoEl?.checked ?? true,
-          git_schema_id: gitSchemaSelectEl?.value || '',
           use_terraform_iac: document.getElementById('useTerraformIac').checked,
           run_terraform_apply: document.getElementById('runTerraformApply').checked,
           target_type: document.getElementById('targetType').value,
@@ -3748,7 +3591,6 @@
             btn.classList.toggle('active', btn.dataset.platform === key);
           });
         }
-        renderGitSchemaSelect();
       }
 
       if (platformTabsEl) {
@@ -3896,7 +3738,14 @@
           }
 
           const res = await fetch(apiUrl('/api/create'), { method: 'POST', body: fd });
-          const data = await res.json();
+          let data;
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            data = await res.json();
+          } else {
+            const text = await res.text();
+            data = { detail: text || `Server error (${res.status})` };
+          }
           document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 
           if (res.ok) {
@@ -3982,15 +3831,17 @@
           previewSshKey(customPath.trim());
         }
       });
-      document.getElementById('saveGitPrefs').addEventListener('click', saveGitPrefs);
-      document.getElementById('loadSavedGitPrefs').addEventListener('click', loadGitPrefs);
-      testGitTokenBtn?.addEventListener('click', testGitToken);
+      // Per-provider credential buttons
+      document.getElementById('saveCredGitlab')?.addEventListener('click', () => saveCredentials('gitlab'));
+      document.getElementById('testCredGitlab')?.addEventListener('click', () => testCredential('gitlab'));
+      document.getElementById('saveCredGithub')?.addEventListener('click', () => saveCredentials('github'));
+      document.getElementById('testCredGithub')?.addEventListener('click', () => testCredential('github'));
+      document.getElementById('saveCredAzdo')?.addEventListener('click', () => saveCredentials('azure_devops'));
+      document.getElementById('testCredAzdo')?.addEventListener('click', () => testCredential('azure_devops'));
       applyGitProfileBtn?.addEventListener('click', applyGitWorkspaceProfileToCreate);
-      gitProviderEl?.addEventListener('change', () => { updateGitScopeHint(); updateRemotePreview(); });
-      gitDefaultProviderEl?.addEventListener('change', () => { updateGitScopeHint(); updateRemotePreview(); });
+      gitProviderEl?.addEventListener('change', updateRemotePreview);
       gitNamespaceEl?.addEventListener('input', updateRemotePreview);
-      gitDefaultNamespaceEl?.addEventListener('input', updateRemotePreview);
-      gitRemoteUrlEl?.addEventListener('input', () => { updateGitScopeHint(); updateRemotePreview(); });
+      gitRemoteUrlEl?.addEventListener('input', updateRemotePreview);
       document.getElementById('name')?.addEventListener('input', updateRemotePreview);
       createRemoteRepoEl?.addEventListener('change', () => {
         if (createRemoteRepoEl.checked) {
@@ -3999,33 +3850,36 @@
           if (gitInitToggle) gitInitToggle.checked = true;
           if (gitPushToggle) gitPushToggle.checked = true;
           if (gitProviderEl && !gitProviderEl.value) {
-            gitProviderEl.value = gitDefaultProviderEl?.value || inferProviderFromRemote(gitRemoteUrlEl?.value || '');
+            gitProviderEl.value = inferProviderFromRemote(gitRemoteUrlEl?.value || '');
           }
           if (gitNamespaceEl && !gitNamespaceEl.value) {
-            gitNamespaceEl.value = gitDefaultNamespaceEl?.value?.trim() || inferNamespaceFromRemote(gitRemoteUrlEl?.value || '');
+            const p = gitProviderEl?.value || inferProviderFromRemote(gitRemoteUrlEl?.value || '');
+            gitNamespaceEl.value = getCredentialForProvider(p).namespace || inferNamespaceFromRemote(gitRemoteUrlEl?.value || '');
           }
         }
-        updateGitScopeHint();
         updateRemotePreview();
-      });
-      gitSchemaReloadBtn?.addEventListener('click', loadGitSchemas);
-      gitSchemaClearBtn?.addEventListener('click', clearGitSchemaSelection);
-      saveGitSchemaBtn?.addEventListener('click', saveGitSchema);
-      prefillSchemaFieldsBtn?.addEventListener('click', prefillSchemaFields);
-      gitSchemaSelectEl?.addEventListener('change', () => {
-        const id = gitSchemaSelectEl.value;
-        if (id) {
-          applyGitSchemaById(id);
-        } else {
-          clearGitSchemaSelection();
-        }
       });
 
       // Sync Button
       document.getElementById('syncBtn').addEventListener('click', async () => {
         const repoPath = document.getElementById('syncRepoPath').value.trim();
         const branch = document.getElementById('syncBranch').value.trim() || 'main';
-        const gitToken = gitTokenEl?.value?.trim() || '';
+        // Resolve token from credentials: try to infer provider from repo remote
+        let gitToken = '';
+        try {
+          const inspectRes = await fetch(apiUrl('/api/git/inspect'), { method: 'POST', body: (() => { const f = new FormData(); f.append('repo_path', repoPath); return f; })() });
+          const inspectData = await inspectRes.json().catch(() => ({}));
+          const remoteLine = (inspectData.remotes?.stdout || '').toLowerCase();
+          const detectedProvider = inferProviderFromRemote(remoteLine);
+          if (detectedProvider) gitToken = getCredentialForProvider(detectedProvider).token;
+        } catch (_) {}
+        // Fallback: try each provider
+        if (!gitToken) {
+          for (const p of ['gitlab', 'github', 'azure_devops']) {
+            const c = getCredentialForProvider(p);
+            if (c.token) { gitToken = c.token; break; }
+          }
+        }
 
         if (!repoPath) {
           showToast('Repository path is required', 'error');
@@ -4113,10 +3967,8 @@
         try {
           await loadGitPrefs(true);
           applyGitWorkspaceProfileToCreate();
-          updateGitScopeHint();
           updateRemotePreview();
           await loadMeta();
-          await loadGitSchemas();
           await loadDeploymentHistory();
           validateTargetPath();
           

@@ -434,6 +434,8 @@ def _git_username_for_remote(remote_url: str) -> Optional[str]:
         return "x-access-token"
     if "gitlab.com" in lower:
         return "oauth2"
+    if "dev.azure.com" in lower:
+        return ""
     return None
 
 
@@ -560,13 +562,15 @@ def _create_remote_repo(provider: str, namespace: str, project_name: str, token:
 
 def _detect_provider(provider: str, remote_url: str) -> str:
     p = (provider or "").strip().lower()
-    if p in {"github", "gitlab"}:
+    if p in {"github", "gitlab", "azure_devops"}:
         return p
     lower = (remote_url or "").strip().lower()
     if "github.com" in lower:
         return "github"
     if "gitlab.com" in lower:
         return "gitlab"
+    if "dev.azure.com" in lower:
+        return "azure_devops"
     return ""
 
 
@@ -588,7 +592,7 @@ def _prepare_git_pat_env(remote_url: str, git_token: str) -> tuple[Optional[Dict
         return None, None
 
     username = _git_username_for_remote(remote_url)
-    if not username:
+    if username is None:
         return None, None
 
     # `git` invokes askpass for both username and password prompts.
@@ -1064,11 +1068,12 @@ async def create_project(
     effective_target_type = (target_type or "local").strip().lower()
 
     normalized_target_parent = _normalize_target_dir(target_dir)
-    Path(normalized_target_parent).mkdir(parents=True, exist_ok=True)
     normalized_target_dir = str((Path(normalized_target_parent) / safe_name).resolve())
 
     remote_cfg: Optional[Dict[str, str]] = None
     registry_target_path: Optional[str] = None
+    if effective_target_type == "local":
+        Path(normalized_target_parent).mkdir(parents=True, exist_ok=True)
     if effective_target_type == "remote":
         host = remote_host.strip()
         user = remote_user.strip()
@@ -1400,18 +1405,38 @@ def git_token_test(
     git_token: str = Form(...),
     git_provider: str = Form(""),
     remote_url: str = Form(""),
+    organization: str = Form(""),
 ) -> Dict[str, Any]:
     token = (git_token or "").strip()
     if not token:
         raise HTTPException(status_code=400, detail="git_token is required")
     provider = _detect_provider(git_provider, remote_url)
     if not provider:
-        raise HTTPException(status_code=400, detail="git_provider is required (github/gitlab) when remote_url is not set")
+        raise HTTPException(status_code=400, detail="git_provider is required (github/gitlab/azure_devops) when remote_url is not set")
 
     if provider == "gitlab":
         headers = {"PRIVATE-TOKEN": token, "Accept": "application/json", "User-Agent": "project-initializer"}
         me = _http_json_request("https://gitlab.com/api/v4/user", "GET", headers)
         return {"ok": True, "provider": "gitlab", "user": me.get("username") or me.get("name") or "", "scopes_hint": "Needs read_repository + write_repository (or api)."}
+
+    if provider == "azure_devops":
+        org = (organization or "").strip()
+        if not org:
+            # Try to extract org from remote URL: https://dev.azure.com/{org}/...
+            url_lower = (remote_url or "").strip()
+            if "dev.azure.com" in url_lower:
+                parts = [p for p in urllib.parse.urlparse(url_lower).path.split("/") if p]
+                if parts:
+                    org = parts[0]
+        if not org:
+            raise HTTPException(status_code=400, detail="Organization is required for Azure DevOps token test")
+        basic = base64.b64encode(f":{token}".encode("utf-8")).decode("ascii")
+        headers = {"Authorization": f"Basic {basic}", "Accept": "application/json", "User-Agent": "project-initializer"}
+        me = _http_json_request(f"https://dev.azure.com/{org}/_apis/connectionData?api-version=7.1", "GET", headers)
+        user = ""
+        auth_user = me.get("authenticatedUser") or {}
+        user = auth_user.get("providerDisplayName") or auth_user.get("customDisplayName") or ""
+        return {"ok": True, "provider": "azure_devops", "user": user, "scopes_hint": "Needs Code (Read & Write) scope."}
 
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "project-initializer"}
     me = _http_json_request("https://api.github.com/user", "GET", headers)
