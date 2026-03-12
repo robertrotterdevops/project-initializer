@@ -657,6 +657,7 @@ metadata:
     if eck_enabled:
         infra_resources.append("network-policy-allow-eck-operator.yaml")
         infra_resources.append("network-policy-allow-ingress-nginx.yaml")
+        infra_resources.append("network-policy-allow-kibana-egress.yaml")
         infra_resources.append("../platform/eck-operator")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
 
@@ -761,6 +762,25 @@ spec:
     ports:
     - protocol: TCP
       port: 5601
+""",
+        "infrastructure/network-policy-allow-kibana-egress.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-kibana-egress
+  namespace: {project_name}
+spec:
+  podSelector:
+    matchLabels:
+      common.k8s.elastic.co/type: kibana
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
 """,
         "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
 kind: StorageClass

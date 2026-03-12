@@ -974,8 +974,35 @@ spec:
         automountServiceAccountToken: true
         securityContext:
           runAsUser: 0
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+          - key: node-role.kubernetes.io/master
+            operator: Exists
+            effect: NoSchedule
+          - key: CriticalAddonsOnly
+            operator: Exists
+        volumes:
+          - name: varlog
+            hostPath:
+              path: /var/log
+          - name: varlibdockercontainers
+            hostPath:
+              path: /var/lib/docker/containers
+          - name: hostfs-proc
+            hostPath:
+              path: /proc
+          - name: hostfs-sys
+            hostPath:
+              path: /sys/fs/cgroup
         containers:
           - name: agent
+            env:
+              - name: HOST_PROC
+                value: /hostfs/proc
+              - name: HOST_SYS
+                value: /hostfs/sys
             resources:
               requests:
                 memory: "512Mi"
@@ -983,6 +1010,19 @@ spec:
               limits:
                 memory: "1Gi"
                 cpu: "500m"
+            volumeMounts:
+              - name: varlog
+                mountPath: /var/log
+                readOnly: true
+              - name: varlibdockercontainers
+                mountPath: /var/lib/docker/containers
+                readOnly: true
+              - name: hostfs-proc
+                mountPath: /hostfs/proc
+                readOnly: true
+              - name: hostfs-sys
+                mountPath: /hostfs/sys
+                readOnly: true
 """
 
     def _generate_agent_rbac(self) -> str:
@@ -1005,13 +1045,28 @@ rules:
     resources: ["pods", "nodes", "namespaces", "events", "services", "configmaps", "persistentvolumes", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
+    resources: ["endpoints", "replicationcontrollers", "resourcequotas", "limitranges", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
     resources: ["nodes/stats", "nodes/metrics"]
     verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["batch"]
     resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses"]
@@ -1045,7 +1100,6 @@ resources:
 
 commonLabels:
   app.kubernetes.io/part-of: {self.project_name}
-  app.kubernetes.io/component: agents
   app.kubernetes.io/managed-by: eck
 """
 

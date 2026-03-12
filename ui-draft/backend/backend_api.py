@@ -36,6 +36,8 @@ SCRIPTS_DIR = ROOT_DIR / "scripts"
 DATA_DIR = ROOT_DIR / "ui-draft" / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 GIT_REGISTRY_PATH = DATA_DIR / "git_registry.json"
+PREFERENCES_PATH = DATA_DIR / "preferences.json"
+DEPLOYMENT_HISTORY_PATH = DATA_DIR / "deployment_history.json"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -255,6 +257,94 @@ class GitRegistry:
 
 
 GIT_REGISTRY = GitRegistry(GIT_REGISTRY_PATH)
+
+
+class JsonRecordStore:
+    def __init__(self, path: Path, root_key: str):
+        self.path = path
+        self.root_key = root_key
+        self.lock = RLock()
+        self._ensure_file()
+
+    def _ensure_file(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self.path.write_text(json.dumps({self.root_key: []}, indent=2), encoding="utf-8")
+
+    def _read_root(self) -> Dict[str, Any]:
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raw = {self.root_key: []}
+        if not isinstance(raw, dict):
+            raw = {self.root_key: []}
+        raw.setdefault(self.root_key, [])
+        return raw
+
+    def _write_root(self, payload: Dict[str, Any]) -> None:
+        self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class PreferencesStore(JsonRecordStore):
+    def __init__(self, path: Path):
+        super().__init__(path, "preferences")
+
+    def get(self) -> Dict[str, Any]:
+        with self.lock:
+            root = self._read_root()
+            prefs = root.get("preferences") or {}
+            return prefs if isinstance(prefs, dict) else {}
+
+    def update(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            root = self._read_root()
+            current = root.get("preferences") or {}
+            if not isinstance(current, dict):
+                current = {}
+            current.update(updates)
+            root["preferences"] = current
+            self._write_root(root)
+            return current
+
+
+class DeploymentHistoryStore(JsonRecordStore):
+    def __init__(self, path: Path):
+        super().__init__(path, "entries")
+
+    def list(self) -> List[Dict[str, Any]]:
+        with self.lock:
+            entries = self._read_root().get("entries") or []
+            if not isinstance(entries, list):
+                return []
+            return list(entries)
+
+    def add(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            root = self._read_root()
+            entries = root.get("entries") or []
+            if not isinstance(entries, list):
+                entries = []
+            record = {"id": str(uuid4()), "created_at": _utcnow(), **payload}
+            entries.insert(0, record)
+            root["entries"] = entries[:50]
+            self._write_root(root)
+            return record
+
+    def delete(self, entry_id: str) -> None:
+        with self.lock:
+            root = self._read_root()
+            entries = root.get("entries") or []
+            if not isinstance(entries, list):
+                entries = []
+            kept = [entry for entry in entries if entry.get("id") != entry_id]
+            if len(kept) == len(entries):
+                raise HTTPException(status_code=404, detail="deployment history entry not found")
+            root["entries"] = kept
+            self._write_root(root)
+
+
+PREFERENCES = PreferencesStore(PREFERENCES_PATH)
+DEPLOYMENT_HISTORY = DeploymentHistoryStore(DEPLOYMENT_HISTORY_PATH)
 
 
 def _detect_runtime_environment() -> Dict[str, Any]:
@@ -797,6 +887,18 @@ def meta() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/preferences")
+def get_preferences() -> Dict[str, Any]:
+    return PREFERENCES.get()
+
+
+@app.post("/api/preferences")
+def update_preferences(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="preferences payload must be an object")
+    return PREFERENCES.update(payload)
+
+
 @app.get("/api/fs/suggest")
 def fs_suggest(query: str = "", limit: int = 12) -> Dict[str, Any]:
     q = (query or "").strip()
@@ -1203,6 +1305,22 @@ async def create_project(
     elif schema_id_clean:
         GIT_REGISTRY.mark_used(schema_id_clean, platform=final_platform)
 
+    DEPLOYMENT_HISTORY.add(
+        {
+            "name": safe_name,
+            "description": description.strip(),
+            "project_path": result.get("project_path", ""),
+            "target_parent_dir": result.get("target_parent_dir", ""),
+            "target_type": effective_target_type,
+            "platform": final_platform or "",
+            "gitops_tool": final_gitops,
+            "iac_tool": "terraform" if use_terraform_iac else "",
+            "git_remote_url": effective_remote_url,
+            "git_branch": git_branch,
+            "remote": remote_result if effective_target_type == "remote" else None,
+        }
+    )
+
     return result
 
 
@@ -1346,6 +1464,17 @@ def git_registry_update(
 @app.delete("/api/git/registry/{entry_id}")
 def git_registry_delete(entry_id: str) -> Dict[str, Any]:
     GIT_REGISTRY.delete(entry_id)
+    return {"ok": True}
+
+
+@app.get("/api/deployments")
+def deployment_history_list() -> Dict[str, Any]:
+    return {"entries": DEPLOYMENT_HISTORY.list()}
+
+
+@app.delete("/api/deployments/{entry_id}")
+def deployment_history_delete(entry_id: str) -> Dict[str, Any]:
+    DEPLOYMENT_HISTORY.delete(entry_id)
     return {"ok": True}
 
 

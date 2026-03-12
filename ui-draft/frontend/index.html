@@ -1481,6 +1481,27 @@
         background: var(--bg-hover);
       }
 
+      .recent-project-item .actions {
+        display: flex;
+        gap: 6px;
+        margin-left: auto;
+      }
+
+      .recent-project-item .actions button {
+        background: transparent;
+        border: 0;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 2px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .recent-project-item .actions button:hover {
+        color: var(--accent-error);
+      }
+
       .recent-project-item svg {
         width: 16px;
         height: 16px;
@@ -1541,11 +1562,11 @@
           </div>
 
           <div class="nav-section">
-            <div class="nav-section-title">Recent Projects</div>
+            <div class="nav-section-title">Deployments</div>
             <div class="recent-projects" id="recentProjects">
               <div class="recent-project-item" style="color: var(--text-muted); font-size: 0.8rem; cursor: default;">
                 <i data-lucide="clock"></i>
-                <span class="name">No recent projects</span>
+                <span class="name">No deployments remembered</span>
               </div>
             </div>
           </div>
@@ -2410,6 +2431,7 @@
         pathActiveIndex: -1,
         zoom: Number(localStorage.getItem('pi-ui-zoom') || '1'),
         recentProjects: JSON.parse(localStorage.getItem('pi-recent-projects') || '[]'),
+        deploymentHistory: [],
         currentPage: 'create',
         sizingFile: null,
         isLoading: false,
@@ -2434,6 +2456,7 @@
 
       const isDesktopRuntime = !window.location.protocol.startsWith('http');
       const apiBase = window.__PI_API_BASE || (isDesktopRuntime ? 'http://127.0.0.1:8787' : '');
+      const gitPrefsStorageKey = 'pi-git-workspace-profile';
 
       // API Helpers
       function apiUrl(path) {
@@ -2829,7 +2852,6 @@
       const prefillSchemaFieldsBtn = document.getElementById('prefillSchemaFieldsBtn');
       const applyGitProfileBtn = document.getElementById('applyGitProfileBtn');
       const testGitTokenBtn = document.getElementById('testGitTokenBtn');
-      const gitPrefsStorageKey = 'pi-git-profile';
 
       if (gitDiscoverBaseEl && !gitDiscoverBaseEl.value) {
         gitDiscoverBaseEl.value = document.getElementById('targetDir').value;
@@ -3209,7 +3231,7 @@
         }
       }
 
-      function saveGitPrefs() {
+      async function saveGitPrefs() {
         const payload = {
           remote: gitDefaultRemoteEl?.value?.trim() || '',
           provider: gitDefaultProviderEl?.value || '',
@@ -3218,7 +3240,17 @@
           key: gitPreferredKeyEl?.value?.trim() || '',
         };
         localStorage.setItem(gitPrefsStorageKey, JSON.stringify(payload));
-        showToast('Git profile saved locally');
+        const res = await fetch(apiUrl('/api/preferences'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ git_profile: payload }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast(data.detail || 'Failed to save Git profile', 'error');
+          return;
+        }
+        showToast('Git profile saved');
       }
 
       function inferProviderFromRemote(remote) {
@@ -3315,9 +3347,15 @@
         }
       }
 
-      function loadGitPrefs(silent = false) {
+      async function loadGitPrefs(silent = false) {
         try {
-          const payload = JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
+          let payload = JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
+          const res = await fetch(apiUrl('/api/preferences'));
+          if (res.ok) {
+            const remotePrefs = await res.json().catch(() => ({}));
+            payload = remotePrefs.git_profile || payload;
+            localStorage.setItem(gitPrefsStorageKey, JSON.stringify(payload));
+          }
           if (gitDefaultRemoteEl) gitDefaultRemoteEl.value = payload.remote || '';
           if (gitDefaultProviderEl) gitDefaultProviderEl.value = payload.provider || '';
           if (gitDefaultNamespaceEl) gitDefaultNamespaceEl.value = payload.namespace || '';
@@ -3329,6 +3367,67 @@
         } catch (_) {
           if (!silent) showToast('No saved Git profile found', 'warning');
         }
+      }
+
+      async function loadDeploymentHistory() {
+        try {
+          const res = await fetch(apiUrl('/api/deployments'));
+          const data = await res.json();
+          if (!res.ok) {
+            showToast(data.detail || 'Failed to load deployments', 'error');
+            return;
+          }
+          state.deploymentHistory = data.entries || [];
+          updateRecentProjects();
+        } catch (err) {
+          showToast(`Failed to load deployments: ${err}`, 'error');
+        }
+      }
+
+      async function deleteDeploymentHistory(id) {
+        try {
+          const res = await fetch(apiUrl(`/api/deployments/${id}`), { method: 'DELETE' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.detail || 'Failed to delete deployment', 'error');
+            return;
+          }
+          state.deploymentHistory = state.deploymentHistory.filter(entry => entry.id !== id);
+          updateRecentProjects();
+          showToast('Deployment entry deleted');
+        } catch (err) {
+          showToast(`Failed to delete deployment: ${err}`, 'error');
+        }
+      }
+
+      function loadDeploymentIntoForm(entry) {
+        if (!entry) return;
+        const nameEl = document.getElementById('name');
+        const descriptionEl = document.getElementById('description');
+        const gitRemoteEl = document.getElementById('gitRemoteUrl');
+        const gitBranchEl = document.getElementById('gitBranch');
+        if (nameEl) nameEl.value = entry.name || '';
+        if (descriptionEl) descriptionEl.value = entry.description || '';
+        if (targetDirEl && entry.target_parent_dir) targetDirEl.value = entry.target_parent_dir;
+        if (gitRemoteEl) gitRemoteEl.value = entry.git_remote_url || '';
+        if (gitBranchEl) gitBranchEl.value = entry.git_branch || 'main';
+        if (entry.platform && platformPresets[entry.platform]) {
+          setActivePlatform(entry.platform);
+        } else if (platformSelectEl && entry.platform) {
+          state.platformUnlocked = true;
+          platformSelectEl.disabled = false;
+          platformSelectEl.value = entry.platform;
+        }
+        if (entry.gitops_tool && document.getElementById('gitopsTool')) {
+          document.getElementById('gitopsTool').value = entry.gitops_tool;
+        }
+        if (entry.target_type) {
+          setTargetType(entry.target_type);
+        }
+        state.lastCreatedPath = entry.project_path || '';
+        navigateTo('create');
+        updateRemotePreview();
+        showToast(`Loaded deployment ${entry.name}`);
       }
 
       syncRepoPathEl.addEventListener('input', async (e) => {
@@ -3806,18 +3905,11 @@
             state.lastCreatedPath = data.project_path || data.normalized_target_dir || '';
             if (state.lastCreatedPath) {
               localStorage.setItem('pi-last-created-path', state.lastCreatedPath);
-              
-              // Add to recent projects
-              if (!state.recentProjects.includes(state.lastCreatedPath)) {
-                state.recentProjects.unshift(state.lastCreatedPath);
-                state.recentProjects = state.recentProjects.slice(0, 5);
-                localStorage.setItem('pi-recent-projects', JSON.stringify(state.recentProjects));
-                updateRecentProjects();
-              }
               if (gitDiscoverBaseEl && !gitDiscoverBaseEl.dataset.manual) {
                 gitDiscoverBaseEl.value = state.lastCreatedPath;
               }
             }
+            await loadDeploymentHistory();
             
             const statusBadge = document.getElementById('resultStatus');
             statusBadge.style.display = 'inline-flex';
@@ -3974,26 +4066,36 @@
       // Recent Projects
       function updateRecentProjects() {
         const container = document.getElementById('recentProjects');
-        if (!state.recentProjects.length) {
+        if (!state.deploymentHistory.length) {
           container.innerHTML = `
             <div class="recent-project-item" style="color: var(--text-muted); font-size: 0.8rem; cursor: default;">
               <i data-lucide="clock"></i>
-              <span class="name">No recent projects</span>
+              <span class="name">No deployments remembered</span>
             </div>
           `;
         } else {
-          container.innerHTML = state.recentProjects.map(path => `
-            <div class="recent-project-item" data-path="${path}">
+          container.innerHTML = state.deploymentHistory.map(entry => `
+            <div class="recent-project-item" data-entry-id="${entry.id}">
               <i data-lucide="folder"></i>
-              <span class="name">${path.split('/').pop()}</span>
+              <span class="name">${entry.name || 'Unnamed deployment'}</span>
+              <div class="actions">
+                <button type="button" data-action="delete" data-entry-id="${entry.id}" title="Delete remembered deployment">
+                  <i data-lucide="trash-2"></i>
+                </button>
+              </div>
             </div>
           `).join('');
           
-          container.querySelectorAll('.recent-project-item[data-path]').forEach(item => {
+          container.querySelectorAll('.recent-project-item[data-entry-id]').forEach(item => {
             item.addEventListener('click', () => {
-              state.lastCreatedPath = item.dataset.path;
-              navigateTo('create');
-              showToast('Loaded: ' + item.dataset.path);
+              const entry = state.deploymentHistory.find(row => row.id === item.dataset.entryId);
+              loadDeploymentIntoForm(entry);
+            });
+          });
+          container.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+            btn.addEventListener('click', (event) => {
+              event.stopPropagation();
+              deleteDeploymentHistory(btn.dataset.entryId);
             });
           });
         }
@@ -4009,13 +4111,13 @@
       // Initialize
       async function init() {
         try {
-          loadGitPrefs(true);
+          await loadGitPrefs(true);
           applyGitWorkspaceProfileToCreate();
           updateGitScopeHint();
           updateRemotePreview();
           await loadMeta();
           await loadGitSchemas();
-          updateRecentProjects();
+          await loadDeploymentHistory();
           validateTargetPath();
           
           // Check API health
