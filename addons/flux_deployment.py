@@ -457,8 +457,13 @@ def main(
     """
     flux_generator = FluxDeploymentGenerator(project_name, project_description, context)
     context = context or {}
+    platform = context.get("platform", "kubernetes")
     enable_metrics_server = context.get("enable_metrics_server", False)
     enable_otel_collector = context.get("enable_otel_collector", False)
+    # RKE2 and AKS ship metrics-server as a built-in addon — skip scaffolding
+    platform_has_builtin_metrics = platform in ("rke2", "aks")
+    if platform_has_builtin_metrics:
+        enable_metrics_server = False
     sizing_context = context.get("sizing_context") or {}
     eck_enabled = bool(
         sizing_context
@@ -660,6 +665,7 @@ metadata:
         infra_resources.append("network-policy-allow-eck-operator.yaml")
         infra_resources.append("network-policy-allow-ingress-nginx.yaml")
         infra_resources.append("network-policy-allow-kibana-egress.yaml")
+        infra_resources.append("network-policy-allow-agent-egress.yaml")
         infra_resources.append("../platform/eck-operator")
         if enable_otel_collector:
             infra_resources.append("network-policy-allow-otel-collector.yaml")
@@ -804,6 +810,23 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+""",
+        "infrastructure/network-policy-allow-agent-egress.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-agent-egress
+  namespace: {project_name}
+spec:
+  podSelector:
+    matchLabels:
+      common.k8s.elastic.co/type: agent
+  policyTypes:
+  - Egress
+  egress:
+  # Allow Elastic Agent and Fleet Server to reach the Kubernetes API server
+  - ports:
+    - protocol: TCP
+      port: 6443
 """,
         "infrastructure/network-policy-allow-otel-collector.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

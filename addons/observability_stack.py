@@ -15,7 +15,7 @@ ADDON_META = {
     "version": "1.0",
     "description": "Kube-metrics-server and OTel Collector (pure Kustomize, no Helm)",
     "triggers": {
-        "categories": ["elasticsearch"],
+        "categories": ["elasticsearch", "kubernetes"],
         "keywords": ["observability", "otel", "opentelemetry", "metrics-server"],
     },
     "priority": 25,
@@ -41,6 +41,10 @@ class ObservabilityStackGenerator:
 
     def _is_aks(self) -> bool:
         return self.platform in ("aks",)
+
+    def _has_builtin_metrics_server(self) -> bool:
+        """RKE2 and AKS ship metrics-server as a built-in addon."""
+        return self.platform in ("rke2", "aks")
 
     # ------------------------------------------------------------------
     # metrics-server
@@ -385,12 +389,7 @@ data:
         timeout: 5s
 
     exporters:
-      # OTLP exporter — replace endpoint with your backend
-      otlp:
-        endpoint: "your-otel-backend:4317"
-        tls:
-          insecure: true   # Set to false if your backend uses valid TLS certs
-      # Elasticsearch exporter — sends logs/traces directly to ES
+      # Elasticsearch exporter — default backend (ECK in project namespace)
       elasticsearch:
         endpoints: ["https://{self.project_name}-es-http.{self.project_name}.svc:9200"]
         tls:
@@ -400,21 +399,31 @@ data:
         # password: changeme
       logging:
         verbosity: normal
+      # Uncomment to forward to an external OTLP backend:
+      # otlp:
+      #   endpoint: "your-otel-backend:4317"
+      #   tls:
+      #     insecure: true
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
 
     service:
+      extensions: [health_check]
       pipelines:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [otlp, logging]
+          exporters: [elasticsearch, logging]
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [otlp, logging]
+          exporters: [elasticsearch, logging]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [otlp, elasticsearch, logging]
+          exporters: [elasticsearch, logging]
       telemetry:
         logs:
           level: info
@@ -666,7 +675,8 @@ http: otel-collector.observability.svc.cluster.local:4318
     def generate(self) -> Dict[str, str]:
         """Generate all observability stack manifests."""
         files: Dict[str, str] = {}
-        files.update(self._generate_metrics_server())
+        if not self._has_builtin_metrics_server():
+            files.update(self._generate_metrics_server())
         files.update(self._generate_otel_collector())
         return files
 

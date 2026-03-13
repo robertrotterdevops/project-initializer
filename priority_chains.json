@@ -208,7 +208,7 @@
       "description": "Kube-metrics-server and OTel Collector (pure Kustomize, no Helm)",
       "supported_project_types": ["elasticsearch", "kubernetes", "gitops"],
       "triggers": {
-        "categories": ["elasticsearch"],
+        "categories": ["elasticsearch", "kubernetes"],
         "keywords": ["observability", "otel", "opentelemetry", "metrics-server"]
       },
       "priority": 25,

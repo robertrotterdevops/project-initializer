@@ -158,6 +158,23 @@ if __name__ == "__main__":
 """
 
 
+def _normalize_pool_keyword(pool_name: str) -> str:
+    """Extract the classifier keyword from a pool name.
+
+    The inventory renderer classifies agents by matching VM hostnames
+    against keywords (hot, cold, frozen, etc.).  Pool names from sizing
+    context often look like ``hot_pool`` or ``cold-storage``.  We strip
+    the suffix so the template placeholder matches what the renderer
+    produces.
+    """
+    known = ("hot", "cold", "frozen", "system", "warm", "master", "ingest")
+    name = pool_name.lower().replace("-", "_")
+    for kw in known:
+        if kw in name:
+            return kw
+    return name  # fallback: use as-is
+
+
 def _inventory_template(pools: list[str] | None = None) -> str:
     base = """[rke2_servers]
 {{ servers }}
@@ -166,8 +183,12 @@ def _inventory_template(pools: list[str] | None = None) -> str:
 {{ agents }}
 """
     if pools:
+        seen: set[str] = set()
         for pool in pools:
-            base += f"\n[rke2_agents_{pool}]\n{{{{ agents_{pool} }}}}\n"
+            kw = _normalize_pool_keyword(pool)
+            if kw not in seen:
+                seen.add(kw)
+                base += f"\n[rke2_agents_{kw}]\n{{{{ agents_{kw} }}}}\n"
 
     base += """
 [all:vars]
