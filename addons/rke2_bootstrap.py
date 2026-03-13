@@ -69,7 +69,7 @@ import json
 from pathlib import Path
 
 
-def _infer_hosts(tf: dict) -> tuple[list[str], list[str], dict[str, str]]:
+def _infer_hosts(tf: dict) -> tuple[list[str], list[str], dict[str, str], dict[str, list[str]]]:
     names: list[str] = []
     ips: dict[str, str] = {}
 
@@ -99,7 +99,18 @@ def _infer_hosts(tf: dict) -> tuple[list[str], list[str], dict[str, str]]:
 
     if not servers:
         servers = ["rke2-server-1"]
-    return servers, agents, ips
+
+    # Classify agents into pool groups by VM naming convention
+    pool_keywords = ("hot", "cold", "frozen", "system", "warm", "master", "ingest")
+    agent_pools: dict[str, list[str]] = {}
+    for agent in agents:
+        name_lower = agent.lower()
+        for kw in pool_keywords:
+            if kw in name_lower:
+                agent_pools.setdefault(kw, []).append(agent)
+                break
+
+    return servers, agents, ips, agent_pools
 
 
 def main() -> None:
@@ -115,7 +126,7 @@ def main() -> None:
     tf_data = json.loads(Path(args.tf_output).read_text())
     template = Path(args.template).read_text()
 
-    servers, agents, ips = _infer_hosts(tf_data)
+    servers, agents, ips, agent_pools = _infer_hosts(tf_data)
 
     def _format(hosts: list[str]) -> str:
         lines = []
@@ -133,6 +144,12 @@ def main() -> None:
     rendered = rendered.replace("{{ ansible_user }}", args.ansible_user)
     rendered = rendered.replace("{{ ansible_ssh_pass }}", args.ssh_pass)
 
+    # Render per-pool agent groups
+    for pool_name in ("hot", "cold", "frozen", "system", "warm", "master", "ingest"):
+        placeholder = "{{ agents_" + pool_name + " }}"
+        pool_hosts = agent_pools.get(pool_name, [])
+        rendered = rendered.replace(placeholder, _format(pool_hosts) if pool_hosts else "")
+
     Path(args.out).write_text(rendered)
 
 
@@ -141,13 +158,18 @@ if __name__ == "__main__":
 """
 
 
-def _inventory_template() -> str:
-    return """[rke2_servers]
+def _inventory_template(pools: list[str] | None = None) -> str:
+    base = """[rke2_servers]
 {{ servers }}
 
 [rke2_agents]
 {{ agents }}
+"""
+    if pools:
+        for pool in pools:
+            base += f"\n[rke2_agents_{pool}]\n{{{{ agents_{pool} }}}}\n"
 
+    base += """
 [all:vars]
 ansible_user={{ ansible_user }}
 ansible_ssh_pass={{ ansible_ssh_pass }}
@@ -156,6 +178,7 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 project_name={{ project_name }}
 rke2_version=v1.30.4+rke2r1
 """
+    return base
 
 
 def _ansible_playbook() -> str:
@@ -317,6 +340,19 @@ def _ansible_playbook() -> str:
           server: {{ rke2_server_endpoint }}
           token: {{ rke2_cluster_token }}
           node-name: {{ inventory_hostname }}
+          {% if 'rke2_agents_hot' in group_names %}
+          node-label:
+            - "elasticsearch.k8s.elastic.co/tier=hot"
+          {% elif 'rke2_agents_cold' in group_names %}
+          node-label:
+            - "elasticsearch.k8s.elastic.co/tier=cold"
+          {% elif 'rke2_agents_frozen' in group_names %}
+          node-label:
+            - "elasticsearch.k8s.elastic.co/tier=frozen"
+          {% elif 'rke2_agents_system' in group_names %}
+          node-label:
+            - "elasticsearch.k8s.elastic.co/tier=infra"
+          {% endif %}
 
     - name: Enable RKE2 agent
       systemd:
@@ -384,10 +420,15 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     if platform not in {"rke2", "proxmox"}:
         return {}
 
+    # Extract pool names from sizing context for per-pool inventory groups
+    sizing_ctx = ctx.get("sizing_context") or {}
+    rke2_pools = sizing_ctx.get("rke2", {}).get("pools", [])
+    pool_names = [p.get("name") or p for p in rke2_pools if p] if rke2_pools else []
+
     return {
         "scripts/bootstrap-rke2.sh": _bootstrap_script(project_name),
         "scripts/render-rke2-inventory.py": _inventory_renderer(),
-        "ansible/inventory.tpl.ini": _inventory_template(),
+        "ansible/inventory.tpl.ini": _inventory_template(pool_names if pool_names else None),
         "ansible/rke2-bootstrap.yml": _ansible_playbook(),
         "ansible/requirements.yml": _requirements(),
         "docs/RKE2_BOOTSTRAP.md": _docs(),

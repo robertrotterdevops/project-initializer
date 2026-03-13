@@ -66,6 +66,14 @@ class ECKDeploymentGenerator:
         self.cold_nodes = self.sizing.get("cold_nodes")
         self.frozen_nodes = self.sizing.get("frozen_nodes")
         self.node_selectors = self.sizing.get("node_selectors") or {}
+        if not self.node_selectors:
+            self.node_selectors = {
+                "master": {"elasticsearch.k8s.elastic.co/tier": "master"},
+                "hot": {"elasticsearch.k8s.elastic.co/tier": "hot"},
+                "cold": {"elasticsearch.k8s.elastic.co/tier": "cold"},
+                "frozen": {"elasticsearch.k8s.elastic.co/tier": "frozen"},
+                "infra": {"elasticsearch.k8s.elastic.co/tier": "infra"},
+            }
 
         # Kibana and Fleet from sizing
         self.kibana_config = self.sizing.get(
@@ -171,6 +179,23 @@ class ECKDeploymentGenerator:
             return ""
 
         return "\n          nodeSelector:\n" + "\n".join(lines)
+
+    def _render_node_selector_block(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
+        """Render nodeSelector block — active in multi-tier mode, commented out in template mode."""
+        raw = self._render_node_selector(tier, tier_config)
+        if not raw:
+            return ""
+        if self.is_multi_tier:
+            return raw
+        # Comment out each line as an example
+        lines = raw.split("\n")
+        commented = []
+        for line in lines:
+            if line.strip():
+                commented.append("  # " + line.lstrip())
+            else:
+                commented.append(line)
+        return "\n".join(commented)
 
     def generate(self) -> Dict[str, str]:
         """Generate all ECK manifests."""
@@ -457,6 +482,8 @@ spec:
         if not cpu_limit.endswith("m"):
             cpu_limit = str(int(cpu) * 2)
 
+        node_selector = self._render_node_selector_block("master", self.master_nodes)
+
         return f"""    # Master nodes (dedicated)
     - name: master
       count: {count}
@@ -480,7 +507,7 @@ spec:
               securityContext:
                 privileged: true
                 runAsUser: 0
-              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+              command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']{node_selector}
       volumeClaimTemplates:
         - metadata:
             name: elasticsearch-data
@@ -519,7 +546,7 @@ spec:
                         elasticsearch.k8s.elastic.co/cluster-name: {self.project_name}
                         elasticsearch.k8s.elastic.co/node-data: "true"
                     topologyKey: topology.kubernetes.io/zone"""
-        node_selector = self._render_node_selector("hot", self.data_nodes)
+        node_selector = self._render_node_selector_block("hot", self.data_nodes)
 
         return f"""
     # Hot tier - data nodes (ingest, recent data)
@@ -569,7 +596,7 @@ spec:
         storage_class = self._resolve_storage_class(
             self.cold_nodes.get("storage_class"), "standard"
         )
-        node_selector = self._render_node_selector("cold", self.cold_nodes)
+        node_selector = self._render_node_selector_block("cold", self.cold_nodes)
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
@@ -618,7 +645,7 @@ spec:
         memory = self.frozen_nodes.get("memory", "32Gi")
         cpu = self.frozen_nodes.get("cpu", "8")
         cache_storage = self.frozen_nodes.get("cache_storage", "2400Gi")
-        node_selector = self._render_node_selector("frozen", self.frozen_nodes)
+        node_selector = self._render_node_selector_block("frozen", self.frozen_nodes)
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
@@ -793,6 +820,7 @@ spec:
         # Parse memory for limits (same as requests for Kibana)
         memory_limit = memory
         cpu_limit = str(int(cpu) * 2) if str(cpu).isdigit() else cpu
+        node_selector = self._render_node_selector_block("infra", None)
 
         return f"""apiVersion: kibana.k8s.elastic.co/v1
 kind: Kibana
@@ -855,7 +883,7 @@ spec:
               cpu: "{cpu}"
             limits:
               memory: "{memory_limit}"
-              cpu: "{cpu_limit}"
+              cpu: "{cpu_limit}"{node_selector}
 """
 
     def _generate_kibana_kustomization(self) -> str:
