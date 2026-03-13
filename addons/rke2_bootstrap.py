@@ -204,13 +204,40 @@ rke2_version=v1.30.4+rke2r1
 
 def _ansible_playbook() -> str:
     return """---
+- name: Wait for cloud-init and stabilise freshly cloned VMs
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH to become reachable
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 300
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.shell: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Repair apt lists if corrupted
+      ansible.builtin.shell: |
+        rm -f /var/lib/apt/lists/* || true
+        apt-get clean
+        apt-get update
+      args:
+        executable: /bin/bash
+      changed_when: false
+      when: (ansible_os_family | default("Debian")) | lower == "debian"
+
 - name: Grow root partition and filesystem on all nodes
   hosts: all
   become: true
   tasks:
     - name: Install growpart tooling on Debian/Ubuntu
       apt:
-        name: cloud-guest-utils
+        name:
+          - cloud-guest-utils
+          - gdisk
         state: present
         update_cache: false
       when: (ansible_os_family | lower) == "debian"
