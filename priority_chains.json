@@ -202,6 +202,23 @@
         "Flux reconcile trigger support",
         "Argo sync trigger support"
       ]
+    },
+    "observability_stack": {
+      "path": "addons/observability_stack.py",
+      "description": "Kube-metrics-server and OTel Collector (pure Kustomize, no Helm)",
+      "supported_project_types": ["elasticsearch", "kubernetes", "gitops"],
+      "triggers": {
+        "categories": ["elasticsearch"],
+        "keywords": ["observability", "otel", "opentelemetry", "metrics-server"]
+      },
+      "priority": 25,
+      "minimum_python_version": "3.9",
+      "features": [
+        "Kube-metrics-server raw manifests (Deployment, APIService, RBAC)",
+        "OTel Collector DaemonSet with configurable pipeline",
+        "Network policies per component",
+        "Platform-aware (OpenShift SCC, RKE2, AKS)"
+      ]
     }
   }
 }

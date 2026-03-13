@@ -1877,6 +1877,26 @@
                   </label>
                   <div class="form-hint">Uses generated tfvars; requires valid provider credentials.</div>
                 </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="enableMetricsServer">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Enable kube-metrics-server</span>
+                  </label>
+                  <div class="form-hint">Deploy metrics-server manifests (required for HPA/VPA and kubectl top).</div>
+                </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="enableOtelCollector">
+                    <span class="checkbox-custom">
+                      <i data-lucide="check"></i>
+                    </span>
+                    <span class="checkbox-label">Enable OpenTelemetry Collector</span>
+                  </label>
+                  <div class="form-hint">Deploy OTel Collector DaemonSet for traces, metrics, and logs pipeline.</div>
+                </div>
                 <div class="form-field full-width">
                   <label class="form-label">
                     <i data-lucide="scale"></i>
@@ -3441,6 +3461,8 @@
           git_private_repo: gitPrivateRepoEl?.checked ?? true,
           use_terraform_iac: document.getElementById('useTerraformIac').checked,
           run_terraform_apply: document.getElementById('runTerraformApply').checked,
+          enable_metrics_server: document.getElementById('enableMetricsServer').checked,
+          enable_otel_collector: document.getElementById('enableOtelCollector').checked,
           target_type: document.getElementById('targetType').value,
           remote_host: document.getElementById('remoteHost').value.trim(),
           remote_port: document.getElementById('remotePort').value.trim() || '22',

@@ -457,6 +457,8 @@ def main(
     """
     flux_generator = FluxDeploymentGenerator(project_name, project_description, context)
     context = context or {}
+    enable_metrics_server = context.get("enable_metrics_server", False)
+    enable_otel_collector = context.get("enable_otel_collector", False)
     sizing_context = context.get("sizing_context") or {}
     eck_enabled = bool(
         sizing_context
@@ -659,7 +661,27 @@ metadata:
         infra_resources.append("network-policy-allow-ingress-nginx.yaml")
         infra_resources.append("network-policy-allow-kibana-egress.yaml")
         infra_resources.append("../platform/eck-operator")
+        if enable_otel_collector:
+            infra_resources.append("network-policy-allow-otel-collector.yaml")
+    if enable_metrics_server:
+        infra_resources.append("../platform/metrics-server")
+    if enable_otel_collector:
+        infra_resources.append("../observability/otel-collector")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
+
+    # Build commented-out references for disabled optional components
+    optional_comments = []
+    if not enable_metrics_server:
+        optional_comments.append(
+            "  # Uncomment to enable kube-metrics-server:\n"
+            "  #  - ../platform/metrics-server"
+        )
+    if not enable_otel_collector:
+        optional_comments.append(
+            "  # Uncomment to enable OTel Collector:\n"
+            "  #  - ../observability/otel-collector"
+        )
+    optional_block = "\n".join(optional_comments)
 
     infrastructure_files = {
         "infrastructure/README.md": """# Shared Infrastructure Components
@@ -675,6 +697,7 @@ This directory contains shared infrastructure components used across environment
 kind: Kustomization
 resources:
 {infra_resources_yaml}
+{optional_block}
 """,
         "infrastructure/network-policy.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -781,6 +804,26 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+""",
+        "infrastructure/network-policy-allow-otel-collector.yaml": f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {project_name}-allow-otel-collector
+  namespace: {project_name}
+spec:
+  podSelector:
+    matchLabels:
+      common.k8s.elastic.co/type: elasticsearch
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: observability
+    ports:
+    - protocol: TCP
+      port: 9200
 """,
         "infrastructure/storageclasses.yaml": """apiVersion: storage.k8s.io/v1
 kind: StorageClass

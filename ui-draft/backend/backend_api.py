@@ -1050,6 +1050,8 @@ async def create_project(
     use_terraform_iac: bool = Form(False),
     fallback_storage_class: str = Form(""),
     run_terraform_apply: bool = Form(False),
+    enable_metrics_server: bool = Form(False),
+    enable_otel_collector: bool = Form(False),
     target_type: str = Form("local"),
     remote_host: str = Form(""),
     remote_port: str = Form("22"),
@@ -1202,6 +1204,8 @@ async def create_project(
         fallback_storage_class=fallback_storage_class.strip() or None,
         target_revision=(git_branch.strip() or "main"),
         sizing_context=sizing_context,
+        enable_metrics_server=enable_metrics_server,
+        enable_otel_collector=enable_otel_collector,
     )
 
     git_log: List[Dict[str, Any]] = []

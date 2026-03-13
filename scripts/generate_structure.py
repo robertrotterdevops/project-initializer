@@ -328,6 +328,8 @@ def initialize_project(
     target_revision: Optional[str] = None,
     sizing_context: Optional[Dict] = None,
     forced_chain: Optional[str] = None,
+    enable_metrics_server: bool = False,
+    enable_otel_collector: bool = False,
 ) -> Dict:
     """
     Analyse, scaffold, and generate documentation for a new project.
@@ -440,6 +442,8 @@ def initialize_project(
         "platform": platform or "",
         "sizing_context": sizing_context,
         "fallback_storage_class": fallback_storage_class or "",
+        "enable_metrics_server": enable_metrics_server,
+        "enable_otel_collector": enable_otel_collector,
     }
 
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)
