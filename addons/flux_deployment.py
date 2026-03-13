@@ -184,6 +184,7 @@ spec:
   path: ./infrastructure
   prune: true
   wait: true
+  timeout: 10m
   dependsOn:
   - name: {self.project_name}
 """
