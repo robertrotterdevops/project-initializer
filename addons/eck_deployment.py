@@ -553,7 +553,7 @@ spec:
     - name: hot
       count: {count}
       config:
-        node.roles: ["data_hot", "data_content", "ingest", "transform"]
+        node.roles: ["data_hot", "data_content", "ingest", "transform", "remote_cluster_client"]
         # Hot tier node attributes
         node.attr.data: hot
       podTemplate:

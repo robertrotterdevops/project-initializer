@@ -327,6 +327,8 @@ def _ansible_playbook() -> str:
         mode: "0600"
         content: |
           node-name: {{ inventory_hostname }}
+          node-label:
+            - "elasticsearch.k8s.elastic.co/tier=master"
 
     - name: Clear stale node password
       file:
@@ -399,7 +401,7 @@ def _ansible_playbook() -> str:
             - "elasticsearch.k8s.elastic.co/tier=frozen"
           {% elif 'rke2_agents_system' in group_names %}
           node-label:
-            - "elasticsearch.k8s.elastic.co/tier=infra"
+            - "elasticsearch.k8s.elastic.co/tier=master"
           {% endif %}
 
     - name: Enable RKE2 agent

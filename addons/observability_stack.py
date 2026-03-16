@@ -419,7 +419,7 @@ data:
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [logging]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]

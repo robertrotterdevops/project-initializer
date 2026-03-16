@@ -175,7 +175,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("namespace: gitops-check", base_kustomization)
 
             infra_kustomization = (out_dir / "infrastructure/kustomization.yaml").read_text()
-            self.assertIn("- ../k8s/namespace.yaml", infra_kustomization)
+            self.assertIn("- namespace.yaml", infra_kustomization)
             self.assertIn("- local-path-provisioner.yaml", infra_kustomization)
             self.assertIn("- storageclasses.yaml", infra_kustomization)
             self.assertIn("- network-policy-allow-dns.yaml", infra_kustomization)

@@ -655,7 +655,7 @@ metadata:
 
     # Infrastructure directory
     infra_resources = [
-        "../k8s/namespace.yaml",
+        "namespace.yaml",
         "local-path-provisioner.yaml",
         "storageclasses.yaml",
         "network-policy.yaml",
@@ -691,6 +691,13 @@ metadata:
     optional_block = "\n".join(optional_comments)
 
     infrastructure_files = {
+        "infrastructure/namespace.yaml": f"""apiVersion: v1
+kind: Namespace
+metadata:
+  name: {project_name}
+  labels:
+    project: {project_name}
+""",
         "infrastructure/README.md": """# Shared Infrastructure Components
 
 This directory contains shared infrastructure components used across environments.
