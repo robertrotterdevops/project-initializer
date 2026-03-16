@@ -171,6 +171,14 @@ class AddonLoader:
                 matched.append(spec)
                 continue
 
+            # Force-load observability_stack if otel collector explicitly enabled
+            if (
+                spec.name == "observability_stack"
+                and context.get("enable_otel_collector", False)
+            ):
+                matched.append(spec)
+                continue
+
             # Skip interactive-only addons if not in interactive mode
             if spec.interactive_only and not interactive_mode:
                 continue

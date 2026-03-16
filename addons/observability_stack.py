@@ -677,7 +677,9 @@ http: otel-collector.observability.svc.cluster.local:4318
         files: Dict[str, str] = {}
         if not self._has_builtin_metrics_server():
             files.update(self._generate_metrics_server())
-        files.update(self._generate_otel_collector())
+        # Only generate otel-collector if explicitly enabled (or not explicitly disabled)
+        if self.context.get("enable_otel_collector", True):
+            files.update(self._generate_otel_collector())
         return files
 
 
