@@ -36,7 +36,7 @@ class ObservabilityStackGenerator:
         self.description = project_description
         self.context = context or {}
         self.platform = self.context.get("platform", "kubernetes")
-        self.otel_version = self.context.get("otel_collector_version", "0.116.0")
+        self.otel_version = self.context.get("otel_collector_version", "0.117.0")
         self.eck_version = self.context.get("eck_version", "3.0.0")
 
     def _is_openshift(self) -> bool:
@@ -377,6 +377,7 @@ metadata:
     # Allow Flux to create this placeholder on first deploy, but prevent
     # pruning so post-terraform-deploy.sh can overwrite with real credentials.
     kustomize.toolkit.fluxcd.io/prune: disabled
+    kustomize.toolkit.fluxcd.io/reconcile: disabled
 type: Opaque
 stringData:
   username: ""
@@ -447,7 +448,7 @@ data:
         password: "${{env:ES_PASSWORD}}"
         mapping:
           mode: ecs
-      logging:
+      debug:
         verbosity: normal
 
     extensions:
@@ -460,15 +461,15 @@ data:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [elasticsearch, debug]
         metrics:
           receivers: [otlp, hostmetrics, kubeletstats]
           processors: [memory_limiter, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [elasticsearch, debug]
         logs:
           receivers: [otlp, filelog]
           processors: [memory_limiter, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [elasticsearch, debug]
       telemetry:
         logs:
           level: info
@@ -726,7 +727,7 @@ Edit `configmap.yaml` to customise the collector pipeline:
 
 - **Receivers**: OTLP (gRPC :4317, HTTP :4318) enabled by default
 - **Processors**: `memory_limiter` (640 MiB) and `batch` (5s / 1024 batch size)
-- **Exporters**: OTLP (placeholder endpoint) and `logging`
+- **Exporters**: OTLP (placeholder endpoint) and `debug`
 - **Pipelines**: traces, metrics, logs — all wired through the above
 
 ### Exporter endpoint
@@ -811,9 +812,9 @@ Nodes                          Kubernetes API
 
 | Pipeline | Receivers | Exporters | Notes |
 |----------|-----------|-----------|-------|
-| **traces** | otlp | elasticsearch, logging | Apps push OTLP traces |
-| **metrics** | otlp, hostmetrics, kubeletstats | elasticsearch, logging | ECS mapping mode for Kibana compatibility |
-| **logs** | otlp, filelog | elasticsearch, logging | Raw container logs from `/var/log/pods` |
+| **traces** | otlp | elasticsearch, debug | Apps push OTLP traces |
+| **metrics** | otlp, hostmetrics, kubeletstats | elasticsearch, debug | ECS mapping mode for Kibana compatibility |
+| **logs** | otlp, filelog | elasticsearch, debug | Raw container logs from `/var/log/pods` |
 
 ## Elastic Agent Data Streams
 

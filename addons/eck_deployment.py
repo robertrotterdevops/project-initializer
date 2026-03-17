@@ -202,6 +202,7 @@ class ECKDeploymentGenerator:
         files = {}
 
         # ECK operator manifests (Flux-managed)
+        files["platform/eck-operator/namespace.yaml"] = self._generate_eck_operator_namespace()
         files["platform/eck-operator/crds.yaml"] = self._generate_eck_crds_manifest()
         files["platform/eck-operator/operator.yaml"] = (
             self._generate_eck_operator_manifest()
@@ -348,6 +349,17 @@ sep "DONE"
             "assets", "eck-operator", "crds.yaml"
         ).read_text()
 
+    def _generate_eck_operator_namespace(self) -> str:
+        """Generate elastic-system namespace for ECK operator."""
+        namespace = self.eck_operator.get("namespace", "elastic-system")
+        return f"""apiVersion: v1
+kind: Namespace
+metadata:
+  name: {namespace}
+  labels:
+    app.kubernetes.io/name: elastic-operator
+"""
+
     def _generate_eck_operator_manifest(self) -> str:
         """Return ECK operator manifest from sizing export or fallback default."""
         operator_yaml = self.eck_operator.get("yaml")
@@ -365,6 +377,7 @@ sep "DONE"
 kind: Kustomization
 
 resources:
+  - namespace.yaml
   - crds.yaml
   - operator.yaml
 """

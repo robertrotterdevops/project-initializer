@@ -566,7 +566,7 @@ class TestIacHardening(unittest.TestCase):
             )
             configmap = (out_dir / "observability/otel-collector/configmap.yaml").read_text()
             # Metrics pipeline must export to elasticsearch
-            self.assertIn("exporters: [elasticsearch, logging]", configmap)
+            self.assertIn("exporters: [elasticsearch, debug]", configmap)
             # Should not have the old comment about ES exporter not supporting metrics
             self.assertNotIn("ES exporter does not support metrics", configmap)
             # ECS mapping mode should be present
@@ -641,7 +641,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn("kubectl set env daemonset", deploy_script)
 
     def test_otel_dashboard_ndjson_generated(self) -> None:
-        """Verify dashboard ndjson file present in output."""
+        """Verify dashboard ndjson file present in output with Lens format."""
         with tempfile.TemporaryDirectory(prefix="pi-otel-dashboard-") as td:
             out_dir = Path(td) / "dashboard-check"
             initialize_project(
@@ -658,6 +658,27 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("OTEL Infrastructure Overview", content)
             self.assertIn("metrics-generic-*", content)
             self.assertIn("otel-vis-cpu-by-node", content)
+            # Must use Lens format, not legacy visualization
+            self.assertIn('"type":"lens"', content)
+            self.assertNotIn('"type":"visualization"', content)
+            self.assertIn('"visualizationType":"lnsXY"', content)
+            self.assertIn('"visualizationType":"lnsMetric"', content)
+
+    def test_otel_secret_has_reconcile_disabled(self) -> None:
+        """Verify otel-es-credentials secret has reconcile: disabled annotation."""
+        with tempfile.TemporaryDirectory(prefix="pi-otel-secret-reconcile-") as td:
+            out_dir = Path(td) / "secret-reconcile-check"
+            initialize_project(
+                project_name="secret-reconcile-check",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
+            self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)
+            self.assertIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
 
 
 if __name__ == "__main__":
