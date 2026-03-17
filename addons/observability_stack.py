@@ -344,6 +344,7 @@ If your cluster uses self-signed kubelet serving certificates, uncomment
             "kind: Kustomization\n"
             "resources:\n"
             "- namespace.yaml\n"
+            "- es-secret.yaml   # prune: disabled — credentials overwritten by post-terraform-deploy.sh\n"
             "- configmap.yaml\n"
             "- daemonset.yaml\n"
             "- service.yaml\n"
@@ -359,6 +360,24 @@ metadata:
   labels:
     project: {self.project_name}
     purpose: observability
+"""
+
+        # --- es-secret.yaml ---
+        files[f"{prefix}/es-secret.yaml"] = f"""apiVersion: v1
+kind: Secret
+metadata:
+  name: otel-es-credentials
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+  annotations:
+    # Allow Flux to create this placeholder on first deploy, but prevent
+    # pruning so post-terraform-deploy.sh can overwrite with real credentials.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+type: Opaque
+stringData:
+  username: ""
+  password: ""
 """
 
         # --- configmap.yaml ---
@@ -379,6 +398,34 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+      hostmetrics:
+        collection_interval: 30s
+        scrapers:
+          cpu: {{}}
+          disk: {{}}
+          filesystem: {{}}
+          load: {{}}
+          memory: {{}}
+          network: {{}}
+
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: "${{env:K8S_NODE_IP}}:10250"
+        insecure_skip_verify: true
+        metric_groups:
+          - node
+          - pod
+          - container
+
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+        include_file_path: true
+        include_file_name: false
+        # No operators: containerd log lines start with a timestamp prefix, not JSON.
+        # Collect raw lines; structured parsing can be added once stable.
+
     processors:
       memory_limiter:
         check_interval: 1s
@@ -389,21 +436,14 @@ data:
         timeout: 5s
 
     exporters:
-      # Elasticsearch exporter — default backend (ECK in project namespace)
       elasticsearch:
         endpoints: ["https://{self.project_name}-es-http.{self.project_name}.svc:9200"]
         tls:
-          insecure: true   # ECK uses self-signed certs by default
-        # Uncomment and set credentials for authenticated clusters:
-        # user: elastic
-        # password: changeme
+          insecure_skip_verify: true
+        user: "${{env:ES_USERNAME}}"
+        password: "${{env:ES_PASSWORD}}"
       logging:
         verbosity: normal
-      # Uncomment to forward to an external OTLP backend:
-      # otlp:
-      #   endpoint: "your-otel-backend:4317"
-      #   tls:
-      #     insecure: true
 
     extensions:
       health_check:
@@ -417,11 +457,11 @@ data:
           processors: [memory_limiter, batch]
           exporters: [elasticsearch, logging]
         metrics:
-          receivers: [otlp]
+          receivers: [otlp, hostmetrics, kubeletstats]
           processors: [memory_limiter, batch]
-          exporters: [logging]
+          exporters: [logging]   # ES exporter does not support metrics in 0.96.0
         logs:
-          receivers: [otlp]
+          receivers: [otlp, filelog]
           processors: [memory_limiter, batch]
           exporters: [elasticsearch, logging]
       telemetry:
@@ -474,6 +514,21 @@ spec:
         image: otel/opentelemetry-collector-contrib:0.96.0
         args:
         - --config=/etc/otel-collector/config.yaml
+        env:
+        - name: ES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: otel-es-credentials
+              key: username
+        - name: ES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: otel-es-credentials
+              key: password
+        - name: K8S_NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
         ports:
         - name: otlp-grpc
           containerPort: 4317
@@ -493,7 +548,6 @@ spec:
             memory: 512Mi
         securityContext:
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
           runAsNonRoot: true
           capabilities:
             drop:
@@ -502,22 +556,40 @@ spec:
           httpGet:
             path: /
             port: 13133
-          initialDelaySeconds: 15
-          periodSeconds: 10
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /
             port: 13133
-          initialDelaySeconds: 5
-          periodSeconds: 10
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          failureThreshold: 3
         volumeMounts:
         - name: config
           mountPath: /etc/otel-collector
           readOnly: true
+        - name: varlogpods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: tmpdir
+          mountPath: /tmp
       volumes:
       - name: config
         configMap:
           name: otel-collector-config
+      - name: varlogpods
+        hostPath:
+          path: /var/log/pods
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: tmpdir
+        emptyDir: {{}}
       nodeSelector:
         kubernetes.io/os: linux
 """
@@ -558,10 +630,13 @@ metadata:
     app.kubernetes.io/name: otel-collector
 rules:
 - apiGroups: [""]
-  resources: ["pods", "nodes", "namespaces"]
+  resources: ["pods", "nodes", "namespaces", "endpoints", "services"]
   verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes/stats", "nodes/proxy"]
+  verbs: ["get"]
 - apiGroups: ["apps"]
-  resources: ["replicasets"]
+  resources: ["replicasets", "daemonsets", "deployments", "statefulsets"]
   verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -605,8 +680,13 @@ spec:
     - protocol: TCP
       port: 4318
   egress:
-  # Allow egress to exporter endpoints
-  - ports:
+  # Allow egress to all destinations on required ports.
+  # ipBlock 0.0.0.0/0 is explicit to ensure Canal/Calico matches ClusterIP
+  # and node-IP traffic (kubelet :10250, k8s API :443, ES :9200, OTLP :4317/:4318).
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
     - protocol: TCP
       port: 4317
     - protocol: TCP
@@ -615,8 +695,13 @@ spec:
       port: 443
     - protocol: TCP
       port: 9200
+    - protocol: TCP
+      port: 10250   # kubelet API (kubeletstats receiver)
   # Allow DNS resolution
-  - ports:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
     - protocol: UDP
       port: 53
     - protocol: TCP
@@ -669,6 +754,111 @@ http: otel-collector.observability.svc.cluster.local:4318
         return files
 
     # ------------------------------------------------------------------
+    # Documentation
+    # ------------------------------------------------------------------
+
+    def _generate_data_flow_doc(self) -> Dict[str, str]:
+        """Generate docs/OTEL_AGENT_DATA_FLOW.md describing data flow architecture."""
+        return {
+            "docs/OTEL_AGENT_DATA_FLOW.md": f"""# OTEL + Elastic Agent Data Flow Architecture
+
+**Project**: {self.project_name}
+
+## Overview
+
+This project uses two complementary data collection systems:
+
+1. **OpenTelemetry Collector** (DaemonSet in `observability` namespace) — collects host metrics, kubelet stats, and container logs
+2. **Elastic Agent** (DaemonSet in `{self.project_name}` namespace) — collects system metrics, Kubernetes metrics, and container logs via Fleet-managed integrations
+
+Both systems export data to the Elasticsearch cluster managed by ECK in the `{self.project_name}` namespace.
+
+## Data Flow Diagram
+
+```
+Nodes                          Kubernetes API
+  |                                |
+  v                                v
++-----------------+    +-----------------+
+| OTEL Collector  |    | Elastic Agent   |
+| (DaemonSet)     |    | (DaemonSet)     |
+| ns: observability|    | ns: {self.project_name}     |
++-----------------+    +-----------------+
+  | hostmetrics       | system integration
+  | kubeletstats      | kubernetes integration
+  | filelog            | container_logs
+  |                    |
+  v                    v
++---------------------------------+
+| Elasticsearch (ECK)             |
+| ns: {self.project_name}                     |
+| {self.project_name}-es-http:9200             |
++---------------------------------+
+          |
+          v
++-----------------+
+| Kibana          |
+| ns: {self.project_name}     |
++-----------------+
+```
+
+## OTEL Collector Pipelines
+
+| Pipeline | Receivers | Exporters | Notes |
+|----------|-----------|-----------|-------|
+| **traces** | otlp | elasticsearch, logging | Apps push OTLP traces |
+| **metrics** | otlp, hostmetrics, kubeletstats | logging | ES exporter 0.96.0 does not support metrics data type |
+| **logs** | otlp, filelog | elasticsearch, logging | Raw container logs from `/var/log/pods` |
+
+## Elastic Agent Data Streams
+
+| Data Stream | Source | Integration |
+|-------------|--------|-------------|
+| `logs-system.syslog` | Agent | System |
+| `logs-system.auth` | Agent | System |
+| `metrics-system.cpu/memory/diskio/network` | Agent | System |
+| `metrics-kubernetes.node/pod/container/volume` | Agent | Kubernetes |
+| `logs-kubernetes.container_logs` | Agent | Kubernetes |
+| `logs-generic-default` | OTEL filelog | N/A |
+
+## Authentication
+
+- **OTEL → ES**: Uses `otel-es-credentials` secret in `observability` namespace (mirrored from ECK elastic-user secret by post-deploy script)
+- **Agent → ES**: Managed by ECK operator via Fleet enrollment
+- **Agent → Fleet**: `FLEET_ENROLL=true` env var + enrollment token set by post-deploy script
+
+## Known Gotchas
+
+### 1. Canal/Calico Network Policy
+When using RKE2 with Canal CNI, egress rules that specify only `ports:` without a `to:` field do NOT match ClusterIP or node-IP traffic. Always use explicit `to: ipBlock: cidr: 0.0.0.0/0` in network policies.
+
+### 2. ECK 2.16.0 DaemonSet Enrollment
+ECK 2.16.0 does not inject `FLEET_ENROLL` and `FLEET_ENROLLMENT_TOKEN` env vars for DaemonSet agents (only for Fleet Server). The workaround is to add these env vars explicitly. This may be fixed in ECK 2.17+.
+
+### 3. ES Exporter 0.96.0 Metrics Limitation
+The Elasticsearch exporter in OTEL Collector Contrib 0.96.0 does not support the metrics data type. Host metrics and kubelet stats are collected but only exported to the `logging` exporter. Elastic Agents handle metrics export to ES. This may be fixed in OTEL Collector 0.100+.
+
+### 4. Filelog Operator Compatibility
+The `container` filelog operator is not available in contrib 0.96.0. Raw log lines are collected without parsing. Containerd log format uses timestamp prefixes, not JSON.
+
+### 5. Secret Management
+The `otel-es-credentials` secret uses `kustomize.toolkit.fluxcd.io/reconcile: disabled` to prevent Flux from overwriting credentials. Consider using External Secrets Operator for production.
+
+### 6. Fleet Default Output
+The Fleet default output must be configured via Kibana API after deployment. The post-deploy script handles this automatically, setting the correct ES endpoint and CA fingerprint.
+
+## Improvement Roadmap
+
+1. **Upgrade OTEL Collector** to 0.100+ — metrics ES exporter support may be added
+2. **ECK 2.17+** — may fix DaemonSet enrollment bug, remove FLEET_ENROLL workaround
+3. **External Secrets Operator** — replace manual secret mirroring
+4. **Structured log parsing** — add filelog operators once containerd format support stabilizes
+
+*Generated by project-initializer observability_stack addon*
+"""
+        }
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
@@ -677,9 +867,16 @@ http: otel-collector.observability.svc.cluster.local:4318
         files: Dict[str, str] = {}
         if not self._has_builtin_metrics_server():
             files.update(self._generate_metrics_server())
-        # Only generate otel-collector if explicitly enabled (or not explicitly disabled)
-        if self.context.get("enable_otel_collector", True):
+
+        # Auto-enable OTEL collector for elasticsearch projects
+        enable_otel = self.context.get("enable_otel_collector", True)
+        primary_category = self.context.get("primary_category", "")
+        if primary_category == "elasticsearch":
+            enable_otel = True
+
+        if enable_otel:
             files.update(self._generate_otel_collector())
+            files.update(self._generate_data_flow_doc())
         return files
 
 

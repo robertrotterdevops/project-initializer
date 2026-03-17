@@ -473,6 +473,10 @@ def main(
             or sizing_context.get("source") == "sizing_report"
         )
     )
+    # Auto-enable OTEL collector when ECK/elasticsearch category is detected
+    primary_category = context.get("primary_category", "")
+    if primary_category == "elasticsearch" or eck_enabled:
+        enable_otel_collector = True
 
     # Generate files
     files = {}
@@ -738,6 +742,8 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kube-system
+    - ipBlock:
+        cidr: 0.0.0.0/0
     ports:
     - protocol: UDP
       port: 53
@@ -758,8 +764,12 @@ spec:
   - from:
     - podSelector: {{}}
   egress:
+  # ipBlock 0.0.0.0/0 alongside podSelector ensures Canal/Calico matches
+  # ClusterIP traffic within the namespace (not just pod-IP traffic).
   - to:
     - podSelector: {{}}
+    - ipBlock:
+        cidr: 0.0.0.0/0
 """,
         "infrastructure/network-policy-allow-eck-operator.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -818,6 +828,8 @@ spec:
     ports:
     - protocol: TCP
       port: 443
+    - protocol: TCP
+      port: 9200   # Kibana → Elasticsearch
 """,
         "infrastructure/network-policy-allow-agent-egress.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -831,10 +843,17 @@ spec:
   policyTypes:
   - Egress
   egress:
-  # Allow Elastic Agent and Fleet Server to reach the Kubernetes API server
-  - ports:
+  # Allow Elastic Agent and Fleet Server to reach k8s API, ES, and Fleet
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
     - protocol: TCP
-      port: 6443
+      port: 6443   # Kubernetes API
+    - protocol: TCP
+      port: 9200   # Elasticsearch
+    - protocol: TCP
+      port: 8220   # Fleet Server
 """,
         "infrastructure/network-policy-allow-otel-collector.yaml": f"""apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

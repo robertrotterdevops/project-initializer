@@ -42,34 +42,34 @@ PROJECT_NAME="{project_name}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT_DIR/terraform"
-echo "[1/6] Running terraform apply..."
+echo "[1/7] Running terraform apply..."
 terraform init
 terraform apply -auto-approve -parallelism=4
 cd "$ROOT_DIR"
 
 if [ -x "$ROOT_DIR/scripts/bootstrap-rke2.sh" ]; then
-  echo "[2/6] Running RKE2 bootstrap..."
+  echo "[2/7] Running RKE2 bootstrap..."
   "$ROOT_DIR/scripts/bootstrap-rke2.sh"
 else
-  echo "[2/6] No RKE2 bootstrap script found; skipping."
+  echo "[2/7] No RKE2 bootstrap script found; skipping."
 fi
 {rke2_kubeconfig_block}"""
 
 
 def _flux_tail(project_name: str) -> str:
     return f"""if command -v flux >/dev/null 2>&1; then
-  echo "[4/6] Bootstrapping Flux..."
+  echo "[4/7] Bootstrapping Flux..."
   if [ -x "$ROOT_DIR/scripts/bootstrap-flux.sh" ]; then
     "$ROOT_DIR/scripts/bootstrap-flux.sh"
   else
     echo "bootstrap-flux.sh not found; skipping."
   fi
 
-  echo "[5/6] Waiting for Flux source and root kustomization..."
-  kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m
-  kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m
+  echo "[5/7] Waiting for Flux source and root kustomization..."
+  kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m || echo "  GitRepository not ready yet (will reconcile in background)."
+  kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m || echo "  Root kustomization not ready yet (will reconcile in background)."
 
-  echo "[5/6] Triggering Flux reconcile..."
+  echo "[5/7] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
@@ -81,7 +81,51 @@ else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[6/6] Deployment trigger finished."
+echo "[6/7] Mirroring ECK elastic-user secret to observability namespace..."
+echo "  Waiting for Elasticsearch to be ready (this may take several minutes on first deploy)..."
+kubectl wait elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=15m 2>/dev/null || {{
+  echo "  Elasticsearch not ready yet. Steps 6-7 require ECK resources."
+  echo "  Re-run this script or manually execute steps 6-7 once ES is green."
+  echo "Deployment trigger finished (steps 6-7 deferred)."
+  exit 0
+}}
+
+kubectl create namespace observability 2>/dev/null || true
+kubectl create secret generic otel-es-credentials \\
+  --from-literal=username=elastic \\
+  --from-literal=password="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
+    -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
+  -n observability --dry-run=client -o yaml | kubectl apply -f -
+
+echo "[7/7] Configuring Fleet default output..."
+kubectl wait kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=5m 2>/dev/null || true
+
+ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} -o go-template='{{{{.data.elastic | base64decode}}}}')"
+CA_FP=$(kubectl get secret ${{PROJECT_NAME}}-es-http-certs-public -n ${{PROJECT_NAME}} -o jsonpath='{{.data.ca\\.crt}}' | \\
+  base64 -d | openssl x509 -fingerprint -sha256 -noout 2>/dev/null | sed 's/.*=//;s/://g')
+
+# Use Kibana pod with localhost to avoid network policy issues (ES → Kibana may be blocked)
+KB_POD=$(kubectl get pod -n ${{PROJECT_NAME}} -l "common.k8s.elastic.co/type=kibana" \\
+  --field-selector=status.phase=Running -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
+
+if [ -n "$KB_POD" ]; then
+  kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
+    -X PUT "https://localhost:5601/api/fleet/outputs/fleet-default-output" \\
+    -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \\
+    -d "{{
+      \\"name\\": \\"default\\",
+      \\"type\\": \\"elasticsearch\\",
+      \\"hosts\\": [\\"https://${{PROJECT_NAME}}-es-http.${{PROJECT_NAME}}.svc:9200\\"],
+      \\"is_default\\": true,
+      \\"is_default_monitoring\\": true,
+      \\"ca_trusted_fingerprint\\": \\"${{CA_FP}}\\",
+      \\"config_yaml\\": \\"ssl.verification_mode: none\\"
+    }}" >/dev/null 2>&1 && echo "Fleet output configured." || echo "Fleet output config failed (may need manual setup)."
+else
+  echo "No running Kibana pod found; Fleet output must be configured manually."
+fi
+
+echo "Deployment trigger finished."
 """
 
 
@@ -178,6 +222,13 @@ else
   echo "Secret ${{ES_NAME}}-es-elastic-user not found"
 fi
 
+sep "ELASTIC AGENTS"
+kubectl get agents -n "$NAMESPACE" 2>/dev/null || echo "No Agent resources"
+kubectl get pods -n "$NAMESPACE" -l agent.k8s.elastic.co/name -o wide 2>/dev/null
+
+sep "OTEL COLLECTOR"
+kubectl get pods -n observability -l app.kubernetes.io/name=otel-collector -o wide 2>/dev/null || echo "No OTEL pods"
+
 sep "FLUX KUSTOMIZATIONS"
 flux get kustomizations 2>/dev/null || echo "flux CLI not available or not configured"
 
@@ -201,7 +252,7 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
         remote_with_token = "https://oauth2:" + git_token + "@" + repo_url[len("https://"):]
 
     git_push_block = f"""
-echo "[3/6] Updating Git repository..."
+echo "[3/7] Updating Git repository..."
 cd "$ROOT_DIR"
 git add .
 git commit -m "Post-terraform deployment update for $PROJECT_NAME" || true

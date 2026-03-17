@@ -444,6 +444,7 @@ def initialize_project(
         "fallback_storage_class": fallback_storage_class or "",
         "enable_metrics_server": enable_metrics_server,
         "enable_otel_collector": enable_otel_collector,
+        "primary_category": analysis.get("primary_category", ""),
     }
 
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)

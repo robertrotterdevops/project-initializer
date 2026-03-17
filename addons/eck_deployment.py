@@ -1031,6 +1031,10 @@ spec:
                 value: /hostfs/proc
               - name: HOST_SYS
                 value: /hostfs/sys
+              - name: FLEET_ENROLL
+                value: "true"
+              - name: FLEET_ENROLLMENT_TOKEN
+                value: "PLACEHOLDER_SET_BY_POST_DEPLOY"
             resources:
               requests:
                 memory: "512Mi"
@@ -1095,7 +1099,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses"]
     verbs: ["get", "list", "watch"]

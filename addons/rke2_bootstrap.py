@@ -229,6 +229,24 @@ def _ansible_playbook() -> str:
       changed_when: false
       when: (ansible_os_family | default("Debian")) | lower == "debian"
 
+- name: Set OS hostname to match inventory name
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    ansible_become_timeout: 30
+  tasks:
+    - name: Set hostname to match inventory name
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Update /etc/hosts with new hostname
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\\.0\\.1\\.1'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+        state: present
+
 - name: Grow root partition and filesystem on all nodes
   hosts: all
   become: true
