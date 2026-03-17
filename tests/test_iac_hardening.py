@@ -101,7 +101,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("terraform apply -auto-approve -parallelism=4", deploy_script)
             self.assertIn('NAMESPACE="sample-project"', healthcheck_script)
             self.assertIn('ES_NAME="sample-project"', healthcheck_script)
-            self.assertIn('KB_NAME="sample-project-kb"', healthcheck_script)
+            self.assertNotIn('KB_NAME=', healthcheck_script)
             self.assertIn('KIBANA_INGRESS="sample-project-kibana"', healthcheck_script)
             self.assertIn('flux get kustomizations', healthcheck_script)
             self.assertIn('INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"', healthcheck_script)

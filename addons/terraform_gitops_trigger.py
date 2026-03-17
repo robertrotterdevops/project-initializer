@@ -148,36 +148,43 @@ set -euo pipefail
 
 NAMESPACE="{project_name}"
 ES_NAME="{project_name}"
-KB_NAME="{project_name}-kb"
 KIBANA_INGRESS="{project_name}-kibana"
 INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
 KUBECONFIG_FILE="$HOME/.kube/{project_name}"
 
-if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
-  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/')
-  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/')
-  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/')
+if [[ -f "$KUBECONFIG_FILE" ]]; then
+  export KUBECONFIG="$KUBECONFIG_FILE"
+  echo ">>> Using existing KUBECONFIG at $KUBECONFIG_FILE"
+elif [[ -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
+  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/' || true)
+  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/' || true)
+  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/' || true)
   if [[ -n "$SERVER_IP" && -n "$SSH_USER" && -n "$SSH_PASS" ]]; then
     mkdir -p "$(dirname "$KUBECONFIG_FILE")"
+    TMPKUBE=$(mktemp)
     echo ">>> Fetching kubeconfig from $SSH_USER@$SERVER_IP"
-    sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" \
-      "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_FILE"
-    chmod 600 "$KUBECONFIG_FILE"
-    sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$KUBECONFIG_FILE"
-    export KUBECONFIG="$KUBECONFIG_FILE"
-    echo ">>> KUBECONFIG set to $KUBECONFIG"
+    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
+      sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$TMPKUBE"
+      mv "$TMPKUBE" "$KUBECONFIG_FILE"
+      chmod 600 "$KUBECONFIG_FILE"
+      export KUBECONFIG="$KUBECONFIG_FILE"
+      echo ">>> KUBECONFIG set to $KUBECONFIG"
+    else
+      rm -f "$TMPKUBE"
+      echo ">>> WARNING: Failed to fetch kubeconfig from $SERVER_IP"
+    fi
   fi
 fi
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
 
 sep "NODES"
-kubectl get nodes -o wide
+kubectl get nodes -o wide || echo "Failed to get nodes"
 
 sep "PODS ($NAMESPACE)"
 kubectl get pods -n "$NAMESPACE" -o wide \\
-  --sort-by='.status.phase' \\
-  | awk 'NR==1 || /[0-9]+\\/[0-9]+/'
+  --sort-by='.status.phase' 2>/dev/null \\
+  | awk 'NR==1 || /[0-9]+\\/[0-9]+/' || echo "Failed to get pods"
 
 sep "ELASTICSEARCH STATUS"
 kubectl get elasticsearch -n "$NAMESPACE" 2>/dev/null || echo "No Elasticsearch resources found"
@@ -205,7 +212,7 @@ KIBANA_ADDR=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
 if [[ -n "$KIBANA_HOST" ]]; then
   echo
   echo "  Kibana URL : https://${{KIBANA_HOST}}"
-  [[ -n "$KIBANA_ADDR" ]] && echo "  LB address : ${{KIBANA_ADDR}}"
+  if [[ -n "$KIBANA_ADDR" ]]; then echo "  LB address : ${{KIBANA_ADDR}}"; fi
 fi
 
 sep "NETWORK POLICIES ($NAMESPACE)"
@@ -217,14 +224,14 @@ ELASTIC_PASS=$(kubectl get secret "${{ES_NAME}}-es-elastic-user" -n "$NAMESPACE"
 if [[ -n "$ELASTIC_PASS" ]]; then
   echo "  Username : elastic"
   echo "  Password : ${{ELASTIC_PASS}}"
-  [[ -n "$KIBANA_HOST" ]] && echo "  Login URL: https://${{KIBANA_HOST}}"
+  if [[ -n "$KIBANA_HOST" ]]; then echo "  Login URL: https://${{KIBANA_HOST}}"; fi
 else
   echo "Secret ${{ES_NAME}}-es-elastic-user not found"
 fi
 
 sep "ELASTIC AGENTS"
 kubectl get agents -n "$NAMESPACE" 2>/dev/null || echo "No Agent resources"
-kubectl get pods -n "$NAMESPACE" -l agent.k8s.elastic.co/name -o wide 2>/dev/null
+kubectl get pods -n "$NAMESPACE" -l agent.k8s.elastic.co/name -o wide 2>/dev/null || true
 
 sep "OTEL COLLECTOR"
 kubectl get pods -n observability -l app.kubernetes.io/name=otel-collector -o wide 2>/dev/null || echo "No OTEL pods"
