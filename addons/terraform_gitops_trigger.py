@@ -81,12 +81,12 @@ else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[6/7] Mirroring ECK elastic-user secret to observability namespace..."
+echo "[6/8] Mirroring ECK elastic-user secret to observability namespace..."
 echo "  Waiting for Elasticsearch to be ready (this may take several minutes on first deploy)..."
 kubectl wait elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=15m 2>/dev/null || {{
-  echo "  Elasticsearch not ready yet. Steps 6-7 require ECK resources."
-  echo "  Re-run this script or manually execute steps 6-7 once ES is green."
-  echo "Deployment trigger finished (steps 6-7 deferred)."
+  echo "  Elasticsearch not ready yet. Steps 6-8 require ECK resources."
+  echo "  Re-run this script or manually execute steps 6-8 once ES is green."
+  echo "Deployment trigger finished (steps 6-8 deferred)."
   exit 0
 }}
 
@@ -97,7 +97,7 @@ kubectl create secret generic otel-es-credentials \\
     -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
   -n observability --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[7/7] Configuring Fleet default output..."
+echo "[7/8] Configuring Fleet default output and agent enrollment..."
 kubectl wait kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=5m 2>/dev/null || true
 
 ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} -o go-template='{{{{.data.elastic | base64decode}}}}')"
@@ -120,9 +120,33 @@ if [ -n "$KB_POD" ]; then
       \\"is_default_monitoring\\": true,
       \\"ca_trusted_fingerprint\\": \\"${{CA_FP}}\\",
       \\"config_yaml\\": \\"ssl.verification_mode: none\\"
-    }}" >/dev/null 2>&1 && echo "Fleet output configured." || echo "Fleet output config failed (may need manual setup)."
+    }}" >/dev/null 2>&1 && echo "  Fleet output configured." || echo "  Fleet output config failed (may need manual setup)."
 else
-  echo "No running Kibana pod found; Fleet output must be configured manually."
+  echo "  No running Kibana pod found; Fleet output must be configured manually."
+fi
+
+echo "[8/8] Fetching Fleet enrollment token and patching agent..."
+# Wait for Fleet Server to be ready and enrollment tokens to be generated
+kubectl wait agent/${{PROJECT_NAME}}-fleet-server -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=5m 2>/dev/null || true
+
+if [ -n "$KB_POD" ]; then
+  ENROLLMENT_TOKEN=$(kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
+    "https://localhost:5601/api/fleet/enrollment_api_keys" \\
+    -H 'kbn-xsrf: true' 2>/dev/null | \\
+    python3 -c "import sys,json; keys=json.load(sys.stdin).get('items',[]); print(next((k['api_key'] for k in keys if k.get('policy_id')=='elastic-agent-policy' and k.get('active')), ''))" 2>/dev/null || true)
+
+  if [ -n "$ENROLLMENT_TOKEN" ]; then
+    kubectl set env daemonset/${{PROJECT_NAME}}-agent-agent \\
+      -n ${{PROJECT_NAME}} \\
+      FLEET_ENROLLMENT_TOKEN="$ENROLLMENT_TOKEN" 2>/dev/null && \\
+      echo "  Agent enrollment token set. Agents will restart and enroll." || \\
+      echo "  Failed to patch agent DaemonSet with enrollment token."
+  else
+    echo "  WARNING: Could not retrieve enrollment token from Fleet API."
+    echo "  Agents may fail to enroll. Check Fleet Server status and re-run if needed."
+  fi
+else
+  echo "  No Kibana pod available to fetch enrollment token."
 fi
 
 echo "Deployment trigger finished."

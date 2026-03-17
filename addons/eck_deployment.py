@@ -1033,8 +1033,6 @@ spec:
                 value: /hostfs/sys
               - name: FLEET_ENROLL
                 value: "true"
-              - name: FLEET_ENROLLMENT_TOKEN
-                value: "PLACEHOLDER_SET_BY_POST_DEPLOY"
             resources:
               requests:
                 memory: "512Mi"
