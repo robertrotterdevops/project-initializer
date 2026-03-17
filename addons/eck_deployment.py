@@ -16,7 +16,7 @@ import re
 ADDON_META = {
     "name": "eck_deployment",
     "version": "1.1",
-    "description": "ECK 2.x deployment generator for Elasticsearch 8.x (multi-tier support)",
+    "description": "ECK 2.x/3.x deployment generator for Elasticsearch 8.x (multi-tier support)",
     "triggers": {"categories": ["elasticsearch"]},
     "priority": 20,
 }
@@ -96,7 +96,7 @@ class ECKDeploymentGenerator:
         # ES version
         self.es_version = "8.17.0"
         self.eck_operator = self.sizing.get("eck_operator") or {}
-        self.eck_version = self.eck_operator.get("version", "2.16.0")
+        self.eck_version = self.context.get("eck_version") or self.eck_operator.get("version", "3.0.0")
         self.fallback_storage_class = (
             self._canonical_storage_class(
                 str(self.context.get("fallback_storage_class") or "")
@@ -974,8 +974,29 @@ spec:
                 cpu: "1"
 """
 
+    def _is_eck_3x(self) -> bool:
+        """Return True if the configured ECK version is 3.x or later."""
+        try:
+            major = int(self.eck_version.split(".")[0])
+            return major >= 3
+        except (ValueError, IndexError):
+            return False
+
     def _generate_agent(self) -> str:
         """Generate Elastic Agent DaemonSet for node-level collection."""
+        # ECK 3.x auto-enrolls via kibanaRef; ECK 2.x needs explicit FLEET_ENROLL
+        kibana_ref = ""
+        fleet_enroll_env = ""
+        if self._is_eck_3x():
+            kibana_ref = f"""
+  # ECK 3.x auto-enrollment via Kibana
+  kibanaRef:
+    name: {self.project_name}"""
+        else:
+            fleet_enroll_env = """
+              - name: FLEET_ENROLL
+                value: "true\""""
+
         return f"""apiVersion: agent.k8s.elastic.co/v1alpha1
 kind: Agent
 metadata:
@@ -986,14 +1007,14 @@ metadata:
     app.kubernetes.io/component: elastic-agent
 spec:
   version: {self.es_version}
-  
+
   # Fleet mode - enrolls with Fleet Server
   mode: fleet
-  
+
   # Reference to Fleet Server
   fleetServerRef:
     name: {self.project_name}-fleet-server
-  
+  {kibana_ref}
   # DaemonSet for node-level collection
   daemonSet:
     podTemplate:
@@ -1030,9 +1051,7 @@ spec:
               - name: HOST_PROC
                 value: /hostfs/proc
               - name: HOST_SYS
-                value: /hostfs/sys
-              - name: FLEET_ENROLL
-                value: "true"
+                value: /hostfs/sys{fleet_enroll_env}
             resources:
               requests:
                 memory: "512Mi"

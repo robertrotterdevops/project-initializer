@@ -445,6 +445,7 @@ def initialize_project(
         "enable_metrics_server": enable_metrics_server,
         "enable_otel_collector": enable_otel_collector,
         "primary_category": analysis.get("primary_category", ""),
+        "eck_version": (sizing_context or {}).get("eck_operator", {}).get("version", "3.0.0") if sizing_context else "3.0.0",
     }
 
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)

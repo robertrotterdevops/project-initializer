@@ -552,5 +552,113 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("name: xfsprogs", bootstrap_playbook)
 
 
+    def test_otel_metrics_exported_to_elasticsearch(self) -> None:
+        """Verify metrics pipeline has elasticsearch exporter."""
+        with tempfile.TemporaryDirectory(prefix="pi-otel-metrics-es-") as td:
+            out_dir = Path(td) / "otel-metrics-check"
+            initialize_project(
+                project_name="otel-metrics-check",
+                description="OTEL metrics export check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            configmap = (out_dir / "observability/otel-collector/configmap.yaml").read_text()
+            # Metrics pipeline must export to elasticsearch
+            self.assertIn("exporters: [elasticsearch, logging]", configmap)
+            # Should not have the old comment about ES exporter not supporting metrics
+            self.assertNotIn("ES exporter does not support metrics", configmap)
+            # ECS mapping mode should be present
+            self.assertIn("mode: ecs", configmap)
+
+    def test_otel_collector_version_configurable(self) -> None:
+        """Pass custom OTEL version, verify image tag."""
+        from addons.observability_stack import ObservabilityStackGenerator
+
+        gen = ObservabilityStackGenerator(
+            "version-test", "test", {"otel_collector_version": "0.120.0", "primary_category": "elasticsearch"}
+        )
+        files = gen.generate()
+        daemonset = files.get("observability/otel-collector/daemonset.yaml", "")
+        self.assertIn("otel/opentelemetry-collector-contrib:0.120.0", daemonset)
+        self.assertNotIn("0.96.0", daemonset)
+
+    def test_eck_3x_no_fleet_enroll_env(self) -> None:
+        """Verify FLEET_ENROLL absent with ECK 3.x."""
+        with tempfile.TemporaryDirectory(prefix="pi-eck3-no-enroll-") as td:
+            out_dir = Path(td) / "eck3-check"
+            initialize_project(
+                project_name="eck3-check",
+                description="ECK 3.x enrollment check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            agent_yaml = (out_dir / "agents/elastic-agent.yaml").read_text()
+            self.assertNotIn("FLEET_ENROLL", agent_yaml)
+            self.assertIn("kibanaRef:", agent_yaml)
+
+    def test_eck_2x_backward_compat_fleet_enroll(self) -> None:
+        """Verify FLEET_ENROLL present with ECK 2.x override."""
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "eck_operator": {"version": "2.16.0"},
+            "rke2": {"pools": [{"name": "system_pool", "nodes": 1}]},
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-eck2-enroll-") as td:
+            out_dir = Path(td) / "eck2-check"
+            initialize_project(
+                project_name="eck2-check",
+                description="ECK 2.x backward compat check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            agent_yaml = (out_dir / "agents/elastic-agent.yaml").read_text()
+            self.assertIn("FLEET_ENROLL", agent_yaml)
+            self.assertNotIn("kibanaRef:", agent_yaml)
+
+    def test_post_deploy_no_enrollment_patch_eck3(self) -> None:
+        """Verify step 9 simplified for ECK 3.x."""
+        with tempfile.TemporaryDirectory(prefix="pi-eck3-deploy-") as td:
+            out_dir = Path(td) / "eck3-deploy"
+            initialize_project(
+                project_name="eck3-deploy",
+                description="ECK 3.x deploy check",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            self.assertIn("Waiting for agent auto-enrollment (ECK 3.x)", deploy_script)
+            self.assertNotIn("ENROLLMENT_TOKEN", deploy_script)
+            self.assertNotIn("kubectl set env daemonset", deploy_script)
+
+    def test_otel_dashboard_ndjson_generated(self) -> None:
+        """Verify dashboard ndjson file present in output."""
+        with tempfile.TemporaryDirectory(prefix="pi-otel-dashboard-") as td:
+            out_dir = Path(td) / "dashboard-check"
+            initialize_project(
+                project_name="dashboard-check",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            dashboard_path = out_dir / "observability/otel-dashboards/otel-infrastructure-overview.ndjson"
+            self.assertTrue(dashboard_path.exists())
+            content = dashboard_path.read_text()
+            self.assertIn("OTEL Infrastructure Overview", content)
+            self.assertIn("metrics-generic-*", content)
+            self.assertIn("otel-vis-cpu-by-node", content)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ as pure Kustomize resources (no Helm).
 Zero external dependencies -- Python 3.9+ stdlib only.
 """
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -35,6 +36,8 @@ class ObservabilityStackGenerator:
         self.description = project_description
         self.context = context or {}
         self.platform = self.context.get("platform", "kubernetes")
+        self.otel_version = self.context.get("otel_collector_version", "0.116.0")
+        self.eck_version = self.context.get("eck_version", "3.0.0")
 
     def _is_openshift(self) -> bool:
         return self.platform in ("openshift",)
@@ -429,8 +432,8 @@ data:
     processors:
       memory_limiter:
         check_interval: 1s
-        limit_mib: 512
-        spike_limit_mib: 128
+        limit_mib: 640
+        spike_limit_mib: 192
       batch:
         send_batch_size: 1024
         timeout: 5s
@@ -442,6 +445,8 @@ data:
           insecure_skip_verify: true
         user: "${{env:ES_USERNAME}}"
         password: "${{env:ES_PASSWORD}}"
+        mapping:
+          mode: ecs
       logging:
         verbosity: normal
 
@@ -459,7 +464,7 @@ data:
         metrics:
           receivers: [otlp, hostmetrics, kubeletstats]
           processors: [memory_limiter, batch]
-          exporters: [logging]   # ES exporter does not support metrics in 0.96.0
+          exporters: [elasticsearch, logging]
         logs:
           receivers: [otlp, filelog]
           processors: [memory_limiter, batch]
@@ -511,7 +516,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:0.96.0
+        image: otel/opentelemetry-collector-contrib:{self.otel_version}
         args:
         - --config=/etc/otel-collector/config.yaml
         env:
@@ -542,10 +547,10 @@ spec:
         resources:
           requests:
             cpu: 200m
-            memory: 256Mi
+            memory: 384Mi
           limits:
             cpu: 500m
-            memory: 512Mi
+            memory: 768Mi
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
@@ -711,7 +716,7 @@ spec:
         # --- README.md ---
         files[f"{prefix}/README.md"] = f"""# OpenTelemetry Collector
 
-Raw Kustomize manifests for the [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) v0.96.0.
+Raw Kustomize manifests for the [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) v{self.otel_version}.
 
 Deployed as a **DaemonSet** in the `observability` namespace to collect traces, metrics, and logs from all nodes.
 
@@ -720,7 +725,7 @@ Deployed as a **DaemonSet** in the `observability` namespace to collect traces, 
 Edit `configmap.yaml` to customise the collector pipeline:
 
 - **Receivers**: OTLP (gRPC :4317, HTTP :4318) enabled by default
-- **Processors**: `memory_limiter` (512 MiB) and `batch` (5s / 1024 batch size)
+- **Processors**: `memory_limiter` (640 MiB) and `batch` (5s / 1024 batch size)
 - **Exporters**: OTLP (placeholder endpoint) and `logging`
 - **Pipelines**: traces, metrics, logs — all wired through the above
 
@@ -807,7 +812,7 @@ Nodes                          Kubernetes API
 | Pipeline | Receivers | Exporters | Notes |
 |----------|-----------|-----------|-------|
 | **traces** | otlp | elasticsearch, logging | Apps push OTLP traces |
-| **metrics** | otlp, hostmetrics, kubeletstats | logging | ES exporter 0.96.0 does not support metrics data type |
+| **metrics** | otlp, hostmetrics, kubeletstats | elasticsearch, logging | ECS mapping mode for Kibana compatibility |
 | **logs** | otlp, filelog | elasticsearch, logging | Raw container logs from `/var/log/pods` |
 
 ## Elastic Agent Data Streams
@@ -825,37 +830,48 @@ Nodes                          Kubernetes API
 
 - **OTEL → ES**: Uses `otel-es-credentials` secret in `observability` namespace (mirrored from ECK elastic-user secret by post-deploy script)
 - **Agent → ES**: Managed by ECK operator via Fleet enrollment
-- **Agent → Fleet**: `FLEET_ENROLL=true` env var + enrollment token set by post-deploy script
+- **Agent → Fleet**: ECK 3.x auto-enrollment via `kibanaRef`; ECK 2.x requires `FLEET_ENROLL=true` env var + enrollment token set by post-deploy script
 
 ## Known Gotchas
 
 ### 1. Canal/Calico Network Policy
 When using RKE2 with Canal CNI, egress rules that specify only `ports:` without a `to:` field do NOT match ClusterIP or node-IP traffic. Always use explicit `to: ipBlock: cidr: 0.0.0.0/0` in network policies.
 
-### 2. ECK 2.16.0 DaemonSet Enrollment
-ECK 2.16.0 does not inject `FLEET_ENROLL` and `FLEET_ENROLLMENT_TOKEN` env vars for DaemonSet agents (only for Fleet Server). The workaround is to add these env vars explicitly. This may be fixed in ECK 2.17+.
+### 2. ECK DaemonSet Enrollment
+ECK 3.x handles Fleet enrollment automatically via `kibanaRef` for all agent modes including DaemonSet. ECK 2.x requires explicit `FLEET_ENROLL` and `FLEET_ENROLLMENT_TOKEN` env vars for DaemonSet agents.
 
-### 3. ES Exporter 0.96.0 Metrics Limitation
-The Elasticsearch exporter in OTEL Collector Contrib 0.96.0 does not support the metrics data type. Host metrics and kubelet stats are collected but only exported to the `logging` exporter. Elastic Agents handle metrics export to ES. This may be fixed in OTEL Collector 0.100+.
+### 3. Filelog Operator Compatibility
+Raw log lines are collected without structured parsing. Containerd log format uses timestamp prefixes, not JSON. Structured parsing can be added via filelog operators.
 
-### 4. Filelog Operator Compatibility
-The `container` filelog operator is not available in contrib 0.96.0. Raw log lines are collected without parsing. Containerd log format uses timestamp prefixes, not JSON.
-
-### 5. Secret Management
+### 4. Secret Management
 The `otel-es-credentials` secret uses `kustomize.toolkit.fluxcd.io/reconcile: disabled` to prevent Flux from overwriting credentials. Consider using External Secrets Operator for production.
 
-### 6. Fleet Default Output
+### 5. Fleet Default Output
 The Fleet default output must be configured via Kibana API after deployment. The post-deploy script handles this automatically, setting the correct ES endpoint and CA fingerprint.
 
 ## Improvement Roadmap
 
-1. **Upgrade OTEL Collector** to 0.100+ — metrics ES exporter support may be added
-2. **ECK 2.17+** — may fix DaemonSet enrollment bug, remove FLEET_ENROLL workaround
-3. **External Secrets Operator** — replace manual secret mirroring
-4. **Structured log parsing** — add filelog operators once containerd format support stabilizes
+1. **External Secrets Operator** — replace manual secret mirroring
+2. **Structured log parsing** — add filelog operators for containerd log format
+3. **OTEL Kibana dashboards** — pre-built dashboards for host metrics and kubelet stats
 
 *Generated by project-initializer observability_stack addon*
 """
+        }
+
+    # ------------------------------------------------------------------
+    # OTEL Dashboard
+    # ------------------------------------------------------------------
+
+    def _generate_otel_dashboard(self) -> Dict[str, str]:
+        """Load the OTEL Infrastructure Overview ndjson from assets."""
+        asset_path = Path(__file__).parent / "assets" / "otel-dashboards" / "otel-infrastructure-overview.ndjson"
+        if asset_path.exists():
+            content = asset_path.read_text()
+        else:
+            content = ""
+        return {
+            "observability/otel-dashboards/otel-infrastructure-overview.ndjson": content,
         }
 
     # ------------------------------------------------------------------
@@ -877,6 +893,7 @@ The Fleet default output must be configured via Kibana API after deployment. The
         if enable_otel:
             files.update(self._generate_otel_collector())
             files.update(self._generate_data_flow_doc())
+            files.update(self._generate_otel_dashboard())
         return files
 
 

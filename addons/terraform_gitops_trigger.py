@@ -56,7 +56,44 @@ fi
 {rke2_kubeconfig_block}"""
 
 
-def _flux_tail(project_name: str) -> str:
+def _flux_tail(project_name: str, eck_version: str = "3.0.0") -> str:
+    eck_major = 3
+    try:
+        eck_major = int(eck_version.split(".")[0])
+    except (ValueError, IndexError):
+        pass
+
+    if eck_major >= 3:
+        enrollment_step = f"""echo "[9/9] Waiting for agent auto-enrollment (ECK 3.x)..."
+kubectl wait agent/${{PROJECT_NAME}}-agent -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=10m 2>/dev/null || {{
+  echo "  Agent not healthy yet. ECK 3.x auto-enrollment may still be in progress."
+  echo "  Check: kubectl get agents -n ${{PROJECT_NAME}}"
+}}"""
+    else:
+        enrollment_step = f"""echo "[9/9] Fetching Fleet enrollment token and patching agent..."
+# Wait for Fleet Server to be ready and enrollment tokens to be generated
+kubectl wait agent/${{PROJECT_NAME}}-fleet-server -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=5m 2>/dev/null || true
+
+if [ -n "$KB_POD" ]; then
+  ENROLLMENT_TOKEN=$(kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
+    "https://localhost:5601/api/fleet/enrollment_api_keys" \\
+    -H 'kbn-xsrf: true' 2>/dev/null | \\
+    python3 -c "import sys,json; keys=json.load(sys.stdin).get('items',[]); print(next((k['api_key'] for k in keys if k.get('policy_id')=='elastic-agent-policy' and k.get('active')), ''))" 2>/dev/null || true)
+
+  if [ -n "$ENROLLMENT_TOKEN" ]; then
+    kubectl set env daemonset/${{PROJECT_NAME}}-agent-agent \\
+      -n ${{PROJECT_NAME}} \\
+      FLEET_ENROLLMENT_TOKEN="$ENROLLMENT_TOKEN" 2>/dev/null && \\
+      echo "  Agent enrollment token set. Agents will restart and enroll." || \\
+      echo "  Failed to patch agent DaemonSet with enrollment token."
+  else
+    echo "  WARNING: Could not retrieve enrollment token from Fleet API."
+    echo "  Agents may fail to enroll. Check Fleet Server status and re-run if needed."
+  fi
+else
+  echo "  No Kibana pod available to fetch enrollment token."
+fi"""
+
     return f"""if command -v flux >/dev/null 2>&1; then
   echo "[4/7] Bootstrapping Flux..."
   if [ -x "$ROOT_DIR/scripts/bootstrap-flux.sh" ]; then
@@ -81,12 +118,12 @@ else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[6/8] Mirroring ECK elastic-user secret to observability namespace..."
+echo "[6/9] Mirroring ECK elastic-user secret to observability namespace..."
 echo "  Waiting for Elasticsearch to be ready (this may take several minutes on first deploy)..."
 kubectl wait elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=15m 2>/dev/null || {{
-  echo "  Elasticsearch not ready yet. Steps 6-8 require ECK resources."
-  echo "  Re-run this script or manually execute steps 6-8 once ES is green."
-  echo "Deployment trigger finished (steps 6-8 deferred)."
+  echo "  Elasticsearch not ready yet. Steps 6-9 require ECK resources."
+  echo "  Re-run this script or manually execute steps 6-9 once ES is green."
+  echo "Deployment trigger finished (steps 6-9 deferred)."
   exit 0
 }}
 
@@ -97,7 +134,7 @@ kubectl create secret generic otel-es-credentials \\
     -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
   -n observability --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[7/8] Configuring Fleet default output and agent enrollment..."
+echo "[7/9] Configuring Fleet default output and agent enrollment..."
 kubectl wait kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=5m 2>/dev/null || true
 
 ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} -o go-template='{{{{.data.elastic | base64decode}}}}')"
@@ -121,33 +158,23 @@ if [ -n "$KB_POD" ]; then
       \\"ca_trusted_fingerprint\\": \\"${{CA_FP}}\\",
       \\"config_yaml\\": \\"ssl.verification_mode: none\\"
     }}" >/dev/null 2>&1 && echo "  Fleet output configured." || echo "  Fleet output config failed (may need manual setup)."
+
+  echo "[8/9] Importing OTEL Infrastructure dashboard..."
+  DASHBOARD_FILE="$ROOT_DIR/observability/otel-dashboards/otel-infrastructure-overview.ndjson"
+  if [ -f "$DASHBOARD_FILE" ]; then
+    kubectl exec -i -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
+      -X POST "https://localhost:5601/api/saved_objects/_import?overwrite=true" \\
+      -H 'kbn-xsrf: true' \\
+      --form file=@/dev/stdin < "$DASHBOARD_FILE" >/dev/null 2>&1 && \\
+      echo "  OTEL dashboard imported." || echo "  Dashboard import failed (can be imported manually)."
+  else
+    echo "  Dashboard ndjson not found at $DASHBOARD_FILE; skipping."
+  fi
 else
   echo "  No running Kibana pod found; Fleet output must be configured manually."
 fi
 
-echo "[8/8] Fetching Fleet enrollment token and patching agent..."
-# Wait for Fleet Server to be ready and enrollment tokens to be generated
-kubectl wait agent/${{PROJECT_NAME}}-fleet-server -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=5m 2>/dev/null || true
-
-if [ -n "$KB_POD" ]; then
-  ENROLLMENT_TOKEN=$(kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
-    "https://localhost:5601/api/fleet/enrollment_api_keys" \\
-    -H 'kbn-xsrf: true' 2>/dev/null | \\
-    python3 -c "import sys,json; keys=json.load(sys.stdin).get('items',[]); print(next((k['api_key'] for k in keys if k.get('policy_id')=='elastic-agent-policy' and k.get('active')), ''))" 2>/dev/null || true)
-
-  if [ -n "$ENROLLMENT_TOKEN" ]; then
-    kubectl set env daemonset/${{PROJECT_NAME}}-agent-agent \\
-      -n ${{PROJECT_NAME}} \\
-      FLEET_ENROLLMENT_TOKEN="$ENROLLMENT_TOKEN" 2>/dev/null && \\
-      echo "  Agent enrollment token set. Agents will restart and enroll." || \\
-      echo "  Failed to patch agent DaemonSet with enrollment token."
-  else
-    echo "  WARNING: Could not retrieve enrollment token from Fleet API."
-    echo "  Agents may fail to enroll. Check Fleet Server status and re-run if needed."
-  fi
-else
-  echo "  No Kibana pod available to fetch enrollment token."
-fi
+{enrollment_step}
 
 echo "Deployment trigger finished."
 """
@@ -318,7 +345,8 @@ fi
             ),
         }
 
-    tail = _flux_tail(project_name) if gitops == "flux" else _argo_tail(project_name)
+    eck_version = ctx.get("eck_version", "3.0.0")
+    tail = _flux_tail(project_name, eck_version=eck_version) if gitops == "flux" else _argo_tail(project_name)
     return {
         "scripts/post-terraform-deploy.sh": _script_header(project_name, platform) + git_push_block + tail,
         "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name),
