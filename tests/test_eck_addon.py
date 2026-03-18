@@ -184,9 +184,12 @@ class TestLowerPriorityAddonSmoke(unittest.TestCase):
         self.assertGreater(len(result), 0)
 
     def test_rke2_bootstrap_smoke(self):
-        """rke2_bootstrap.main (3-arg addon interface) returns non-empty dict."""
+        """rke2_bootstrap.main (3-arg addon interface) returns non-empty dict.
+
+        Requires iac_tool='terraform' and platform in {rke2, proxmox} to produce output.
+        """
         from addons.rke2_bootstrap import main as rke2_main
-        result = rke2_main("smoke", "RKE2 bootstrap", {"platform": "rke2"})
+        result = rke2_main("smoke", "RKE2 bootstrap", {"platform": "rke2", "iac_tool": "terraform"})
         self.assertIsInstance(result, dict)
         self.assertGreater(len(result), 0)
 
@@ -208,9 +211,12 @@ class TestLowerPriorityAddonSmoke(unittest.TestCase):
         self.assertGreater(len(result), 0)
 
     def test_terraform_gitops_trigger_smoke(self):
-        """terraform_gitops_trigger.main returns non-empty dict."""
+        """terraform_gitops_trigger.main returns non-empty dict.
+
+        Requires iac_tool='terraform' to produce output.
+        """
         from addons.terraform_gitops_trigger import main
-        result = main("smoke", "Trigger test", {"platform": "rke2", "gitops_tool": "flux"})
+        result = main("smoke", "Trigger test", {"platform": "rke2", "gitops_tool": "flux", "iac_tool": "terraform"})
         self.assertIsInstance(result, dict)
         self.assertGreater(len(result), 0)
 
