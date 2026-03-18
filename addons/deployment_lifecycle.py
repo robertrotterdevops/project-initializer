@@ -209,6 +209,142 @@ exit 0
 """
         )
 
+    def _generate_verify_deployment(self) -> str:
+        """Generate scripts/verify-deployment.sh."""
+        pn = self.project_name
+        kustomizations = [pn, f"{pn}-infra", f"{pn}-apps"]
+        timeouts = [120, 600, 1200]
+        if self.eck_enabled:
+            kustomizations.append(f"{pn}-agents")
+            timeouts.append(1200)
+
+        ks_array = " ".join(f'"{k}"' for k in kustomizations)
+        to_array = " ".join(str(t) for t in timeouts)
+
+        return (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "\n"
+            f'PROJECT_NAME="{pn}"\n'
+            "\n"
+            f"KUSTOMIZATIONS=({ks_array})\n"
+            f"TIMEOUTS=({to_array})\n"
+            "POLL_INTERVAL=30\n"
+            "OVERALL_RESULT=0\n"
+            "\n"
+            'echo "Deployment Verification — polling kustomization readiness"\n'
+            'echo ""\n'
+            "\n"
+            "# Arrays to store results for status table\n"
+            "declare -a RESULT_NAMES\n"
+            "declare -a RESULT_TIMEOUTS\n"
+            "declare -a RESULT_ELAPSED\n"
+            "declare -a RESULT_STATUS\n"
+            "\n"
+            "for i in \"${!KUSTOMIZATIONS[@]}\"; do\n"
+            "  KSNAME=\"${KUSTOMIZATIONS[$i]}\"\n"
+            "  TIMEOUT=\"${TIMEOUTS[$i]}\"\n"
+            "  ELAPSED=0\n"
+            "  RESULT=\"FAILED (timeout after ${TIMEOUT}s)\"\n"
+            "\n"
+            "  while [ $ELAPSED -lt $TIMEOUT ]; do\n"
+            "    if kubectl get kustomization \"$KSNAME\" -n flux-system \\\n"
+            "        --for=condition=Ready 2>/dev/null; then\n"
+            "      RESULT=\"Ready\"\n"
+            "      break\n"
+            "    fi\n"
+            "    STATUS=$(kubectl get kustomization \"$KSNAME\" -n flux-system \\\n"
+            "      -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null || echo \"Unknown\")\n"
+            "    if [ \"$STATUS\" = \"True\" ]; then\n"
+            "      RESULT=\"Ready\"\n"
+            "      break\n"
+            "    fi\n"
+            "    sleep 30\n"
+            "    ELAPSED=$((ELAPSED + POLL_INTERVAL))\n"
+            "  done\n"
+            "\n"
+            "  if [ \"$RESULT\" != \"Ready\" ]; then\n"
+            "    OVERALL_RESULT=1\n"
+            "  fi\n"
+            "\n"
+            "  RESULT_NAMES+=(\"$KSNAME\")\n"
+            "  RESULT_TIMEOUTS+=(\"${TIMEOUT}s\")\n"
+            "  RESULT_ELAPSED+=(\"${ELAPSED}s\")\n"
+            "  RESULT_STATUS+=(\"$RESULT\")\n"
+            "done\n"
+            "\n"
+            "# Print status table\n"
+            'printf "%-40s %-12s %-10s %s\\n" "NAME" "TIMEOUT" "ACTUAL" "STATUS"\n'
+            'printf "%-40s %-12s %-10s %s\\n" "----" "-------" "------" "------"\n'
+            "for i in \"${!RESULT_NAMES[@]}\"; do\n"
+            '  printf "%-40s %-12s %-10s %s\\n" "${RESULT_NAMES[$i]}" "${RESULT_TIMEOUTS[$i]}" "${RESULT_ELAPSED[$i]}" "${RESULT_STATUS[$i]}"\n'
+            "done\n"
+            "\n"
+            "# Elasticsearch pod health check\n"
+            'echo ""\n'
+            'echo "Checking Elasticsearch StatefulSet pod health..."\n'
+            f'ES_PODS=$(kubectl get pods -n "${{PROJECT_NAME}}" \\\n'
+            f'  -l "elasticsearch.k8s.elastic.co/cluster-name=${{PROJECT_NAME}}" \\\n'
+            "  --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)\n"
+            'if [ "$ES_PODS" -gt 0 ]; then\n'
+            '  echo "  Elasticsearch: $ES_PODS pod(s) Running"\n'
+            "else\n"
+            '  echo "  WARNING: No Elasticsearch pods in Running state"\n'
+            "  OVERALL_RESULT=1\n"
+            "fi\n"
+            "\n"
+            'echo ""\n'
+            "if [ $OVERALL_RESULT -eq 0 ]; then\n"
+            '  echo "PASSED: All deployment checks passed."\n'
+            "  exit 0\n"
+            "else\n"
+            '  echo "FAILED: One or more deployment checks failed. Review the table above."\n'
+            "  exit 1\n"
+            "fi\n"
+        )
+
+    def _generate_rollback(self) -> str:
+        """Generate scripts/rollback.sh."""
+        pn = self.project_name
+        kustomizations = [pn, f"{pn}-infra", f"{pn}-apps"]
+        if self.eck_enabled:
+            kustomizations.append(f"{pn}-agents")
+
+        ks_array = " ".join(f'"{k}"' for k in kustomizations)
+
+        resume_lines = "\n".join(
+            f'  echo "  flux resume kustomization {k} -n flux-system"'
+            for k in kustomizations
+        )
+
+        return (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "\n"
+            f'PROJECT_NAME="{pn}"\n'
+            "\n"
+            f"KUSTOMIZATIONS=({ks_array})\n"
+            "\n"
+            'echo "[1/3] Suspending all Flux kustomizations..."\n'
+            "for KSNAME in \"${KUSTOMIZATIONS[@]}\"; do\n"
+            "  flux suspend kustomization \"$KSNAME\" -n flux-system 2>/dev/null && \\\n"
+            '    echo "  Suspended: $KSNAME" || \\\n'
+            '    echo "  WARNING: Could not suspend $KSNAME (may not exist)"\n'
+            "done\n"
+            "\n"
+            'echo "[2/3] Current kustomization state:"\n'
+            "flux get kustomizations -n flux-system 2>/dev/null || \\\n"
+            "  kubectl get kustomizations.kustomize.toolkit.fluxcd.io -n flux-system 2>/dev/null || \\\n"
+            '  echo "  Could not retrieve kustomization state"\n'
+            "\n"
+            'echo "[3/3] Rollback complete. To restore, run:"\n'
+            + resume_lines + "\n"
+            'echo ""\n'
+            'echo "Or to fully remove and re-deploy:"\n'
+            '  echo "  kubectl delete -k flux-system/"\n'
+            '  echo "  kubectl apply -k flux-system/"\n'
+        )
+
     def generate(self) -> Dict[str, str]:
         """Generate all deployment lifecycle scripts.
 
@@ -220,6 +356,8 @@ exit 0
             "scripts/fleet-output.sh": self._fleet_output_script(),
             "scripts/import-dashboards.sh": self._import_dashboards_script(),
             "scripts/preflight-check.sh": self._preflight_check_script(),
+            "scripts/verify-deployment.sh": self._generate_verify_deployment(),
+            "scripts/rollback.sh": self._generate_rollback(),
         }
 
 
