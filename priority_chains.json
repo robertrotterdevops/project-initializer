@@ -203,6 +203,22 @@
         "Argo sync trigger support"
       ]
     },
+    "deployment_lifecycle": {
+      "path": "addons/deployment_lifecycle.py",
+      "description": "Deployment lifecycle scripts: post-deploy automation (secret mirroring, Fleet output, OTEL dashboards), pre-flight checks, verification, rollback",
+      "supported_project_types": ["elasticsearch", "kubernetes", "gitops"],
+      "triggers": {"gitops_tool": "flux"},
+      "priority": 20,
+      "minimum_python_version": "3.9",
+      "features": [
+        "Post-deploy secret mirroring script",
+        "Fleet output configuration script",
+        "OTEL dashboard import script",
+        "Pre-flight cluster/Flux/CRD validation",
+        "Deployment verification with per-kustomization polling",
+        "Automated rollback on reconciliation failure"
+      ]
+    },
     "observability_stack": {
       "path": "addons/observability_stack.py",
       "description": "Kube-metrics-server and OTel Collector (pure Kustomize, no Helm)",
