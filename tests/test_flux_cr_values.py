@@ -6,11 +6,16 @@ Verifies that generated Flux manifests always use fixed timeout and interval
 values matching the es-06 reference deployment, regardless of project
 description complexity.
 
-Requirements: FLUX-01, FLUX-02, FLUX-03
+Requirements: FLUX-01, FLUX-02, FLUX-03, FLUX-04
 """
 
+import os
+import sys
+import tempfile
 import unittest
 import yaml
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 
 def _generate_flux_manifests(description="Elasticsearch on RKE2", eck_enabled=True):
@@ -212,6 +217,110 @@ class TestFluxCRValues(unittest.TestCase):
         self.assertIn("network-policy-allow-eck-operator.yaml", infra_kust)
         self.assertIn("../platform/eck-operator", infra_kust)
         self.assertIn("../observability/otel-collector", infra_kust)
+
+
+ES06_REF = "/home/ubuntu/App-Projects-Workspace/es-06"
+
+CRITICAL_FILES = [
+    "flux-system/gotk-sync.yaml",
+    "flux-system/kustomization-infra.yaml",
+    "flux-system/kustomization-apps.yaml",
+    "flux-system/kustomization-agents.yaml",
+    "infrastructure/kustomization.yaml",
+    "apps/kustomization.yaml",
+    "apps/es-06/kustomization.yaml",
+    "agents/kustomization.yaml",
+]
+
+
+def _run_full_pipeline(out_dir: str) -> dict:
+    """Run initialize_project with es-06-like params into out_dir."""
+    from generate_structure import initialize_project
+
+    return initialize_project(
+        project_name="es-06",
+        description="Elasticsearch on RKE2",
+        target_directory=out_dir,
+        platform="rke2",
+        gitops_tool="flux",
+        iac_tool="terraform",
+        repo_url="https://github.com/test-org/es-06.git",
+        git_token="test-token",
+        sizing_context={
+            "source": "sizing_report",
+            "eck_operator": {"version": "3.0.0"},
+        },
+    )
+
+
+class TestFullPipelineVerification(unittest.TestCase):
+    """FLUX-04: Full pipeline produces structurally correct output matching es-06 reference."""
+
+    def test_full_pipeline_critical_files_exist(self):
+        """FLUX-04: All 8 critical Flux/Kustomize files are created by the pipeline."""
+        with tempfile.TemporaryDirectory() as out_dir:
+            _run_full_pipeline(out_dir)
+            for f in CRITICAL_FILES:
+                self.assertTrue(
+                    os.path.exists(os.path.join(out_dir, f)),
+                    f"Missing: {f}",
+                )
+
+    def test_full_pipeline_matches_es06_reference(self):
+        """FLUX-04: Generated critical files match es-06 reference exactly (whitespace-stripped)."""
+        with tempfile.TemporaryDirectory() as out_dir:
+            _run_full_pipeline(out_dir)
+            for f in CRITICAL_FILES:
+                gen_content = open(os.path.join(out_dir, f)).read().strip()
+                ref_content = open(os.path.join(ES06_REF, f)).read().strip()
+                self.assertEqual(gen_content, ref_content, f"Mismatch in {f}")
+
+    def test_full_pipeline_directory_structure(self):
+        """FLUX-04: All 4 required top-level directories are created."""
+        with tempfile.TemporaryDirectory() as out_dir:
+            _run_full_pipeline(out_dir)
+            for d in ["flux-system", "infrastructure", "apps", "agents"]:
+                self.assertTrue(
+                    os.path.isdir(os.path.join(out_dir, d)),
+                    f"Missing directory: {d}",
+                )
+
+    def test_full_pipeline_no_dangling_kustomize_refs(self):
+        """FLUX-04: No kustomization.yaml has resource references that do not resolve on disk."""
+        with tempfile.TemporaryDirectory() as out_dir:
+            _run_full_pipeline(out_dir)
+            dangling = []
+            for root, _dirs, files in os.walk(out_dir):
+                for filename in files:
+                    if filename != "kustomization.yaml":
+                        continue
+                    kust_path = os.path.join(root, filename)
+                    rel_kust = os.path.relpath(kust_path, out_dir)
+                    with open(kust_path) as fh:
+                        doc = yaml.safe_load(fh.read())
+                    if not doc:
+                        continue
+                    for resource in doc.get("resources", []):
+                        if isinstance(resource, str) and resource.startswith("#"):
+                            continue
+                        target = os.path.normpath(os.path.join(root, resource))
+                        if resource.endswith(".yaml") or resource.endswith(".yml"):
+                            if not os.path.exists(target):
+                                dangling.append(f"{rel_kust} -> {resource}")
+                        else:
+                            # Directory reference: must contain a kustomization.yaml
+                            if not (
+                                os.path.isdir(target)
+                                and os.path.exists(
+                                    os.path.join(target, "kustomization.yaml")
+                                )
+                            ):
+                                dangling.append(f"{rel_kust} -> {resource}")
+            self.assertEqual(
+                dangling,
+                [],
+                f"Dangling kustomize references:\n" + "\n".join(dangling),
+            )
 
 
 if __name__ == "__main__":
