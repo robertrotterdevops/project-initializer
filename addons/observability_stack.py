@@ -374,10 +374,10 @@ metadata:
   labels:
     app.kubernetes.io/name: otel-collector
   annotations:
-    # Allow Flux to create this placeholder on first deploy, but prevent
-    # pruning so post-terraform-deploy.sh can overwrite with real credentials.
+    # Flux creates this placeholder on first deploy.  prune: disabled keeps it
+    # alive after post-terraform-deploy.sh overwrites with real credentials.
+    # Do NOT add reconcile: disabled — it prevents first-time creation.
     kustomize.toolkit.fluxcd.io/prune: disabled
-    kustomize.toolkit.fluxcd.io/reconcile: disabled
 type: Opaque
 stringData:
   username: ""
@@ -515,6 +515,38 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+      - name: wait-for-es-credentials
+        image: busybox:1.36
+        command: ["sh", "-c"]
+        args:
+        - |
+          echo "Waiting for ES credentials to be populated..."
+          while [ -z "$ES_PASSWORD" ]; do
+            echo "ES_PASSWORD is empty — waiting for credential mirroring (sleep 10s)"
+            sleep 10
+          done
+          echo "ES credentials found, starting collector."
+        env:
+        - name: ES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: otel-es-credentials
+              key: password
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 10m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 65534
+          capabilities:
+            drop:
+            - ALL
       containers:
       - name: otel-collector
         image: otel/opentelemetry-collector-contrib:{self.otel_version}
@@ -845,7 +877,7 @@ ECK 3.x handles Fleet enrollment automatically via `kibanaRef` for all agent mod
 Raw log lines are collected without structured parsing. Containerd log format uses timestamp prefixes, not JSON. Structured parsing can be added via filelog operators.
 
 ### 4. Secret Management
-The `otel-es-credentials` secret uses `kustomize.toolkit.fluxcd.io/reconcile: disabled` to prevent Flux from overwriting credentials. Consider using External Secrets Operator for production.
+The `otel-es-credentials` secret uses `kustomize.toolkit.fluxcd.io/prune: disabled` to prevent Flux from deleting it, and an init container gates collector startup until credentials are populated. Consider using External Secrets Operator for production.
 
 ### 5. Fleet Default Output
 The Fleet default output must be configured via Kibana API after deployment. The post-deploy script handles this automatically, setting the correct ES endpoint and CA fingerprint.
@@ -895,6 +927,13 @@ The Fleet default output must be configured via Kibana API after deployment. The
             files.update(self._generate_otel_collector())
             files.update(self._generate_data_flow_doc())
             files.update(self._generate_otel_dashboard())
+            # Top-level observability kustomization.yaml (consumed by es-XX-observability Flux CR)
+            files["observability/kustomization.yaml"] = (
+                "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+                "kind: Kustomization\n"
+                "resources:\n"
+                "- otel-collector\n"
+            )
         return files
 
 

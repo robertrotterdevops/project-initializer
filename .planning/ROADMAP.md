@@ -70,7 +70,7 @@ Plans:
   1. The Web UI shows per-kustomization reconciliation status that updates as the deployment progresses
   2. Every operation (scaffold, deploy, verify, rollback) is logged with a timestamp visible in the UI
   3. Live Flux reconciliation status is polled from the cluster and displayed without requiring a page refresh
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 04-01-PLAN.md — Verify and harden backend (SSE streaming, flux-status, audit log) with edge-case tests
 - [ ] 04-02-PLAN.md — Verify frontend implementation against CONTEXT.md decisions + human visual verification
@@ -85,4 +85,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Correct Output | 2/2 | Complete   | 2026-03-18 |
 | 2. Deployment Lifecycle | 2/2 | Complete   | 2026-03-18 |
 | 3. Test Coverage | 2/2 | Complete   | 2026-03-18 |
-| 4. Web UI Polish | 0/2 | Planning complete | - |
+| 4. Web UI Polish | 1/2 | In Progress|  |

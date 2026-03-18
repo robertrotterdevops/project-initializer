@@ -664,8 +664,30 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn('"visualizationType":"lnsXY"', content)
             self.assertIn('"visualizationType":"lnsMetric"', content)
 
-    def test_otel_secret_has_reconcile_disabled(self) -> None:
-        """Verify otel-es-credentials secret has reconcile: disabled annotation."""
+    def test_otel_collector_has_credential_init_container(self) -> None:
+        """Verify collector waits for ES credentials before starting."""
+        with tempfile.TemporaryDirectory(prefix="pi-otel-init-") as td:
+            out_dir = Path(td) / "init-check"
+            initialize_project(
+                project_name="init-check",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            daemonset = (out_dir / "observability/otel-collector/daemonset.yaml").read_text()
+            self.assertIn("wait-for-es-credentials", daemonset)
+            self.assertIn("initContainers:", daemonset)
+            self.assertIn('while [ -z "$ES_PASSWORD" ]', daemonset)
+
+    def test_otel_secret_has_prune_disabled_but_not_reconcile_disabled(self) -> None:
+        """Verify otel-es-credentials has prune: disabled but NOT reconcile: disabled.
+
+        reconcile: disabled prevents Flux from creating the secret on first deploy,
+        causing CreateContainerConfigError. Only prune: disabled is safe — it lets
+        Flux create the placeholder initially while preventing deletion.
+        """
         with tempfile.TemporaryDirectory(prefix="pi-otel-secret-reconcile-") as td:
             out_dir = Path(td) / "secret-reconcile-check"
             initialize_project(
@@ -678,7 +700,7 @@ class TestIacHardening(unittest.TestCase):
             )
             secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
             self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)
-            self.assertIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
+            self.assertNotIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
 
 
 if __name__ == "__main__":

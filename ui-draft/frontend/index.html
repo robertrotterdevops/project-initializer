@@ -1247,6 +1247,30 @@
         background: currentColor;
       }
 
+      /* Flux kustomization status badge variants */
+      .status-badge.ready { background: rgba(34,197,94,0.15); color: var(--accent-success); }
+      .status-badge.reconciling { background: rgba(245,158,11,0.15); color: var(--accent-warning); }
+      .status-badge.failed { background: rgba(239,68,68,0.15); color: var(--accent-error); }
+      .status-badge.unknown { background: rgba(148,163,184,0.15); color: var(--text-muted); }
+
+      /* Status tab table */
+      .ks-table { width:100%; border-collapse:collapse; font-size:0.85rem; margin-top:12px; }
+      .ks-table th { text-align:left; padding:8px 12px; color:var(--text-muted); border-bottom:1px solid var(--border-color); font-weight:500; }
+      .ks-table td { padding:10px 12px; border-bottom:1px solid var(--border-color); vertical-align:top; }
+      .ks-table tr:last-child td { border-bottom:none; }
+      .ks-message-expand { display:block; font-size:0.78rem; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-top:4px; white-space:pre-wrap; word-break:break-word; }
+
+      /* SSE create log lines */
+      #createLog .log-line { padding:2px 0; color:var(--text-secondary); }
+      #createLog .log-line.step-done { color:var(--accent-success); }
+      #createLog .log-line.step-error { color:var(--accent-error); }
+
+      /* Summary card */
+      .summary-card { background:var(--bg-tertiary); border:1px solid var(--border-color); border-left:3px solid var(--accent-primary); border-radius:var(--radius-md); padding:16px; margin-bottom:12px; }
+      .summary-card .summary-title { font-weight:600; font-size:0.95rem; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+      .summary-card .summary-row { display:flex; gap:8px; font-size:0.82rem; color:var(--text-secondary); margin-bottom:4px; }
+      .summary-card .summary-row .label { color:var(--text-muted); min-width:120px; }
+
       /* Mobile Menu Toggle */
       .mobile-menu-btn {
         display: none;
@@ -1586,6 +1610,10 @@
             <a class="nav-item" data-page="sync">
               <i data-lucide="refresh-cw"></i>
               <span>Git Sync</span>
+            </a>
+            <a class="nav-item" data-page="status">
+              <i data-lucide="activity"></i>
+              <span>Status</span>
             </a>
           </div>
 
@@ -2363,6 +2391,54 @@
               <div class="form-hint">Openshift-Azure Edition</div>
             </div>
           </section>
+
+          <section class="page-section" id="pageStatus">
+            <div class="section-header">
+              <h1 class="section-title">Flux Status</h1>
+              <p class="section-subtitle">Live reconciliation status from the cluster</p>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="layers"></i> Deployment</h2></div>
+              <div class="form-field">
+                <label class="form-label">Select Deployment</label>
+                <select class="form-select" id="statusDeploymentSelect">
+                  <option value="">— select a deployment —</option>
+                </select>
+              </div>
+              <div class="form-field" id="statusKubeconfigField" style="display:none">
+                <label class="form-label">Kubeconfig Path</label>
+                <input type="text" class="form-input" id="statusKubeconfig" placeholder="~/.kube/config (default)">
+                <div class="form-hint">Leave blank to use the default kubeconfig.</div>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-secondary" id="statusRefreshBtn"><i data-lucide="refresh-cw"></i> Refresh Now</button>
+                <span class="form-hint" id="statusLastPolled"></span>
+              </div>
+            </div>
+
+            <div class="card" id="statusKsCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> Kustomizations</h2></div>
+              <table class="ks-table">
+                <thead><tr><th>Name</th><th>Namespace</th><th>Ready</th><th>Message</th><th>Last Updated</th></tr></thead>
+                <tbody id="kustomizationRows"></tbody>
+              </table>
+            </div>
+
+            <div class="card" id="esPodHealthCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="database"></i> Elasticsearch Pods</h2></div>
+              <div style="font-size:0.9rem;color:var(--text-secondary);">
+                Running: <strong id="esPodsRunning">?</strong> / <strong id="esPodsTotal">?</strong>
+              </div>
+            </div>
+
+            <details id="auditLogPanel" style="margin-top:16px;">
+              <summary style="cursor:pointer;color:var(--text-secondary);font-size:0.85rem;padding:8px 0;">
+                <i data-lucide="clock"></i> Activity Log
+              </summary>
+              <div class="log-stream" id="auditLogLines" style="max-height:200px;margin-top:8px;">No activity recorded yet.</div>
+            </details>
+          </section>
         </div>
       </main>
     </div>
@@ -2526,13 +2602,17 @@
         document.getElementById(`page${pageId.charAt(0).toUpperCase() + pageId.slice(1)}`).classList.add('active');
         document.querySelector(`.nav-item[data-page="${pageId}"]`)?.classList.add('active');
         
-        document.getElementById('breadcrumbCurrent').textContent = 
+        document.getElementById('breadcrumbCurrent').textContent =
           pageId === 'create' ? 'Create Project' :
           pageId === 'analyze' ? 'Analyze' :
-          pageId === 'sync' ? 'Git Workspace' : 'Settings';
-        
+          pageId === 'sync' ? 'Git Workspace' :
+          pageId === 'status' ? 'Status' : 'Settings';
+
         state.currentPage = pageId;
-        
+
+        if (pageId !== 'status') stopStatusPolling();
+        if (pageId === 'status') { populateStatusDropdown(); loadAuditLog(); }
+
         // Close mobile sidebar
         document.getElementById('sidebar').classList.remove('open');
         document.getElementById('sidebarOverlay').classList.remove('visible');
@@ -3716,6 +3796,149 @@
       });
 
       // Create Button
+      // --- Status Tab ---
+      let statusPollInterval = null;
+
+      function startStatusPolling(deploymentId) {
+        stopStatusPolling();
+        pollFluxStatus(deploymentId);
+        statusPollInterval = setInterval(() => pollFluxStatus(deploymentId), 30_000);
+      }
+
+      function stopStatusPolling() {
+        if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+      }
+
+      async function pollFluxStatus(deploymentId) {
+        if (!deploymentId) return;
+        const kubeconfig = document.getElementById('statusKubeconfig')?.value?.trim() || '';
+        try {
+          const url = apiUrl('/api/flux-status')
+            + '?deployment_id=' + encodeURIComponent(deploymentId)
+            + '&kubeconfig=' + encodeURIComponent(kubeconfig);
+          const res = await fetch(url);
+          if (!res.ok) {
+            const e = await res.json().catch(() => ({}));
+            document.getElementById('statusLastPolled').textContent = `Error: ${e.detail || res.status}`;
+            return;
+          }
+          const data = await res.json();
+          renderKustomizationTable(data.kustomizations || []);
+          renderEsPodHealth(data.es_pods);
+          document.getElementById('statusLastPolled').textContent = `Last polled: ${new Date().toLocaleTimeString()}`;
+          document.getElementById('statusKsCard').style.display = '';
+        } catch (err) {
+          document.getElementById('statusLastPolled').textContent = `Poll failed: ${err}`;
+        }
+      }
+
+      function renderKustomizationTable(kustomizations) {
+        const tbody = document.getElementById('kustomizationRows');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        for (const ks of kustomizations) {
+          const readyLower = (ks.ready || '').toLowerCase();
+          const badgeClass = readyLower === 'true' ? 'ready'
+            : readyLower === 'false' && (ks.reason || '').toLowerCase().includes('progressing') ? 'reconciling'
+            : readyLower === 'false' ? 'failed' : 'unknown';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem">${ks.name}</td>
+            <td>${ks.namespace}</td>
+            <td><span class="status-badge ${badgeClass}"><span class="dot"></span>${ks.ready || 'Unknown'}</span></td>
+            <td>
+              ${ks.reason ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${ks.reason}</span>` : ''}
+              ${ks.message && badgeClass !== 'ready' ? `<span class="ks-message-expand">${ks.message}</span>` : ''}
+            </td>
+            <td style="font-size:0.78rem;color:var(--text-muted)">${ks.polled_at ? new Date(ks.polled_at).toLocaleTimeString() : ''}</td>`;
+          tbody.appendChild(tr);
+        }
+        lucide.createIcons();
+      }
+
+      function renderEsPodHealth(esPods) {
+        if (!esPods) return;
+        const card = document.getElementById('esPodHealthCard');
+        const running = esPods.running || '0';
+        const total = esPods.total || '0';
+        if (running && total && total !== '0') {
+          document.getElementById('esPodsRunning').textContent = running;
+          document.getElementById('esPodsTotal').textContent = total;
+          card.style.display = '';
+        } else {
+          card.style.display = 'none';
+        }
+      }
+
+      function populateStatusDropdown() {
+        const sel = document.getElementById('statusDeploymentSelect');
+        if (!sel) return;
+        const currentVal = sel.value;
+        sel.innerHTML = '<option value="">— select a deployment —</option>';
+        (state.deploymentHistory || []).forEach(entry => {
+          const opt = document.createElement('option');
+          opt.value = entry.id;
+          opt.textContent = `${entry.name} (${entry.created_at?.slice(0,10) || ''})`;
+          opt.dataset.targetType = entry.target_type || 'local';
+          sel.appendChild(opt);
+        });
+        if (currentVal) sel.value = currentVal;
+      }
+
+      async function loadAuditLog() {
+        try {
+          const res = await fetch(apiUrl('/api/audit'));
+          if (!res.ok) return;
+          const data = await res.json();
+          const el = document.getElementById('auditLogLines');
+          if (!el) return;
+          const entries = (data.entries || []).slice(0, 20);
+          if (entries.length === 0) { el.textContent = 'No activity recorded yet.'; return; }
+          el.innerHTML = entries.map(e =>
+            `<div>[${(e.created_at || '').replace('T', ' ').slice(0,19)}] ${e.operation}: ${e.detail}</div>`
+          ).join('');
+        } catch (_) { /* ignore */ }
+      }
+
+      function renderSummaryCard(event, logEl) {
+        const card = document.createElement('div');
+        card.className = 'summary-card';
+        const addons = Array.isArray(event.addons_triggered) ? event.addons_triggered : [];
+        card.innerHTML = `
+          <div class="summary-title"><i data-lucide="check-circle"></i> ${event.name || 'Project'} created</div>
+          <div class="summary-row"><span class="label">Path</span><span>${event.project_path || ''}</span></div>
+          <div class="summary-row"><span class="label">Platform</span><span>${event.platform || 'auto'}</span></div>
+          <div class="summary-row"><span class="label">Addons triggered</span><span>${addons.length}</span></div>
+          <div class="summary-row"><span class="label">Files created</span><span>${event.files_created || 0}</span></div>
+          <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:0.8rem;color:var(--text-muted)">Show details</summary>
+            <pre style="font-size:0.78rem;margin-top:6px;overflow:auto">${JSON.stringify(event, null, 2)}</pre>
+          </details>`;
+        logEl.parentNode.insertBefore(card, logEl);
+        lucide.createIcons();
+      }
+
+      // Deployment dropdown change handler (status tab)
+      document.addEventListener('DOMContentLoaded', () => {
+        const sel = document.getElementById('statusDeploymentSelect');
+        const kubeconfigField = document.getElementById('statusKubeconfigField');
+        if (sel) {
+          sel.addEventListener('change', () => {
+            const selected = sel.options[sel.selectedIndex];
+            const targetType = selected?.dataset?.targetType || 'local';
+            kubeconfigField.style.display = targetType === 'local' ? '' : 'none';
+            stopStatusPolling();
+            if (sel.value) startStatusPolling(sel.value);
+          });
+        }
+        const refreshBtn = document.getElementById('statusRefreshBtn');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', () => {
+            const sel2 = document.getElementById('statusDeploymentSelect');
+            if (sel2?.value) pollFluxStatus(sel2.value);
+          });
+        }
+      });
+
       document.getElementById('createBtn').addEventListener('click', async () => {
         const f = baseFields();
         if (!f.name) {
@@ -3759,51 +3982,73 @@
             fd.append('sizing_file', state.sizingFile);
           }
 
-          const res = await fetch(apiUrl('/api/create'), { method: 'POST', body: fd });
-          let data;
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            data = await res.json();
-          } else {
-            const text = await res.text();
-            data = { detail: text || `Server error (${res.status})` };
+          // SSE streaming via fetch ReadableStream (POST — EventSource is GET-only)
+          const res = await fetch(apiUrl('/api/create/stream'), { method: 'POST', body: fd });
+          if (!res.ok || !res.body) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Create failed', 'error');
+            return;
           }
-          document.getElementById('output').textContent = JSON.stringify(data, null, 2);
 
-          if (res.ok) {
-            state.lastCreatedTargetType = data.target_type || f.target_type || 'local';
-            state.lastCreatedRemote = data.remote || null;
-            state.lastCreatedPath = data.project_path || data.normalized_target_dir || '';
-            if (state.lastCreatedPath) {
-              localStorage.setItem('pi-last-created-path', state.lastCreatedPath);
-              if (gitDiscoverBaseEl && !gitDiscoverBaseEl.dataset.manual) {
-                gitDiscoverBaseEl.value = state.lastCreatedPath;
+          // Prepare log area
+          let createLog = document.getElementById('createLog');
+          if (!createLog) {
+            createLog = document.createElement('div');
+            createLog.id = 'createLog';
+            createLog.className = 'log-stream';
+            document.getElementById('output')?.parentNode?.insertBefore(createLog, document.getElementById('output'));
+          }
+          createLog.innerHTML = '';
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split('\n\n');
+            buffer = chunks.pop();
+            for (const chunk of chunks) {
+              const dataLine = chunk.split('\n').find(l => l.startsWith('data: '));
+              if (!dataLine) continue;
+              let event;
+              try { event = JSON.parse(dataLine.slice(6)); } catch { continue; }
+              const line = document.createElement('div');
+              line.className = `log-line step-${event.step}`;
+              line.textContent = `[${new Date().toLocaleTimeString()}] ${event.message}`;
+              createLog.appendChild(line);
+              createLog.scrollTop = createLog.scrollHeight;
+
+              if (event.step === 'done') {
+                state.lastCreatedTargetType = event.target_type || f.target_type || 'local';
+                state.lastCreatedPath = event.project_path || '';
+                if (state.lastCreatedPath) {
+                  localStorage.setItem('pi-last-created-path', state.lastCreatedPath);
+                  if (gitDiscoverBaseEl && !gitDiscoverBaseEl.dataset.manual) {
+                    gitDiscoverBaseEl.value = state.lastCreatedPath;
+                  }
+                }
+                renderSummaryCard(event, createLog);
+                const statusBadge = document.getElementById('resultStatus');
+                if (statusBadge) {
+                  statusBadge.style.display = 'inline-flex';
+                  statusBadge.className = 'status-badge success';
+                  document.getElementById('resultStatusText').textContent = 'Created';
+                }
+                showToast('Project created successfully!');
+                loadDeploymentHistory();
+              } else if (event.step === 'error') {
+                const statusBadge = document.getElementById('resultStatus');
+                if (statusBadge) {
+                  statusBadge.style.display = 'inline-flex';
+                  statusBadge.className = 'status-badge error';
+                  document.getElementById('resultStatusText').textContent = 'Error';
+                }
+                showToast(event.message || 'Create failed', 'error');
               }
             }
-            await loadDeploymentHistory();
-            
-            const statusBadge = document.getElementById('resultStatus');
-            statusBadge.style.display = 'inline-flex';
-            statusBadge.className = 'status-badge success';
-            document.getElementById('resultStatusText').textContent = 'Created';
-            
-            showToast('Project created successfully!');
-            if (data?.git?.remote_repo?.created && data?.git?.remote_repo?.url) {
-              showToast(`Remote repo created: ${data.git.remote_repo.url}`);
-            }
-            
-            if (f.target_type === 'local' && document.getElementById('autoOpenZed').checked) {
-              await openProject('zed');
-            }
-            if (f.target_type === 'remote') {
-              showToast('Remote project created. Use SSH/Remote-SSH in Zed or VS Code to open remote path.');
-            }
-          } else {
-            const statusBadge = document.getElementById('resultStatus');
-            statusBadge.style.display = 'inline-flex';
-            statusBadge.className = 'status-badge error';
-            document.getElementById('resultStatusText').textContent = 'Error';
-            showToast(data.detail || 'Create failed', 'error');
           }
         } catch (err) {
           showToast(`Create failed: ${err}`, 'error');

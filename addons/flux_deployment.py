@@ -191,6 +191,23 @@ spec:
 """
 
         if self.eck_enabled:
+            manifests["kustomization-observability.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {self.project_name}-observability
+  namespace: flux-system
+spec:
+  interval: {reconciliation_interval}
+  sourceRef:
+    kind: GitRepository
+    name: {self.project_name}
+  path: ./observability
+  prune: true
+  wait: true
+  timeout: 15m
+  dependsOn:
+  - name: {self.project_name}-apps
+"""
             manifests["kustomization-agents.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -206,7 +223,7 @@ spec:
   wait: true
   timeout: 20m
   dependsOn:
-  - name: {self.project_name}-apps
+  - name: {self.project_name}-observability
 """
 
         # Auth secret for private repositories when token is provided.
@@ -231,6 +248,7 @@ stringData:
             "- kustomization-infra.yaml",
         ]
         if self.eck_enabled:
+            flux_resources.append("- kustomization-observability.yaml")
             flux_resources.append("- kustomization-agents.yaml")
         if self.git_token:
             flux_resources.insert(1, "- git-auth-secret.yaml")
@@ -678,8 +696,6 @@ metadata:
             infra_resources.append("network-policy-allow-otel-collector.yaml")
     if enable_metrics_server:
         infra_resources.append("../platform/metrics-server")
-    if enable_otel_collector:
-        infra_resources.append("../observability/otel-collector")
     infra_resources_yaml = "\n".join([f"  - {r}" for r in infra_resources])
 
     # Build commented-out references for disabled optional components
@@ -691,7 +707,7 @@ metadata:
         )
     if not enable_otel_collector:
         optional_comments.append(
-            "  # Uncomment to enable OTel Collector:\n"
+            "  # Uncomment to enable OTel Collector (deploy via es-08-observability Kustomization):\n"
             "  #  - ../observability/otel-collector"
         )
     optional_block = "\n".join(optional_comments)

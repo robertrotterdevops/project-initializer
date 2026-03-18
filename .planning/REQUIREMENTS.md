@@ -33,9 +33,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Web UI
 
-- [ ] **WEBUI-01**: Web UI displays deployment progress with per-kustomization reconciliation status
-- [ ] **WEBUI-02**: All operations are logged with timestamps for audit trail and troubleshooting
-- [ ] **WEBUI-03**: Web UI shows live Flux reconciliation status from the cluster (polling kustomization readiness)
+- [x] **WEBUI-01**: Web UI displays deployment progress with per-kustomization reconciliation status
+- [x] **WEBUI-02**: All operations are logged with timestamps for audit trail and troubleshooting
+- [x] **WEBUI-03**: Web UI shows live Flux reconciliation status from the cluster (polling kustomization readiness)
 
 ## v2 Requirements
 
@@ -89,9 +89,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ERRH-02 | Phase 2 | Complete |
 | ERRH-03 | Phase 2 | Complete |
 | ERRH-04 | Phase 2 | Complete |
-| WEBUI-01 | Phase 4 | Pending |
-| WEBUI-02 | Phase 4 | Pending |
-| WEBUI-03 | Phase 4 | Pending |
+| WEBUI-01 | Phase 4 | Complete |
+| WEBUI-02 | Phase 4 | Complete |
+| WEBUI-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 18 total

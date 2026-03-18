@@ -20,9 +20,11 @@ from threading import RLock
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+import asyncio
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -346,6 +348,37 @@ class DeploymentHistoryStore(JsonRecordStore):
 PREFERENCES = PreferencesStore(PREFERENCES_PATH)
 DEPLOYMENT_HISTORY = DeploymentHistoryStore(DEPLOYMENT_HISTORY_PATH)
 
+# --- Audit Log ---
+AUDIT_LOG_PATH = DATA_DIR / "audit_log.json"
+
+
+class AuditLogStore(JsonRecordStore):
+    def __init__(self, path: Path):
+        super().__init__(path, "entries")
+
+    def list(self) -> List[Dict[str, Any]]:
+        with self.lock:
+            entries = self._read_root().get("entries") or []
+            return list(entries) if isinstance(entries, list) else []
+
+    def add(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            root = self._read_root()
+            entries = root.get("entries") or []
+            if not isinstance(entries, list):
+                entries = []
+            record = {"id": str(uuid4()), "created_at": _utcnow(), **payload}
+            entries.insert(0, record)
+            root["entries"] = entries[:200]
+            self._write_root(root)
+            return record
+
+    def append(self, operation: str, detail: str) -> Dict[str, Any]:
+        return self.add({"operation": operation, "detail": detail})
+
+
+AUDIT_LOG = AuditLogStore(AUDIT_LOG_PATH)
+
 
 def _detect_runtime_environment() -> Dict[str, Any]:
     platform = sys.platform
@@ -633,7 +666,7 @@ def _git_repo_summary(path: Path) -> Dict[str, Any]:
     }
 
 
-def _run_shell_command(command: List[str], cwd: Path) -> Dict[str, Any]:
+def _run_shell_command(command: List[str], cwd: Path, env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     try:
         proc = subprocess.run(
             command,
@@ -641,6 +674,7 @@ def _run_shell_command(command: List[str], cwd: Path) -> Dict[str, Any]:
             capture_output=True,
             text=True,
             check=True,
+            env=env,
         )
         return {
             "ok": True,
@@ -666,6 +700,20 @@ def _run_ssh_command(host: str, port: str, user: str, remote_cmd: str, ssh_key_p
     ssh.append(f"{user}@{host}")
     ssh.append(remote_cmd)
     return _run_shell_command(ssh, Path.cwd())
+
+
+def _derive_kustomization_names(project_name: str) -> List[str]:
+    pn = project_name.strip()
+    return [pn, f"{pn}-infra", f"{pn}-apps", f"{pn}-agents"]
+
+
+def _parse_ks_kubectl_output(stdout: str) -> tuple:
+    """Parse 'Ready|Reason|Message' from kubectl jsonpath output."""
+    parts = (stdout or "").split("|", 2)
+    ready = parts[0].strip() if len(parts) > 0 else ""
+    reason = parts[1].strip() if len(parts) > 1 else ""
+    message = parts[2].strip() if len(parts) > 2 else ""
+    return ready, reason, message
 
 
 def _run_rsync_to_remote(local_src: Path, host: str, port: str, user: str, remote_target: str, ssh_key_path: str = "") -> Dict[str, Any]:
@@ -1333,6 +1381,350 @@ async def create_project(
     return result
 
 
+async def _create_stream_generator(
+    name: str,
+    description: str,
+    target_dir: str,
+    forced_type: str,
+    forced_chain: str,
+    platform: str,
+    gitops_tool: str,
+    git_init: bool,
+    git_commit_message: str,
+    git_remote_url: str,
+    git_branch: str,
+    git_push: bool,
+    git_token: str,
+    git_provider: str,
+    git_namespace: str,
+    create_remote_repo: bool,
+    git_private_repo: bool,
+    git_schema_id: str,
+    use_terraform_iac: bool,
+    fallback_storage_class: str,
+    run_terraform_apply: bool,
+    enable_metrics_server: bool,
+    enable_otel_collector: bool,
+    target_type: str,
+    remote_host: str,
+    remote_port: str,
+    remote_user: str,
+    remote_auth_mode: str,
+    remote_ssh_key_path: str,
+    remote_base_dir: str,
+    sizing_bytes: Optional[bytes],
+    sizing_filename: Optional[str],
+):
+    def _sse(step: str, message: str, **extra) -> str:
+        return f"data: {json.dumps({'step': step, 'message': message, **extra})}\n\n"
+
+    try:
+        yield _sse("analyzing", "Analyzing project...")
+
+        safe_name = name.strip().strip("/").strip("\\")
+        effective_target_type = (target_type or "local").strip().lower()
+        normalized_target_parent = _normalize_target_dir(target_dir)
+        normalized_target_dir = str((Path(normalized_target_parent) / safe_name).resolve())
+
+        remote_cfg: Optional[Dict[str, str]] = None
+        registry_target_path: Optional[str] = None
+        if effective_target_type == "local":
+            Path(normalized_target_parent).mkdir(parents=True, exist_ok=True)
+        if effective_target_type == "remote":
+            host = remote_host.strip()
+            user = remote_user.strip()
+            port = (remote_port or "22").strip() or "22"
+            auth_mode = (remote_auth_mode or "ssh_key").strip()
+            if auth_mode != "ssh_key":
+                yield _sse("error", "Only SSH key auth is currently supported for remote target")
+                return
+            if not host or not user:
+                yield _sse("error", "remote_host and remote_user are required for remote target")
+                return
+            remote_base = _normalize_remote_base_dir(remote_base_dir)
+            remote_project_dir = str(PurePosixPath(remote_base) / safe_name)
+            remote_cfg = {
+                "host": host,
+                "user": user,
+                "port": port,
+                "auth_mode": auth_mode,
+                "ssh_key_path": remote_ssh_key_path.strip(),
+                "base_dir": remote_base,
+                "project_dir": remote_project_dir,
+            }
+            registry_target_path = remote_project_dir
+
+        effective_desc = _apply_forced_type(description, forced_type)
+        sizing_context: Optional[Dict[str, Any]] = None
+        detected_platform: Optional[str] = None
+
+        if sizing_bytes is not None and sizing_filename:
+            lower_name = sizing_filename.lower()
+            suffix = ".json" if lower_name.endswith(".json") else ".md"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(sizing_bytes)
+                tmp_path = Path(tmp.name)
+            try:
+                sizing_context = parse_sizing_file(str(tmp_path))
+                detected_platform = (sizing_context.get("platform_detected") if sizing_context else None)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+        description_platform = _infer_platform_from_text(description)
+        platform_source: Optional[str] = None
+        if platform == "proxmox":
+            final_platform = "proxmox"
+            platform_source = "user_selection"
+        elif detected_platform:
+            final_platform = detected_platform
+            platform_source = "sizing_file"
+        elif platform:
+            final_platform = platform
+            platform_source = "user_selection"
+        elif description_platform:
+            final_platform = description_platform
+            platform_source = "description"
+        else:
+            final_platform = None
+            platform_source = None
+
+        final_gitops = gitops_tool if gitops_tool else "flux"
+
+        temp_build_root: Optional[Path] = None
+        if effective_target_type == "remote":
+            temp_build_root = Path(tempfile.mkdtemp(prefix="pi-remote-build-"))
+            local_build_dir = temp_build_root / safe_name
+        else:
+            local_build_dir = Path(normalized_target_dir)
+
+        effective_remote_url = git_remote_url.strip()
+        created_remote: Optional[Dict[str, Any]] = None
+        if create_remote_repo:
+            if not git_token.strip():
+                yield _sse("error", "git_token is required when create_remote_repo is enabled")
+                return
+            effective_remote_url = _create_remote_repo(
+                provider=git_provider,
+                namespace=git_namespace,
+                project_name=safe_name,
+                token=git_token.strip(),
+                private_repo=git_private_repo,
+            )
+            created_remote = {
+                "created": True,
+                "provider": git_provider.strip().lower(),
+                "namespace": git_namespace.strip(),
+                "url": effective_remote_url,
+                "private": git_private_repo,
+            }
+
+        yield _sse("generating", "Generating project structure...")
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, lambda: initialize_project(
+            project_name=name,
+            description=effective_desc,
+            target_directory=str(local_build_dir),
+            forced_chain=forced_chain or None,
+            platform=final_platform or None,
+            gitops_tool=final_gitops,
+            iac_tool="terraform" if use_terraform_iac else "",
+            repo_url=effective_remote_url or None,
+            git_token=git_token.strip() or None,
+            fallback_storage_class=fallback_storage_class.strip() or None,
+            target_revision=(git_branch.strip() or "main"),
+            sizing_context=sizing_context,
+            enable_metrics_server=enable_metrics_server,
+            enable_otel_collector=enable_otel_collector,
+        ))
+
+        addons_triggered = result.get("addons_triggered", [])
+        yield _sse("addons", f"Addons matched: {len(addons_triggered)}", count=len(addons_triggered))
+
+        yield _sse("git", "Running git operations...")
+
+        git_log: List[Dict[str, Any]] = []
+        project_path = Path(result["project_path"]).resolve()
+
+        git_env, askpass_path = _prepare_git_pat_env(effective_remote_url, git_token)
+        try:
+            if git_init:
+                git_log.append(_run_git_command(["git", "init"], project_path, env=git_env))
+                git_log.append(_run_git_command(["git", "add", "."], project_path, env=git_env))
+                git_log.append(_run_git_command(["git", "commit", "-m", git_commit_message], project_path, env=git_env))
+                if effective_remote_url:
+                    git_log.append(_run_git_command(["git", "remote", "remove", "origin"], project_path, env=git_env))
+                    git_log.append(_run_git_command(["git", "remote", "add", "origin", effective_remote_url], project_path, env=git_env))
+                if git_push and effective_remote_url:
+                    git_log.append(_run_git_command(["git", "branch", "-M", git_branch], project_path, env=git_env))
+                    git_log.append(_run_git_command(["git", "push", "-u", "origin", git_branch], project_path, env=git_env))
+        finally:
+            if askpass_path is not None:
+                askpass_path.unlink(missing_ok=True)
+
+        remote_result: Dict[str, Any] = {"enabled": effective_target_type == "remote", "ok": True, "log": []}
+        remote_log: List[Dict[str, Any]] = []
+        if effective_target_type == "remote" and remote_cfg is not None:
+            mkdir_cmd = f"mkdir -p '{remote_cfg['project_dir'].replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'"
+            remote_log.append(_run_ssh_command(remote_cfg["host"], remote_cfg["port"], remote_cfg["user"], mkdir_cmd, remote_cfg["ssh_key_path"]))
+            if remote_log[-1]["ok"]:
+                remote_log.append(_run_rsync_to_remote(project_path, remote_cfg["host"], remote_cfg["port"], remote_cfg["user"], remote_cfg["project_dir"], remote_cfg["ssh_key_path"]))
+            remote_result = {
+                "enabled": True,
+                "ok": all(x.get("ok") for x in remote_log),
+                "log": remote_log,
+                "host": remote_cfg["host"],
+                "user": remote_cfg["user"],
+                "port": remote_cfg["port"],
+                "project_dir": remote_cfg["project_dir"],
+                "base_dir": remote_cfg["base_dir"],
+            }
+
+        result["git"] = {
+            "enabled": git_init,
+            "remote": effective_remote_url,
+            "branch": git_branch,
+            "push": git_push,
+            "log": git_log,
+        }
+        if created_remote is not None:
+            result["git"]["remote_repo"] = created_remote
+        result["effective_platform"] = final_platform
+        result["platform_source"] = platform_source
+        result["effective_gitops"] = final_gitops
+        result["iac_tool"] = "terraform" if use_terraform_iac else ""
+        result["target_type"] = effective_target_type
+        result["remote"] = remote_result
+
+        if effective_target_type == "remote" and remote_cfg is not None:
+            result["normalized_target_dir"] = remote_cfg["project_dir"]
+            result["target_parent_dir"] = remote_cfg["base_dir"]
+            result["project_path"] = remote_cfg["project_dir"]
+        else:
+            result["normalized_target_dir"] = normalized_target_dir
+            result["target_parent_dir"] = normalized_target_parent
+            registry_target_path = normalized_target_dir
+
+        schema_id_clean = git_schema_id.strip() or None
+        if git_init:
+            GIT_REGISTRY.upsert_from_project(
+                repo_path=registry_target_path,
+                remote_url=effective_remote_url,
+                branch=git_branch,
+                platform=final_platform,
+                schema_id=schema_id_clean,
+                project_name=name,
+            )
+        elif schema_id_clean:
+            GIT_REGISTRY.mark_used(schema_id_clean, platform=final_platform)
+
+        DEPLOYMENT_HISTORY.add({
+            "name": safe_name,
+            "description": description.strip(),
+            "project_path": result.get("project_path", ""),
+            "target_parent_dir": result.get("target_parent_dir", ""),
+            "target_type": effective_target_type,
+            "platform": final_platform or "",
+            "gitops_tool": final_gitops,
+            "iac_tool": "terraform" if use_terraform_iac else "",
+            "git_remote_url": effective_remote_url,
+            "git_branch": git_branch,
+            "remote": remote_result if effective_target_type == "remote" else None,
+        })
+
+        AUDIT_LOG.append("scaffold", f"Created {safe_name} at {result.get('project_path', '')}")
+
+        yield _sse(
+            "done",
+            "Project created successfully",
+            project_path=result.get("project_path", ""),
+            addons_triggered=addons_triggered,
+            files_created=result.get("files_created", []),
+            platform=final_platform or "auto",
+            name=safe_name,
+        )
+
+    except Exception as exc:
+        yield _sse("error", str(exc))
+
+
+@app.post("/api/create/stream")
+async def create_project_stream(
+    name: str = Form(...),
+    description: str = Form(""),
+    target_dir: str = Form(...),
+    forced_type: str = Form("auto"),
+    forced_chain: str = Form(""),
+    platform: str = Form(""),
+    gitops_tool: str = Form(""),
+    git_init: bool = Form(False),
+    git_commit_message: str = Form("Initial commit: project scaffold"),
+    git_remote_url: str = Form(""),
+    git_branch: str = Form("main"),
+    git_push: bool = Form(False),
+    git_token: str = Form(""),
+    git_provider: str = Form(""),
+    git_namespace: str = Form(""),
+    create_remote_repo: bool = Form(False),
+    git_private_repo: bool = Form(True),
+    git_schema_id: str = Form(""),
+    use_terraform_iac: bool = Form(False),
+    fallback_storage_class: str = Form(""),
+    run_terraform_apply: bool = Form(False),
+    enable_metrics_server: bool = Form(False),
+    enable_otel_collector: bool = Form(False),
+    target_type: str = Form("local"),
+    remote_host: str = Form(""),
+    remote_port: str = Form("22"),
+    remote_user: str = Form(""),
+    remote_auth_mode: str = Form("ssh_key"),
+    remote_ssh_key_path: str = Form(""),
+    remote_base_dir: str = Form(""),
+    sizing_file: Optional[UploadFile] = File(default=None),
+) -> StreamingResponse:
+    sizing_bytes = await sizing_file.read() if sizing_file else None
+    sizing_filename = sizing_file.filename if sizing_file else None
+
+    return StreamingResponse(
+        _create_stream_generator(
+            name=name,
+            description=description,
+            target_dir=target_dir,
+            forced_type=forced_type,
+            forced_chain=forced_chain,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            git_init=git_init,
+            git_commit_message=git_commit_message,
+            git_remote_url=git_remote_url,
+            git_branch=git_branch,
+            git_push=git_push,
+            git_token=git_token,
+            git_provider=git_provider,
+            git_namespace=git_namespace,
+            create_remote_repo=create_remote_repo,
+            git_private_repo=git_private_repo,
+            git_schema_id=git_schema_id,
+            use_terraform_iac=use_terraform_iac,
+            fallback_storage_class=fallback_storage_class,
+            run_terraform_apply=run_terraform_apply,
+            enable_metrics_server=enable_metrics_server,
+            enable_otel_collector=enable_otel_collector,
+            target_type=target_type,
+            remote_host=remote_host,
+            remote_port=remote_port,
+            remote_user=remote_user,
+            remote_auth_mode=remote_auth_mode,
+            remote_ssh_key_path=remote_ssh_key_path,
+            remote_base_dir=remote_base_dir,
+            sizing_bytes=sizing_bytes,
+            sizing_filename=sizing_filename,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/git/discover")
 def git_discover(base_path: str = "", limit: int = 25, max_depth: int = 4) -> Dict[str, Any]:
     base = _expand_input_path(base_path or str(USER_HOME / "Projects"))
@@ -1505,6 +1897,84 @@ def deployment_history_list() -> Dict[str, Any]:
 def deployment_history_delete(entry_id: str) -> Dict[str, Any]:
     DEPLOYMENT_HISTORY.delete(entry_id)
     return {"ok": True}
+
+
+@app.get("/api/flux-status")
+def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
+    entries = DEPLOYMENT_HISTORY.list()
+    entry = next((e for e in entries if e.get("id") == deployment_id), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="deployment not found")
+
+    target_type = (entry.get("target_type") or "local").strip()
+    project_name = entry.get("name", "")
+    ks_names = _derive_kustomization_names(project_name)
+    polled_at = _utcnow()
+    kustomizations = []
+
+    jsonpath = (
+        "{.status.conditions[?(@.type=='Ready')].status}"
+        "|{.status.conditions[?(@.type=='Ready')].reason}"
+        "|{.status.conditions[?(@.type=='Ready')].message}"
+    )
+
+    if target_type == "remote":
+        remote_cfg = entry.get("remote") or {}
+        host = remote_cfg.get("host", "")
+        port = str(remote_cfg.get("port", "22"))
+        user = remote_cfg.get("user", "")
+        ssh_key_path = remote_cfg.get("ssh_key_path", "")
+        for ks in ks_names:
+            cmd = (
+                f"kubectl get kustomization {ks} -n flux-system "
+                f"-o jsonpath='{jsonpath}' 2>/dev/null || echo 'Unknown||'"
+            )
+            r = _run_ssh_command(host, port, user, cmd, ssh_key_path)
+            ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
+            kustomizations.append({"name": ks, "namespace": "flux-system",
+                                   "ready": ready, "reason": reason,
+                                   "message": message, "polled_at": polled_at})
+        es_cmd = (
+            f"kubectl get statefulset -n {project_name} "
+            f"-o jsonpath='{{.items[*].status.readyReplicas}}/{{.items[*].status.replicas}}' "
+            f"2>/dev/null || echo '0/0'"
+        )
+        es_r = _run_ssh_command(host, port, user, es_cmd, ssh_key_path)
+    else:
+        kube_env = os.environ.copy()
+        if kubeconfig.strip():
+            kube_env["KUBECONFIG"] = str(Path(kubeconfig).expanduser())
+        for ks in ks_names:
+            r = _run_shell_command(
+                ["kubectl", "get", "kustomization", ks, "-n", "flux-system",
+                 "-o", f"jsonpath={jsonpath}"],
+                Path.cwd(), env=kube_env
+            )
+            ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
+            kustomizations.append({"name": ks, "namespace": "flux-system",
+                                   "ready": ready, "reason": reason,
+                                   "message": message, "polled_at": polled_at})
+        es_r = _run_shell_command(
+            ["kubectl", "get", "statefulset", "-n", project_name,
+             "-o", "jsonpath={.items[*].status.readyReplicas}/{.items[*].status.replicas}"],
+            Path.cwd(), env=kube_env
+        )
+
+    es_stdout = (es_r.get("stdout") or "0/0")
+    es_parts = es_stdout.split("/", 1)
+    es_pods = {
+        "running": es_parts[0].strip() if len(es_parts) > 0 else "0",
+        "total": es_parts[1].strip() if len(es_parts) > 1 else "0",
+    }
+
+    AUDIT_LOG.append("flux-poll", f"Polled {deployment_id}")
+    return {"deployment_id": deployment_id, "kustomizations": kustomizations,
+            "es_pods": es_pods, "polled_at": polled_at}
+
+
+@app.get("/api/audit")
+def audit_log_list() -> Dict[str, Any]:
+    return {"entries": AUDIT_LOG.list()}
 
 
 @app.post("/api/sync")
