@@ -12,7 +12,7 @@ The tool already scaffolds projects but generates Flux manifests that hang durin
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Correct Output** - Fix generated Flux manifests to match es-06 reference structure
+- [x] **Phase 1: Correct Output** - Fix generated Flux manifests to match es-06 reference structure (completed 2026-03-18)
 - [ ] **Phase 2: Deployment Lifecycle** - Add post-deploy automation, pre-flight checks, and rollback
 - [ ] **Phase 3: Test Coverage** - Unit, integration, and structural validation tests for all addons and flows
 - [ ] **Phase 4: Web UI Polish** - Surface deployment progress, live reconciliation status, and audit logging
@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Generated Kustomization CRs include `wait: true` and timeouts of 2m (root), 10m (infra), 20m (apps/agents)
   3. Generated infrastructure kustomization includes Local Path Provisioner, storage classes (premium, standard), and network policies
   4. The generated directory structure (flux-system/, infrastructure/, apps/, agents/) can be applied to a cluster and all kustomizations reach Ready state
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 01-01-PLAN.md — Fix complexity-dependent timeout/interval values in Flux CR generator
 - [ ] 01-02-PLAN.md — Full pipeline end-to-end verification against es-06 reference
@@ -73,7 +73,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Correct Output | 1/2 | In progress | - |
+| 1. Correct Output | 2/2 | Complete   | 2026-03-18 |
 | 2. Deployment Lifecycle | 0/? | Not started | - |
 | 3. Test Coverage | 0/? | Not started | - |
 | 4. Web UI Polish | 0/? | Not started | - |
