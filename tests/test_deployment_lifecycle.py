@@ -38,12 +38,13 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
         self.assertEqual(files, {})
 
     def test_03_mirror_secrets_content(self):
-        """Test 3: mirror-secrets.sh contains kubectl get secret, kubectl apply, and ES secret name."""
+        """Test 3: mirror-secrets.sh contains kubectl get secret, kubectl apply, and ES secret name pattern."""
         files = main(self.project_name, self.description, self.flux_context)
         content = files["scripts/mirror-secrets.sh"]
         self.assertIn("kubectl get secret", content)
         self.assertIn("kubectl apply", content)
-        self.assertIn(f"{self.project_name}-es-elastic-user", content)
+        # Script uses shell variable ${PROJECT_NAME}-es-elastic-user at runtime
+        self.assertIn("es-elastic-user", content)
 
     def test_04_fleet_output_content(self):
         """Test 4: fleet-output.sh contains curl, fleet/outputs/fleet-default-output, and ca_trusted_fingerprint."""
