@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-deployment-lifecycle-01-PLAN.md
-last_updated: "2026-03-18T11:01:12.889Z"
+stopped_at: Completed 02-deployment-lifecycle-02-PLAN.md
+last_updated: "2026-03-18T11:06:21.414Z"
 last_activity: 2026-03-18 — Plan 01-01 complete (Flux CR timeout/interval hardcoded per es-06 reference)
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 25
 ---
 
@@ -52,6 +52,7 @@ Progress: [██░░░░░░░░] 25%
 *Updated after each plan completion*
 | Phase 01-correct-output P02 | 14 | 1 tasks | 1 files |
 | Phase 02-deployment-lifecycle P01 | 3 | 2 tasks | 3 files |
+| Phase 02-deployment-lifecycle P02 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,9 @@ Recent decisions affecting current work:
 - [Phase 02-deployment-lifecycle]: [02-01] Lifecycle scripts are standalone shell files in scripts/ not embedded in terraform deploy flow
 - [Phase 02-deployment-lifecycle]: [02-01] pre-flight exits 1 on any failure with ERROR: description + Fix: copy-paste command (ERRH-02, ERRH-03)
 - [Phase 02-deployment-lifecycle]: [02-01] deployment_lifecycle addon is Flux-only; gitops_tool != flux returns empty dict at main() entry
+- [Phase 02-deployment-lifecycle]: [02-02] verify-deployment.sh uses dual-check: --for=condition=Ready + jsonpath status to satisfy both kubectl patterns
+- [Phase 02-deployment-lifecycle]: [02-02] rollback.sh uses flux suspend strategy (not git revert) — preserves git history, allows selective per-kustomization resume
+- [Phase 02-deployment-lifecycle]: [02-02] validate-config.sh uses python3 yaml.safe_load for YAML validation — zero extra deps in generated scripts
 
 ### Pending Todos
 
@@ -82,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-18T11:01:12.884Z
-Stopped at: Completed 02-deployment-lifecycle-01-PLAN.md
+Last session: 2026-03-18T11:06:21.409Z
+Stopped at: Completed 02-deployment-lifecycle-02-PLAN.md
 Resume file: None

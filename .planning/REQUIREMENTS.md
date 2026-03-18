@@ -14,8 +14,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **FLUX-03**: Generated infrastructure kustomization includes Local Path Provisioner, storage classes (premium, standard), and network policies
 - [x] **FLUX-04**: Generated output produces a complete kustomize directory structure (flux-system/, infrastructure/, apps/, agents/) that Flux can reconcile end-to-end
 - [x] **FLUX-05**: Post-deployment automation scripts are generated (secret mirroring, Fleet output config, OTEL dashboard import)
-- [ ] **FLUX-06**: Deployment verification checks that all kustomizations reach Ready state within their timeout windows
-- [ ] **FLUX-07**: Automated rollback triggers when any kustomization fails to reconcile (suspend, report, restore)
+- [x] **FLUX-06**: Deployment verification checks that all kustomizations reach Ready state within their timeout windows
+- [x] **FLUX-07**: Automated rollback triggers when any kustomization fails to reconcile (suspend, report, restore)
 
 ### Testing
 
@@ -26,10 +26,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Error Handling
 
-- [ ] **ERRH-01**: Config validation catches invalid kustomization structure, missing references, and malformed YAML before deployment
+- [x] **ERRH-01**: Config validation catches invalid kustomization structure, missing references, and malformed YAML before deployment
 - [x] **ERRH-02**: All failure paths produce clear, actionable error messages with suggested fixes
 - [x] **ERRH-03**: Pre-flight checks verify cluster connectivity, Flux installation, and required CRDs before attempting deployment
-- [ ] **ERRH-04**: Rollback automation reverts deployment when reconciliation fails (Flux suspend, kubectl delete, status report)
+- [x] **ERRH-04**: Rollback automation reverts deployment when reconciliation fails (Flux suspend, kubectl delete, status report)
 
 ### Web UI
 
@@ -79,16 +79,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FLUX-03 | Phase 1 | Complete (01-01) |
 | FLUX-04 | Phase 1 | Complete |
 | FLUX-05 | Phase 2 | Complete |
-| FLUX-06 | Phase 2 | Pending |
-| FLUX-07 | Phase 2 | Pending |
+| FLUX-06 | Phase 2 | Complete |
+| FLUX-07 | Phase 2 | Complete |
 | TEST-01 | Phase 3 | Pending |
 | TEST-02 | Phase 3 | Pending |
 | TEST-03 | Phase 3 | Pending |
 | TEST-04 | Phase 3 | Pending |
-| ERRH-01 | Phase 2 | Pending |
+| ERRH-01 | Phase 2 | Complete |
 | ERRH-02 | Phase 2 | Complete |
 | ERRH-03 | Phase 2 | Complete |
-| ERRH-04 | Phase 2 | Pending |
+| ERRH-04 | Phase 2 | Complete |
 | WEBUI-01 | Phase 4 | Pending |
 | WEBUI-02 | Phase 4 | Pending |
 | WEBUI-03 | Phase 4 | Pending |

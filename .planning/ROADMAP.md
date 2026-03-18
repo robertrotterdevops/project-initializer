@@ -13,7 +13,7 @@ The tool already scaffolds projects but generates Flux manifests that hang durin
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Correct Output** - Fix generated Flux manifests to match es-06 reference structure (completed 2026-03-18)
-- [ ] **Phase 2: Deployment Lifecycle** - Add post-deploy automation, pre-flight checks, and rollback
+- [x] **Phase 2: Deployment Lifecycle** - Add post-deploy automation, pre-flight checks, and rollback (completed 2026-03-18)
 - [ ] **Phase 3: Test Coverage** - Unit, integration, and structural validation tests for all addons and flows
 - [ ] **Phase 4: Web UI Polish** - Surface deployment progress, live reconciliation status, and audit logging
 
@@ -43,7 +43,7 @@ Plans:
   3. Pre-flight checks block deployment when cluster connectivity, Flux installation, or required CRDs are missing — with a clear error message
   4. Rollback triggers automatically on reconciliation failure — suspending kustomizations, reporting state, and restoring previous configuration
   5. Every failure path produces an actionable error message with a suggested fix
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 02-01-PLAN.md — Create deployment lifecycle addon with post-deploy scripts and pre-flight checks
 - [ ] 02-02-PLAN.md — Add deployment verification, rollback, and config validation scripts
@@ -77,6 +77,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Correct Output | 2/2 | Complete   | 2026-03-18 |
-| 2. Deployment Lifecycle | 1/2 | In Progress|  |
+| 2. Deployment Lifecycle | 2/2 | Complete   | 2026-03-18 |
 | 3. Test Coverage | 0/? | Not started | - |
 | 4. Web UI Polish | 0/? | Not started | - |
