@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-correct-output/01-02-PLAN.md
-last_updated: "2026-03-18T10:27:22.872Z"
+stopped_at: Completed 02-deployment-lifecycle-01-PLAN.md
+last_updated: "2026-03-18T11:01:12.889Z"
 last_activity: 2026-03-18 — Plan 01-01 complete (Flux CR timeout/interval hardcoded per es-06 reference)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 25
 ---
 
@@ -51,6 +51,7 @@ Progress: [██░░░░░░░░] 25%
 
 *Updated after each plan completion*
 | Phase 01-correct-output P02 | 14 | 1 tasks | 1 files |
+| Phase 02-deployment-lifecycle P01 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Recent decisions affecting current work:
 - [01-01] _calculate_complexity() retained for RBAC and bootstrap script, not for CR timing
 - [Phase 01-correct-output]: [01-02] Test 2 (reference comparison) proves FLUX-04: generated output matches es-06 reference on all 8 critical files
 - [Phase 01-correct-output]: [01-02] Pipeline tests use tempfile.TemporaryDirectory() for isolation; each test creates and tears down its own environment
+- [Phase 02-deployment-lifecycle]: [02-01] Lifecycle scripts are standalone shell files in scripts/ not embedded in terraform deploy flow
+- [Phase 02-deployment-lifecycle]: [02-01] pre-flight exits 1 on any failure with ERROR: description + Fix: copy-paste command (ERRH-02, ERRH-03)
+- [Phase 02-deployment-lifecycle]: [02-01] deployment_lifecycle addon is Flux-only; gitops_tool != flux returns empty dict at main() entry
 
 ### Pending Todos
 
@@ -78,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-18T10:27:22.867Z
-Stopped at: Completed 01-correct-output/01-02-PLAN.md
+Last session: 2026-03-18T11:01:12.884Z
+Stopped at: Completed 02-deployment-lifecycle-01-PLAN.md
 Resume file: None
