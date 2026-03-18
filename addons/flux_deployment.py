@@ -134,7 +134,8 @@ spec:
 """
 
         # Root Flux Kustomization CR (gotk-sync).
-        reconciliation_interval = "5m" if self.complexity_score < 1.3 else "1m"
+        # Fixed values per Flux best practices (es-06 reference). Complexity score not used for CR timing.
+        reconciliation_interval = "5m"
         manifests["gotk-sync.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -148,7 +149,7 @@ spec:
   path: ./clusters/management
   prune: true
   wait: false
-  timeout: {"2m" if self.complexity_score < 1.3 else "5m"}
+  timeout: 2m
 """
 
         apps_depends_on = f"""  dependsOn:
@@ -328,6 +329,7 @@ spec:
 """
 
             # Environment-specific Flux Kustomization
+            # Fixed values per Flux best practices (es-06 reference). Complexity score not used for CR timing.
             overlays[
                 f"overlays/{env}/flux-kustomization.yaml"
             ] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -336,14 +338,14 @@ metadata:
   name: {self.project_name}-{env}
   namespace: flux-system
 spec:
-  interval: {"1m" if env == "production" else "5m"}
+  interval: 5m
   sourceRef:
     kind: GitRepository
     name: {self.project_name}
   path: ./overlays/{env}
   prune: true
   wait: true
-  timeout: {"5m" if env == "production" else "2m"}
+  timeout: 5m
 """
 
         return overlays
