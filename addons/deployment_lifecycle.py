@@ -345,6 +345,86 @@ exit 0
             '  echo "  kubectl apply -k flux-system/"\n'
         )
 
+    def _generate_validate_config(self) -> str:
+        """Generate scripts/validate-config.sh."""
+        pn = self.project_name
+        return (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "\n"
+            f'PROJECT_NAME="{pn}"\n'
+            'ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"\n'
+            "\n"
+            "ERRORS=0\n"
+            "\n"
+            'echo "[1/4] Checking required directories..."\n'
+            'for DIR in flux-system infrastructure apps clusters/management; do\n'
+            '  if [ ! -d "$ROOT_DIR/$DIR" ]; then\n'
+            '    echo "  ERROR: Required directory missing: $DIR"\n'
+            '    echo "  Fix: Ensure project scaffolding completed successfully. Re-run the initializer."\n'
+            '    ERRORS=$((ERRORS + 1))\n'
+            '  else\n'
+            '    echo "  OK: $DIR"\n'
+            '  fi\n'
+            'done\n'
+            "\n"
+            'echo "[2/4] Checking kustomization.yaml files..."\n'
+            'for DIR in flux-system infrastructure apps clusters/management; do\n'
+            '  if [ -d "$ROOT_DIR/$DIR" ] && [ ! -f "$ROOT_DIR/$DIR/kustomization.yaml" ]; then\n'
+            '    echo "  ERROR: Missing kustomization.yaml in $DIR"\n'
+            '    echo "  Fix: Add a kustomization.yaml to $DIR with appropriate resource references."\n'
+            '    ERRORS=$((ERRORS + 1))\n'
+            '  fi\n'
+            'done\n'
+            "\n"
+            'echo "[3/4] Validating YAML syntax..."\n'
+            'YAML_FILES=$(find "$ROOT_DIR" -name "*.yaml" -not -path "*/\\.*" -not -path "*/node_modules/*" 2>/dev/null)\n'
+            'for FILE in $YAML_FILES; do\n'
+            '  if ! python3 -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))" "$FILE" 2>/dev/null; then\n'
+            '    echo "  ERROR: Invalid YAML syntax in $FILE"\n'
+            '    echo "  Fix: Check $FILE for YAML formatting errors (missing colons, bad indentation, tabs instead of spaces)."\n'
+            '    ERRORS=$((ERRORS + 1))\n'
+            '  fi\n'
+            'done\n'
+            'echo "  Checked $(echo "$YAML_FILES" | wc -w) YAML files"\n'
+            "\n"
+            'echo "[4/4] Checking for dangling resource references..."\n'
+            'KUSTOMIZATION_FILES=$(find "$ROOT_DIR" -name "kustomization.yaml" -not -path "*/\\.*" 2>/dev/null)\n'
+            'for KFILE in $KUSTOMIZATION_FILES; do\n'
+            '  KDIR=$(dirname "$KFILE")\n'
+            '  RESOURCES=$(grep -E "^- " "$KFILE" 2>/dev/null | sed \'s/^- //\' | grep -v "^#" || true)\n'
+            '  for RES in $RESOURCES; do\n'
+            '    TARGET="$KDIR/$RES"\n'
+            '    if [[ "$RES" == *.yaml ]] || [[ "$RES" == *.yml ]]; then\n'
+            '      if [ ! -f "$TARGET" ]; then\n'
+            '        echo "  ERROR: Dangling reference in $KFILE: $RES (file not found)"\n'
+            '        echo "  Fix: Create $TARGET or remove the reference from $KFILE"\n'
+            '        ERRORS=$((ERRORS + 1))\n'
+            '      fi\n'
+            '    else\n'
+            '      if [ -d "$TARGET" ]; then\n'
+            '        if [ ! -f "$TARGET/kustomization.yaml" ]; then\n'
+            '          echo "  WARNING: Directory $TARGET exists but has no kustomization.yaml"\n'
+            '        fi\n'
+            '      elif [ ! -f "$TARGET" ] && [ ! -d "$TARGET" ]; then\n'
+            '        echo "  ERROR: Dangling reference in $KFILE: $RES (path not found)"\n'
+            '        echo "  Fix: Create $TARGET or remove the reference from $KFILE"\n'
+            '        ERRORS=$((ERRORS + 1))\n'
+            '      fi\n'
+            '    fi\n'
+            '  done\n'
+            'done\n'
+            "\n"
+            'echo ""\n'
+            'if [ $ERRORS -gt 0 ]; then\n'
+            '  echo "FAILED: $ERRORS error(s) found. Fix the issues above before deploying."\n'
+            '  exit 1\n'
+            'else\n'
+            '  echo "PASSED: All configuration checks passed."\n'
+            '  exit 0\n'
+            'fi\n'
+        )
+
     def generate(self) -> Dict[str, str]:
         """Generate all deployment lifecycle scripts.
 
@@ -358,6 +438,7 @@ exit 0
             "scripts/preflight-check.sh": self._preflight_check_script(),
             "scripts/verify-deployment.sh": self._generate_verify_deployment(),
             "scripts/rollback.sh": self._generate_rollback(),
+            "scripts/validate-config.sh": self._generate_validate_config(),
         }
 
 
