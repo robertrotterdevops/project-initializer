@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 2/2 plans complete
 Plans:
 - [x] 01-01-PLAN.md — Fix complexity-dependent timeout/interval values in Flux CR generator
-- [ ] 01-02-PLAN.md — Full pipeline end-to-end verification against es-06 reference
+- [x] 01-02-PLAN.md — Full pipeline end-to-end verification against es-06 reference
 
 ### Phase 2: Deployment Lifecycle
 **Goal**: The tool manages the full deploy → reconcile → verify → rollback lifecycle without manual steps
@@ -43,7 +43,10 @@ Plans:
   3. Pre-flight checks block deployment when cluster connectivity, Flux installation, or required CRDs are missing — with a clear error message
   4. Rollback triggers automatically on reconciliation failure — suspending kustomizations, reporting state, and restoring previous configuration
   5. Every failure path produces an actionable error message with a suggested fix
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 02-01-PLAN.md — Create deployment lifecycle addon with post-deploy scripts and pre-flight checks
+- [ ] 02-02-PLAN.md — Add deployment verification, rollback, and config validation scripts
 
 ### Phase 3: Test Coverage
 **Goal**: Every addon, flow, and structural assumption is validated by automated tests
@@ -74,6 +77,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Correct Output | 2/2 | Complete   | 2026-03-18 |
-| 2. Deployment Lifecycle | 0/? | Not started | - |
+| 2. Deployment Lifecycle | 0/2 | Not started | - |
 | 3. Test Coverage | 0/? | Not started | - |
 | 4. Web UI Polish | 0/? | Not started | - |
