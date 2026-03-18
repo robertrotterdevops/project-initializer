@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The generated directory structure (flux-system/, infrastructure/, apps/, agents/) can be applied to a cluster and all kustomizations reach Ready state
 **Plans:** 2 plans
 Plans:
-- [ ] 01-01-PLAN.md — Fix complexity-dependent timeout/interval values in Flux CR generator
+- [x] 01-01-PLAN.md — Fix complexity-dependent timeout/interval values in Flux CR generator
 - [ ] 01-02-PLAN.md — Full pipeline end-to-end verification against es-06 reference
 
 ### Phase 2: Deployment Lifecycle
@@ -73,7 +73,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Correct Output | 0/2 | Planning complete | - |
+| 1. Correct Output | 1/2 | In progress | - |
 | 2. Deployment Lifecycle | 0/? | Not started | - |
 | 3. Test Coverage | 0/? | Not started | - |
 | 4. Web UI Polish | 0/? | Not started | - |
