@@ -19,10 +19,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Testing
 
-- [ ] **TEST-01**: Unit tests exist for every addon generator verifying correct output structure and content
-- [ ] **TEST-02**: Integration tests run the full scaffolding pipeline (analyze → generate → addon execution) and verify complete project output
-- [ ] **TEST-03**: Generated YAML is validated for structural correctness (valid kustomization references, existing paths, required fields)
-- [ ] **TEST-04**: Automated comparison validates generated output structure against es-06 reference deployment
+- [x] **TEST-01**: Unit tests exist for every addon generator verifying correct output structure and content
+- [x] **TEST-02**: Integration tests run the full scaffolding pipeline (analyze → generate → addon execution) and verify complete project output
+- [x] **TEST-03**: Generated YAML is validated for structural correctness (valid kustomization references, existing paths, required fields)
+- [x] **TEST-04**: Automated comparison validates generated output structure against es-06 reference deployment
 
 ### Error Handling
 
@@ -81,10 +81,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FLUX-05 | Phase 2 | Complete |
 | FLUX-06 | Phase 2 | Complete |
 | FLUX-07 | Phase 2 | Complete |
-| TEST-01 | Phase 3 | Pending |
-| TEST-02 | Phase 3 | Pending |
-| TEST-03 | Phase 3 | Pending |
-| TEST-04 | Phase 3 | Pending |
+| TEST-01 | Phase 3 | Complete |
+| TEST-02 | Phase 3 | Complete |
+| TEST-03 | Phase 3 | Complete |
+| TEST-04 | Phase 3 | Complete |
 | ERRH-01 | Phase 2 | Complete |
 | ERRH-02 | Phase 2 | Complete |
 | ERRH-03 | Phase 2 | Complete |

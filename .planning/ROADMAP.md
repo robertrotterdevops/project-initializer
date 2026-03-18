@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Correct Output** - Fix generated Flux manifests to match es-06 reference structure (completed 2026-03-18)
 - [x] **Phase 2: Deployment Lifecycle** - Add post-deploy automation, pre-flight checks, and rollback (completed 2026-03-18)
-- [ ] **Phase 3: Test Coverage** - Unit, integration, and structural validation tests for all addons and flows
+- [x] **Phase 3: Test Coverage** - Unit, integration, and structural validation tests for all addons and flows (completed 2026-03-18)
 - [ ] **Phase 4: Web UI Polish** - Surface deployment progress, live reconciliation status, and audit logging
 
 ## Phase Details
@@ -57,7 +57,10 @@ Plans:
   2. An integration test runs the full analyze → generate → addon pipeline and verifies the complete project output exists on disk
   3. Generated YAML passes structural validation — valid kustomization references, existing paths, no missing required fields
   4. An automated comparison test verifies the generated output structure matches the es-06 reference deployment
-**Plans**: TBD
+**Plans:** 2/2 plans complete
+Plans:
+- [ ] 03-01-PLAN.md — Addon unit tests (ECK + platform_manifests deep, 7 smoke) and ECK+Flux integration test
+- [ ] 03-02-PLAN.md — YAML structural validation (Flux CR fields, kustomize refs) and es-06 reference comparison
 
 ### Phase 4: Web UI Polish
 **Goal**: The Web UI gives full visibility into deployment progress and reconciliation status
@@ -67,7 +70,10 @@ Plans:
   1. The Web UI shows per-kustomization reconciliation status that updates as the deployment progresses
   2. Every operation (scaffold, deploy, verify, rollback) is logged with a timestamp visible in the UI
   3. Live Flux reconciliation status is polled from the cluster and displayed without requiring a page refresh
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 04-01-PLAN.md — Verify and harden backend (SSE streaming, flux-status, audit log) with edge-case tests
+- [ ] 04-02-PLAN.md — Verify frontend implementation against CONTEXT.md decisions + human visual verification
 
 ## Progress
 
@@ -78,5 +84,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Correct Output | 2/2 | Complete   | 2026-03-18 |
 | 2. Deployment Lifecycle | 2/2 | Complete   | 2026-03-18 |
-| 3. Test Coverage | 0/? | Not started | - |
-| 4. Web UI Polish | 0/? | Not started | - |
+| 3. Test Coverage | 2/2 | Complete   | 2026-03-18 |
+| 4. Web UI Polish | 0/2 | Planning complete | - |

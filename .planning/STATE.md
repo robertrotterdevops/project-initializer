@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-deployment-lifecycle-02-PLAN.md
-last_updated: "2026-03-18T11:06:21.414Z"
+stopped_at: Completed 03-test-coverage/03-02-PLAN.md
+last_updated: "2026-03-18T11:36:26.882Z"
 last_activity: 2026-03-18 — Plan 01-01 complete (Flux CR timeout/interval hardcoded per es-06 reference)
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
   percent: 25
 ---
 
@@ -53,6 +53,8 @@ Progress: [██░░░░░░░░] 25%
 | Phase 01-correct-output P02 | 14 | 1 tasks | 1 files |
 | Phase 02-deployment-lifecycle P01 | 3 | 2 tasks | 3 files |
 | Phase 02-deployment-lifecycle P02 | 3 | 2 tasks | 2 files |
+| Phase 03-test-coverage P01 | 2 | 2 tasks | 1 files |
+| Phase 03-test-coverage P02 | 3 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -75,6 +77,11 @@ Recent decisions affecting current work:
 - [Phase 02-deployment-lifecycle]: [02-02] verify-deployment.sh uses dual-check: --for=condition=Ready + jsonpath status to satisfy both kubectl patterns
 - [Phase 02-deployment-lifecycle]: [02-02] rollback.sh uses flux suspend strategy (not git revert) — preserves git history, allows selective per-kustomization resume
 - [Phase 02-deployment-lifecycle]: [02-02] validate-config.sh uses python3 yaml.safe_load for YAML validation — zero extra deps in generated scripts
+- [Phase 03-test-coverage]: rke2_bootstrap and terraform_gitops_trigger require iac_tool='terraform' in context; smoke tests must include this key
+- [Phase 03-test-coverage]: TestECKFluxIntegration uses setUpClass to run pipeline once, sharing output across 3 test methods for performance
+- [Phase 03-test-coverage]: yaml.safe_load_all (not yaml.safe_load) used for multi-document YAML files in parseability tests
+- [Phase 03-test-coverage]: [03-02] Cross-addon kustomize refs excluded from dict-based validation; they are disk-validated by test_full_pipeline_no_dangling_kustomize_refs
+- [Phase 03-test-coverage]: [03-02] TestReferenceComparison uses field-presence assertions (not byte-identical comparison) to avoid brittleness from project name differences
 
 ### Pending Todos
 
@@ -86,6 +93,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-18T11:06:21.409Z
-Stopped at: Completed 02-deployment-lifecycle-02-PLAN.md
+Last session: 2026-03-18T11:36:26.876Z
+Stopped at: Completed 03-test-coverage/03-02-PLAN.md
 Resume file: None
