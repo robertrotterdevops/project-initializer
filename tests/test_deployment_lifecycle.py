@@ -204,11 +204,12 @@ class TestVerifyDeploymentScript(unittest.TestCase):
         self.assertIn("1200", content)
 
     def test_t5_verify_has_kubectl_kustomization_ready(self):
-        """Test 5: verify-deployment.sh contains 'kubectl get kustomization' and 'condition=Ready'"""
+        """Test 5: verify-deployment.sh polls kustomization Ready status via jsonpath (not invalid --for=condition=Ready flag)"""
         files = main(self.project_name, self.description, self.flux_context_eck)
         content = files["scripts/verify-deployment.sh"]
         self.assertIn("kubectl get kustomization", content)
-        self.assertIn("condition=Ready", content)
+        self.assertIn('.type=="Ready"', content)
+        self.assertNotIn("--for=condition=Ready", content)
 
     def test_t6_verify_has_es_pod_health_check(self):
         """Test 6: verify-deployment.sh contains Elasticsearch pod health check"""

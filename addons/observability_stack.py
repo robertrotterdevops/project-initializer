@@ -921,11 +921,7 @@ The Fleet default output must be configured via Kibana API after deployment. The
         if not self._has_builtin_metrics_server():
             files.update(self._generate_metrics_server())
 
-        # Auto-enable OTEL collector for elasticsearch projects
-        enable_otel = self.context.get("enable_otel_collector", True)
-        primary_category = self.context.get("primary_category", "")
-        if primary_category == "elasticsearch":
-            enable_otel = True
+        enable_otel = self.context.get("enable_otel_collector", False)
 
         if enable_otel:
             files.update(self._generate_otel_collector())

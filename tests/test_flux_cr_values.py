@@ -18,7 +18,7 @@ import yaml
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 
-def _generate_flux_manifests(description="Elasticsearch on RKE2", eck_enabled=True):
+def _generate_flux_manifests(description="Elasticsearch on RKE2", eck_enabled=True, enable_otel_collector=True):
     """Helper: generate flux manifests dict from FluxDeploymentGenerator."""
     from addons.flux_deployment import FluxDeploymentGenerator
 
@@ -29,6 +29,7 @@ def _generate_flux_manifests(description="Elasticsearch on RKE2", eck_enabled=Tr
         }
         if eck_enabled
         else {},
+        "enable_otel_collector": enable_otel_collector,
     }
     gen = FluxDeploymentGenerator("test-proj", description, ctx)
     return gen.generate_flux_manifests()

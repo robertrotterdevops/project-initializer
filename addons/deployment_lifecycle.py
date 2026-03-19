@@ -63,8 +63,18 @@ class DeploymentLifecycleGenerator:
         return (
             self._script_header()
             + f"""echo "[1/3] Waiting for Elasticsearch to be ready (this may take several minutes)..."
-kubectl wait elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
-  --for=condition=Ready --timeout=15m
+ELAPSED=0
+while [ $ELAPSED -lt 900 ]; do
+  PHASE=$(kubectl get elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
+    -o jsonpath='{{.status.phase}}' 2>/dev/null || echo "")
+  [ "$PHASE" = "Ready" ] && break
+  sleep 10
+  ELAPSED=$((ELAPSED + 10))
+done
+if [ "${{PHASE:-}}" != "Ready" ]; then
+  echo "ERROR: Elasticsearch not ready after 15 minutes (phase=${{PHASE:-unknown}})"
+  exit 1
+fi
 
 echo "[2/3] Creating observability namespace..."
 kubectl create namespace observability 2>/dev/null || true
@@ -84,8 +94,17 @@ echo "Secret mirroring complete."
         return (
             self._script_header()
             + f"""echo "[1/4] Waiting for Kibana to be ready..."
-kubectl wait kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
-  --for=condition=Ready --timeout=5m 2>/dev/null || true
+ELAPSED=0
+while [ $ELAPSED -lt 300 ]; do
+  KB_NODES=$(kubectl get kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
+    -o jsonpath='{{.status.availableNodes}}' 2>/dev/null || echo "0")
+  [ "${{KB_NODES:-0}}" -gt 0 ] && break
+  sleep 10
+  ELAPSED=$((ELAPSED + 10))
+done
+if [ "${{KB_NODES:-0}}" -eq 0 ]; then
+  echo "WARNING: Kibana not ready after 5 minutes, proceeding anyway..."
+fi
 
 echo "[2/4] Retrieving Elasticsearch credentials..."
 ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
@@ -150,14 +169,13 @@ KB_PORT=$(kubectl get svc -n ${{PROJECT_NAME}} "${{KB_SVC}}" -o jsonpath='{{.spe
 
 kubectl port-forward -n ${{PROJECT_NAME}} "svc/${{KB_SVC}}" 15601:${{KB_PORT}} &
 PF_PID=$!
+trap "kill $PF_PID 2>/dev/null" EXIT
 sleep 4
 
 RESULT=$(curl -sk -u "elastic:${{ES_PASS}}" \\
   -X POST "https://localhost:15601/api/saved_objects/_import?overwrite=true" \\
   -H 'kbn-xsrf: true' \\
   --form "file=@${{DASHBOARD_FILE}};type=application/ndjson")
-
-kill $PF_PID 2>/dev/null
 
 echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print('OTEL dashboard imported.' if r.get('success') else f'Import failed: {{r}}')"
 """
@@ -257,11 +275,6 @@ exit 0
             "  RESULT=\"FAILED (timeout after ${TIMEOUT}s)\"\n"
             "\n"
             "  while [ $ELAPSED -lt $TIMEOUT ]; do\n"
-            "    if kubectl get kustomization \"$KSNAME\" -n flux-system \\\n"
-            "        --for=condition=Ready 2>/dev/null; then\n"
-            "      RESULT=\"Ready\"\n"
-            "      break\n"
-            "    fi\n"
             "    STATUS=$(kubectl get kustomization \"$KSNAME\" -n flux-system \\\n"
             "      -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' 2>/dev/null || echo \"Unknown\")\n"
             "    if [ \"$STATUS\" = \"True\" ]; then\n"

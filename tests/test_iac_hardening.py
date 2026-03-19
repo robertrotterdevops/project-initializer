@@ -563,6 +563,7 @@ class TestIacHardening(unittest.TestCase):
                 platform="rke2",
                 gitops_tool="flux",
                 iac_tool="terraform",
+                enable_otel_collector=True,
             )
             configmap = (out_dir / "observability/otel-collector/configmap.yaml").read_text()
             # Metrics pipeline must export to elasticsearch
@@ -577,7 +578,7 @@ class TestIacHardening(unittest.TestCase):
         from addons.observability_stack import ObservabilityStackGenerator
 
         gen = ObservabilityStackGenerator(
-            "version-test", "test", {"otel_collector_version": "0.120.0", "primary_category": "elasticsearch"}
+            "version-test", "test", {"otel_collector_version": "0.120.0", "primary_category": "elasticsearch", "enable_otel_collector": True}
         )
         files = gen.generate()
         daemonset = files.get("observability/otel-collector/daemonset.yaml", "")
@@ -651,6 +652,7 @@ class TestIacHardening(unittest.TestCase):
                 platform="rke2",
                 gitops_tool="flux",
                 iac_tool="terraform",
+                enable_otel_collector=True,
             )
             dashboard_path = out_dir / "observability/otel-dashboards/otel-infrastructure-overview.ndjson"
             self.assertTrue(dashboard_path.exists())
@@ -659,10 +661,10 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("metrics-generic-*", content)
             self.assertIn("otel-vis-cpu-by-node", content)
             # Must use Lens format, not legacy visualization
-            self.assertIn('"type":"lens"', content)
-            self.assertNotIn('"type":"visualization"', content)
-            self.assertIn('"visualizationType":"lnsXY"', content)
-            self.assertIn('"visualizationType":"lnsMetric"', content)
+            self.assertIn('"type": "lens"', content)
+            self.assertNotIn('"type": "visualization"', content)
+            self.assertIn('"visualizationType": "lnsXY"', content)
+            self.assertIn('"visualizationType": "lnsMetric"', content)
 
     def test_otel_collector_has_credential_init_container(self) -> None:
         """Verify collector waits for ES credentials before starting."""
@@ -675,6 +677,7 @@ class TestIacHardening(unittest.TestCase):
                 platform="rke2",
                 gitops_tool="flux",
                 iac_tool="terraform",
+                enable_otel_collector=True,
             )
             daemonset = (out_dir / "observability/otel-collector/daemonset.yaml").read_text()
             self.assertIn("wait-for-es-credentials", daemonset)
@@ -700,6 +703,7 @@ class TestIacHardening(unittest.TestCase):
                 platform="rke2",
                 gitops_tool="flux",
                 iac_tool="terraform",
+                enable_otel_collector=True,
             )
             secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
             self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)

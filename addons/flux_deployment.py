@@ -51,6 +51,7 @@ class FluxDeploymentGenerator:
                 or sizing_context.get("source") == "sizing_report"
             )
         )
+        self.enable_otel_collector = bool(self.context.get("enable_otel_collector", False))
         self.complexity_score = self._calculate_complexity()
 
     def _repo_url_for_flux(self) -> str:
@@ -208,6 +209,7 @@ spec:
   dependsOn:
   - name: {self.project_name}-apps
 """
+        if self.eck_enabled and self.enable_otel_collector:
             manifests["kustomization-observability.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -249,8 +251,9 @@ stringData:
             "- kustomization-infra.yaml",
         ]
         if self.eck_enabled:
-            flux_resources.append("- kustomization-observability.yaml")
             flux_resources.append("- kustomization-agents.yaml")
+        if self.eck_enabled and self.enable_otel_collector:
+            flux_resources.append("- kustomization-observability.yaml")
         if self.git_token:
             flux_resources.insert(1, "- git-auth-secret.yaml")
         manifests["kustomization.yaml"] = (
@@ -494,11 +497,6 @@ def main(
             or sizing_context.get("source") == "sizing_report"
         )
     )
-    # Auto-enable OTEL collector when ECK/elasticsearch category is detected
-    primary_category = context.get("primary_category", "")
-    if primary_category == "elasticsearch" or eck_enabled:
-        enable_otel_collector = True
-
     # Generate files
     files = {}
 
