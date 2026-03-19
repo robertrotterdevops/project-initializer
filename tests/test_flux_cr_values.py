@@ -190,6 +190,14 @@ class TestFluxCRValues(unittest.TestCase):
         self.assertNotIn("test-proj-infra", depends_names)
         self.assertNotIn("test-proj", depends_names)
 
+    def test_observability_depends_on_apps_and_agents(self):
+        """FLUX-02b: kustomization-observability.yaml depends on apps + agents."""
+        manifests = _generate_flux_manifests(eck_enabled=True)
+        doc = yaml.safe_load(manifests["kustomization-observability.yaml"])
+        depends_names = [d["name"] for d in doc["spec"]["dependsOn"]]
+        self.assertIn("test-proj-apps", depends_names)
+        self.assertIn("test-proj-agents", depends_names)
+
     # -----------------------------------------------------------------------
     # Test 8 (Task 2): infrastructure kustomization includes all required resources
     # -----------------------------------------------------------------------

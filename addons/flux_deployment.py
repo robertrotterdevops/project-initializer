@@ -191,23 +191,6 @@ spec:
 """
 
         if self.eck_enabled:
-            manifests["kustomization-observability.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: {self.project_name}-observability
-  namespace: flux-system
-spec:
-  interval: {reconciliation_interval}
-  sourceRef:
-    kind: GitRepository
-    name: {self.project_name}
-  path: ./observability
-  prune: true
-  wait: true
-  timeout: 15m
-  dependsOn:
-  - name: {self.project_name}-apps
-"""
             manifests["kustomization-agents.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -223,7 +206,25 @@ spec:
   wait: true
   timeout: 20m
   dependsOn:
-  - name: {self.project_name}-observability
+  - name: {self.project_name}-apps
+"""
+            manifests["kustomization-observability.yaml"] = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {self.project_name}-observability
+  namespace: flux-system
+spec:
+  interval: {reconciliation_interval}
+  sourceRef:
+    kind: GitRepository
+    name: {self.project_name}
+  path: ./observability
+  prune: true
+  wait: true
+  timeout: 20m
+  dependsOn:
+  - name: {self.project_name}-apps
+  - name: {self.project_name}-agents
 """
 
         # Auth secret for private repositories when token is provided.
