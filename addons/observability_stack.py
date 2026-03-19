@@ -376,8 +376,12 @@ metadata:
   annotations:
     # Flux creates this placeholder on first deploy.  prune: disabled keeps it
     # alive after post-terraform-deploy.sh overwrites with real credentials.
-    # Do NOT add reconcile: disabled — it prevents first-time creation.
+    # reconcile: disabled prevents Flux from overwriting real credentials on
+    # every subsequent reconcile via SSA (kustomize-controller owns data fields).
+    # The secret already exists in-cluster when Flux sees this annotation, so
+    # first-time creation is unaffected.
     kustomize.toolkit.fluxcd.io/prune: disabled
+    kustomize.toolkit.fluxcd.io/reconcile: disabled
 type: Opaque
 stringData:
   username: ""
@@ -877,7 +881,7 @@ ECK 3.x handles Fleet enrollment automatically via `kibanaRef` for all agent mod
 Raw log lines are collected without structured parsing. Containerd log format uses timestamp prefixes, not JSON. Structured parsing can be added via filelog operators.
 
 ### 4. Secret Management
-The `otel-es-credentials` secret uses `kustomize.toolkit.fluxcd.io/prune: disabled` to prevent Flux from deleting it, and an init container gates collector startup until credentials are populated. Consider using External Secrets Operator for production.
+The `otel-es-credentials` secret uses `prune: disabled` (prevents Flux from deleting it) and `reconcile: disabled` (prevents Flux from overwriting the data fields via SSA after first creation). An init container gates collector startup until credentials are populated by the post-deploy script. Consider using External Secrets Operator for production.
 
 ### 5. Fleet Default Output
 The Fleet default output must be configured via Kibana API after deployment. The post-deploy script handles this automatically, setting the correct ES endpoint and CA fingerprint.

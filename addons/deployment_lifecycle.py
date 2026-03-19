@@ -145,12 +145,21 @@ if [ ! -f "$DASHBOARD_FILE" ]; then
   exit 0
 fi
 
-kubectl exec -i -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
-  -X POST "https://localhost:5601/api/saved_objects/_import?overwrite=true" \\
+KB_SVC=$(kubectl get svc -n ${{PROJECT_NAME}} -l "common.k8s.elastic.co/type=kibana" -o jsonpath='{{.items[0].metadata.name}}')
+KB_PORT=$(kubectl get svc -n ${{PROJECT_NAME}} "${{KB_SVC}}" -o jsonpath='{{.spec.ports[0].port}}')
+
+kubectl port-forward -n ${{PROJECT_NAME}} "svc/${{KB_SVC}}" 15601:${{KB_PORT}} &
+PF_PID=$!
+sleep 4
+
+RESULT=$(curl -sk -u "elastic:${{ES_PASS}}" \\
+  -X POST "https://localhost:15601/api/saved_objects/_import?overwrite=true" \\
   -H 'kbn-xsrf: true' \\
-  --form file=@/dev/stdin < "$DASHBOARD_FILE" >/dev/null 2>&1 && \\
-  echo "OTEL dashboard imported." || \\
-  echo "Dashboard import failed (can be imported manually via Kibana UI)."
+  --form "file=@${{DASHBOARD_FILE}};type=application/ndjson")
+
+kill $PF_PID 2>/dev/null
+
+echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print('OTEL dashboard imported.' if r.get('success') else f'Import failed: {{r}}')"
 """
         )
 

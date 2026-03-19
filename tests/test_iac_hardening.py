@@ -681,12 +681,15 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("initContainers:", daemonset)
             self.assertIn('while [ -z "$ES_PASSWORD" ]', daemonset)
 
-    def test_otel_secret_has_prune_disabled_but_not_reconcile_disabled(self) -> None:
-        """Verify otel-es-credentials has prune: disabled but NOT reconcile: disabled.
+    def test_otel_secret_has_prune_and_reconcile_disabled(self) -> None:
+        """Verify otel-es-credentials has both prune: disabled and reconcile: disabled.
 
-        reconcile: disabled prevents Flux from creating the secret on first deploy,
-        causing CreateContainerConfigError. Only prune: disabled is safe — it lets
-        Flux create the placeholder initially while preventing deletion.
+        prune: disabled prevents Flux from deleting the secret if removed from git.
+        reconcile: disabled prevents Flux from overwriting the data fields via SSA
+        (kustomize-controller owns them) on every reconcile cycle, which would wipe
+        real credentials populated by post-terraform-deploy.sh.
+        The secret already exists in-cluster when Flux processes the annotation, so
+        first-time creation is unaffected.
         """
         with tempfile.TemporaryDirectory(prefix="pi-otel-secret-reconcile-") as td:
             out_dir = Path(td) / "secret-reconcile-check"
@@ -700,7 +703,7 @@ class TestIacHardening(unittest.TestCase):
             )
             secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
             self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)
-            self.assertNotIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
+            self.assertIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
 
 
 if __name__ == "__main__":
