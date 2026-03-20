@@ -632,49 +632,239 @@ def _node_profile_from_contract_tier(tier: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_json_contract(content: str) -> dict[str, Any]:
-    data = json.loads(content)
-    if data.get("schema_version") != "es-sizing.v1":
-        raise ValueError("Unsupported sizing contract schema_version")
+def _storage_class_for_platform(platform: str, rke2: dict[str, Any] | None = None) -> str:
+    if platform == "rke2":
+        profile = str(((rke2 or {}).get("storage") or {}).get("profile", "")).strip().lower().replace("_", "-")
+        if profile in {"local-nvme", "local-ssd", "local-path"}:
+            return "local-path"
+    if platform == "openshift":
+        return "standard"
+    return "premium"
 
-    calc = data.get("calculation", {})
-    tiers = {t.get("name"): t for t in calc.get("tiers", []) if isinstance(t, dict)}
 
-    platform_value = (data.get("platform") or "").strip().lower()
-    if platform_value in {"", "all"}:
-        details = data.get("platform_details", {}) or {}
-        for candidate in ("rke2", "openshift", "aks"):
-            if details.get(candidate):
-                platform_value = candidate
-                break
-
-    ctx: dict[str, Any] = {
-        "source": "sizing_report",
-        "source_format": "json_contract_v1",
-        "raw": data,
-        "platform_detected": platform_value or None,
-        "metadata": data.get("project", {}) or {},
-        "summary": calc.get("summary", {}) or {},
-        "inputs": calc.get("inputs", {}) or {},
-        "health_score": int((calc.get("summary", {}) or {}).get("cluster_health_score", 0) or 0),
-        "profile": "custom",
-        "data_nodes": _node_profile_from_contract_tier(tiers.get("hot", {})),
-        "cold_nodes": _node_profile_from_contract_tier(tiers.get("cold", {})),
-        "frozen_nodes": _node_profile_from_contract_tier(tiers.get("frozen", {})),
-        "master_nodes": {},
-        "kibana": {},
-        "fleet_server": {},
+def _normalize_component(count: int, memory_gb: float, cpu: float) -> dict[str, Any]:
+    return {
+        "count": max(int(count or 0), 0),
+        "memory": _fmt_gi(memory_gb),
+        "cpu": _fmt_cpu(cpu),
     }
 
-    platform_details = data.get("platform_details", {}) or {}
-    if platform_details.get("aks"):
-        ctx["aks"] = platform_details["aks"]
-    if platform_details.get("openshift"):
-        ctx["openshift"] = platform_details["openshift"]
-    if platform_details.get("rke2"):
-        ctx["rke2"] = platform_details["rke2"]
 
-    return ctx
+def _enrich_rke2_pools_from_tiers(
+    rke2_data: dict[str, Any], tier_map: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    pools = []
+    disk_by_pool: dict[str, float] = {}
+    for mapping in rke2_data.get("elastic_tier_to_pool", []) or []:
+        tier_name = mapping.get("tier")
+        pool_name = str(mapping.get("pool") or "").lower()
+        tier = tier_map.get(str(tier_name or "").lower(), {})
+        if not pool_name or not tier:
+            continue
+        disk_gb = float(tier.get("disk_gb_per_node") or 0)
+        if disk_gb > 0:
+            disk_by_pool[pool_name] = max(disk_by_pool.get(pool_name, 0.0), disk_gb)
+
+    for pool in rke2_data.get("pools", []) or []:
+        normalized = dict(pool)
+        if not normalized.get("disk_gb_per_node"):
+            pool_name = str(normalized.get("name", "")).lower()
+            for tier_name, tier in tier_map.items():
+                if tier_name and tier_name in pool_name:
+                    inferred_disk = float(tier.get("disk_gb_per_node") or 0)
+                    if inferred_disk > 0:
+                        disk_by_pool[pool_name] = max(disk_by_pool.get(pool_name, 0.0), inferred_disk)
+            inferred_disk = disk_by_pool.get(pool_name, 0.0)
+            if inferred_disk > 0:
+                normalized["disk_gb_per_node"] = int(round(inferred_disk))
+        pools.append(normalized)
+
+    enriched = dict(rke2_data)
+    enriched["pools"] = pools
+    return enriched
+
+
+def _normalize_elastic_calc(
+    calc: dict[str, Any], platform_value: str, platform_details: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    tier_map = {
+        str(t.get("name", "")).lower(): t
+        for t in calc.get("tiers", []) or []
+        if isinstance(t, dict)
+    }
+    summary_raw = dict(calc.get("summary", {}) or {})
+    totals = summary_raw.get("totals", {}) or {}
+    summary_raw.setdefault("total_nodes", summary_raw.get("total_nodes", totals.get("nodes", 0)))
+    summary_raw.setdefault("total_data_nodes", summary_raw.get("total_data_nodes", totals.get("data_nodes", 0)))
+    summary_raw["total_vcpu"] = summary_raw.get("total_vcpu") or summary_raw.get("total_vcpu_selected") or totals.get("vcpu", 0)
+    summary_raw["total_ram_gb"] = summary_raw.get("total_ram_gb") or summary_raw.get("total_ram_gb_selected") or totals.get("ram_gb", 0)
+    summary_raw["total_disk_gb"] = summary_raw.get("total_disk_gb") or summary_raw.get("total_local_disk_gb_selected") or totals.get("local_disk_gb", 0)
+    summary_raw["total_snapshot_storage_gb"] = (
+        summary_raw.get("total_snapshot_storage_gb")
+        or totals.get("snapshot_storage_gb", 0)
+    )
+
+    inputs_raw = dict(calc.get("inputs", {}) or {})
+    inputs_raw["ingest_per_day_gb"] = inputs_raw.get("ingest_per_day_gb", inputs_raw.get("ingest_gb_per_day"))
+    inputs_raw["retention_days"] = inputs_raw.get("retention_days", inputs_raw.get("total_retention_days"))
+
+    storage_class = _storage_class_for_platform(platform_value, platform_details)
+    data_nodes = _node_profile_from_contract_tier(tier_map.get("hot", {}))
+    cold_nodes = _node_profile_from_contract_tier(tier_map.get("cold", {}))
+    frozen_nodes = _node_profile_from_contract_tier(tier_map.get("frozen", {}))
+    for node_group in (data_nodes, cold_nodes, frozen_nodes):
+        node_group["storage_class"] = storage_class
+
+    return {
+        "summary": summary_raw,
+        "inputs": inputs_raw,
+        "tier_map": tier_map,
+        "data_nodes": data_nodes,
+        "cold_nodes": cold_nodes,
+        "frozen_nodes": frozen_nodes,
+    }
+
+
+def _normalize_platform_component_counts(platform_details: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int]:
+    stack_components = (platform_details.get("stack_components") or {}) or (
+        (platform_details.get("overhead_breakdown") or {}).get("stack_components") or {}
+    )
+    pools = platform_details.get("pools", []) or []
+    kibana_count = 0
+    fleet_count = 0
+    for pool in pools:
+        comp = pool.get("composition") or {}
+        kibana_count += int(comp.get("kibana_pods") or comp.get("kibana") or 0)
+        fleet_count += int(comp.get("fleet_pods") or comp.get("fleet") or 0)
+
+    shared_stack_cpu = float(stack_components.get("vcpu") or 0)
+    shared_stack_ram = float(stack_components.get("ram_gb") or 0)
+    per_component_cpu = shared_stack_cpu / max(kibana_count + fleet_count, 1) if shared_stack_cpu else 2.0
+    per_component_ram = shared_stack_ram / max(kibana_count + fleet_count, 1) if shared_stack_ram else 4.0
+    kibana = _normalize_component(kibana_count, per_component_ram, per_component_cpu) if kibana_count > 0 else {}
+    fleet = _normalize_component(fleet_count, per_component_ram, per_component_cpu) if fleet_count > 0 else {}
+    return kibana, fleet, kibana_count + fleet_count
+
+
+def _parse_json_contract(content: str) -> dict[str, Any]:
+    data = json.loads(content)
+    schema_version = data.get("schema_version")
+
+    if schema_version == "es-sizing.v1":
+        calc = data.get("calculation", {})
+        tiers = {t.get("name"): t for t in calc.get("tiers", []) if isinstance(t, dict)}
+
+        platform_value = (data.get("platform") or "").strip().lower()
+        if platform_value in {"", "all"}:
+            details = data.get("platform_details", {}) or {}
+            for candidate in ("rke2", "openshift", "aks"):
+                if details.get(candidate):
+                    platform_value = candidate
+                    break
+
+        ctx: dict[str, Any] = {
+            "source": "sizing_report",
+            "source_format": "json_contract_v1",
+            "raw": data,
+            "platform_detected": platform_value or None,
+            "metadata": data.get("project", {}) or {},
+            "summary": calc.get("summary", {}) or {},
+            "inputs": calc.get("inputs", {}) or {},
+            "health_score": int((calc.get("summary", {}) or {}).get("cluster_health_score", 0) or 0),
+            "profile": "custom",
+            "data_nodes": _node_profile_from_contract_tier(tiers.get("hot", {})),
+            "cold_nodes": _node_profile_from_contract_tier(tiers.get("cold", {})),
+            "frozen_nodes": _node_profile_from_contract_tier(tiers.get("frozen", {})),
+            "master_nodes": {},
+            "kibana": {},
+            "fleet_server": {},
+        }
+
+        platform_details = data.get("platform_details", {}) or {}
+        if platform_details.get("aks"):
+            ctx["aks"] = platform_details["aks"]
+        if platform_details.get("openshift"):
+            ctx["openshift"] = platform_details["openshift"]
+        if platform_details.get("rke2"):
+            ctx["rke2"] = platform_details["rke2"]
+
+        return ctx
+
+    if schema_version == "es-sizing-platform.v1":
+        platform_value = (data.get("platform") or "").strip().lower() or None
+        calc = data.get("calculation", {}) or {}
+        platform_details = data.get("platform_details", {}) or {}
+        elastic_ctx = _normalize_elastic_calc(calc, platform_value or "kubernetes", platform_details)
+        kibana, fleet_server, _ = _normalize_platform_component_counts(platform_details)
+        master_count = int((elastic_ctx["summary"].get("total_master_nodes") or 0))
+
+        pools_source = platform_details.get("pools", []) or data.get("pool_composition", []) or []
+        enriched_platform = _enrich_rke2_pools_from_tiers(
+            {"pools": pools_source, **platform_details},
+            elastic_ctx["tier_map"],
+        )
+
+        ctx = {
+            "source": "sizing_report",
+            "source_format": "json_contract_platform_v1",
+            "raw": data,
+            "platform_detected": platform_value,
+            "metadata": data.get("project", {}) or {},
+            "summary": elastic_ctx["summary"],
+            "inputs": elastic_ctx["inputs"],
+            "health_score": int(elastic_ctx["summary"].get("cluster_health_score", 0) or 0),
+            "profile": "custom",
+            "data_nodes": elastic_ctx["data_nodes"],
+            "cold_nodes": elastic_ctx["cold_nodes"],
+            "frozen_nodes": elastic_ctx["frozen_nodes"],
+            "master_nodes": _normalize_component(master_count, 4.0, 2.0) if master_count > 0 else {},
+            "kibana": kibana,
+            "fleet_server": fleet_server,
+        }
+
+        if platform_value == "openshift":
+            ctx["openshift"] = enriched_platform
+            # Also expose generic pool composition for proxmox/rke2-style consumers.
+            ctx["rke2"] = {"pools": enriched_platform.get("pools", [])}
+        elif platform_value == "rke2":
+            ctx["rke2"] = enriched_platform
+        elif platform_value == "aks":
+            ctx["aks"] = enriched_platform
+        else:
+            ctx["platform_details"] = enriched_platform
+
+        return ctx
+
+    if schema_version == "es-sizing-rke2.v1":
+        platform_value = (data.get("platform") or "").strip().lower() or "rke2"
+        elastic = data.get("elasticsearch", {}) or {}
+        rke2_data = data.get("rke2", {}) or {}
+        elastic_ctx = _normalize_elastic_calc(elastic, platform_value, rke2_data)
+        enriched_rke2 = _enrich_rke2_pools_from_tiers(rke2_data, elastic_ctx["tier_map"])
+        kibana, fleet_server, _ = _normalize_platform_component_counts(enriched_rke2)
+        master_count = int(elastic_ctx["summary"].get("total_master_nodes", 0) or 0)
+
+        ctx = {
+            "source": "sizing_report",
+            "source_format": "json_contract_rke2_v1",
+            "raw": data,
+            "platform_detected": platform_value,
+            "metadata": data.get("project", {}) or {},
+            "summary": elastic_ctx["summary"],
+            "inputs": elastic_ctx["inputs"],
+            "health_score": int(elastic_ctx["summary"].get("cluster_health_score", 0) or 0),
+            "profile": "custom",
+            "data_nodes": elastic_ctx["data_nodes"],
+            "cold_nodes": elastic_ctx["cold_nodes"],
+            "frozen_nodes": elastic_ctx["frozen_nodes"],
+            "master_nodes": _normalize_component(master_count, 4.0, 2.0) if master_count > 0 else {},
+            "kibana": kibana,
+            "fleet_server": fleet_server,
+            "rke2": enriched_rke2,
+        }
+        return ctx
+
+    raise ValueError("Unsupported sizing contract schema_version")
 
 
 # ---------------------------------------------------------------------------

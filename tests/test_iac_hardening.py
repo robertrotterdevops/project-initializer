@@ -25,6 +25,261 @@ class TestIacHardening(unittest.TestCase):
         ctx = _parse_json_contract(payload)
         self.assertEqual(ctx.get("platform_detected"), "rke2")
 
+    def test_json_contract_rke2_v1_is_normalized_for_addons(self) -> None:
+        payload = """
+        {
+          "schema_version": "es-sizing-rke2.v1",
+          "platform": "rke2",
+          "project": {"name": "OS-1"},
+          "elasticsearch": {
+            "inputs": {
+              "ingest_gb_per_day": 1,
+              "total_retention_days": 365,
+              "workload_type": "mixed"
+            },
+            "summary": {
+              "cluster_health_score": 93,
+              "total_nodes": 2,
+              "total_data_nodes": 2,
+              "total_vcpu_selected": 4,
+              "total_ram_gb_selected": 16,
+              "total_local_disk_gb_selected": 200,
+              "total_snapshot_storage_gb": 200,
+              "total_master_nodes": 0
+            },
+            "tiers": [
+              {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
+            ]
+          },
+          "rke2": {
+            "storage": {"profile": "local-nvme"},
+            "pools": [
+              {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 12, "ram_gb_per_node": 20, "disk_gb_per_node": null},
+              {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 12, "ram_gb_per_node": 15, "disk_gb_per_node": null},
+              {"name": "system_pool", "nodes": 2, "vcpu_per_node": 8, "ram_gb_per_node": 10, "disk_gb_per_node": null}
+            ],
+            "elastic_tier_to_pool": [
+              {"tier": "hot", "pool": "hot_pool"},
+              {"tier": "cold", "pool": "cold_pool"},
+              {"tier": "frozen", "pool": "cold_pool"}
+            ],
+            "composition": {
+              "kibana": {"count": 1},
+              "fleet": {"count": 1}
+            },
+            "overhead_breakdown": {
+              "stack_components": {"vcpu": 4, "ram_gb": 8}
+            }
+          }
+        }
+        """
+        ctx = _parse_json_contract(payload)
+        self.assertEqual(ctx.get("platform_detected"), "rke2")
+        self.assertEqual(ctx.get("health_score"), 93)
+        self.assertEqual(ctx.get("inputs", {}).get("ingest_per_day_gb"), 1)
+        self.assertEqual(ctx.get("inputs", {}).get("retention_days"), 365)
+        self.assertEqual(ctx.get("summary", {}).get("total_vcpu"), 4)
+        self.assertEqual(ctx.get("summary", {}).get("total_ram_gb"), 16)
+        self.assertEqual(ctx.get("data_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("cold_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("data_nodes", {}).get("storage_class"), "local-path")
+        self.assertEqual(ctx.get("kibana", {}).get("count"), 1)
+        self.assertEqual(ctx.get("fleet_server", {}).get("count"), 1)
+        pools = {p["name"]: p for p in ctx.get("rke2", {}).get("pools", [])}
+        self.assertEqual(pools["hot_pool"]["disk_gb_per_node"], 100)
+        self.assertEqual(pools["cold_pool"]["disk_gb_per_node"], 100)
+
+    def test_json_contract_rke2_v1_preserves_normalized_alias_fields(self) -> None:
+        payload = """
+        {
+          "schema_version": "es-sizing-rke2.v1",
+          "platform": "rke2",
+          "project": {"name": "OS-1"},
+          "elasticsearch": {
+            "inputs": {
+              "ingest_per_day_gb": 2,
+              "retention_days": 30
+            },
+            "summary": {
+              "cluster_health_score": 91,
+              "total_nodes": 2,
+              "total_vcpu": 6,
+              "total_ram_gb": 24,
+              "total_disk_gb": 300
+            },
+            "tiers": []
+          },
+          "rke2": {
+            "storage": {"profile": "Local_NVME"},
+            "pools": []
+          }
+        }
+        """
+        ctx = _parse_json_contract(payload)
+        self.assertEqual(ctx.get("inputs", {}).get("ingest_per_day_gb"), 2)
+        self.assertEqual(ctx.get("inputs", {}).get("retention_days"), 30)
+        self.assertEqual(ctx.get("summary", {}).get("total_vcpu"), 6)
+        self.assertEqual(ctx.get("summary", {}).get("total_ram_gb"), 24)
+        self.assertEqual(ctx.get("summary", {}).get("total_disk_gb"), 300)
+
+    def test_json_contract_platform_v1_is_normalized_for_addons(self) -> None:
+        payload = """
+        {
+          "schema_version": "es-sizing-platform.v1",
+          "platform": "openshift",
+          "project": {"name": "OS-1"},
+          "calculation": {
+            "inputs": {
+              "ingest_gb_per_day": 1,
+              "total_retention_days": 365,
+              "workload_type": "mixed"
+            },
+            "summary": {
+              "cluster_health_score": 93,
+              "total_nodes": 2,
+              "total_data_nodes": 2,
+              "total_vcpu_selected": 4,
+              "total_ram_gb_selected": 16,
+              "total_local_disk_gb_selected": 200,
+              "total_snapshot_storage_gb": 200,
+              "total_master_nodes": 0
+            },
+            "tiers": [
+              {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
+            ]
+          },
+          "platform_details": {
+            "pools": [
+              {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {"kibana_pods": 1, "fleet_pods": 1}},
+              {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {}},
+              {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": null, "composition": {}}
+            ],
+            "stack_components": {"vcpu": 4, "ram_gb": 8}
+          }
+        }
+        """
+        ctx = _parse_json_contract(payload)
+        self.assertEqual(ctx.get("platform_detected"), "openshift")
+        self.assertEqual(ctx.get("health_score"), 93)
+        self.assertEqual(ctx.get("inputs", {}).get("ingest_per_day_gb"), 1)
+        self.assertEqual(ctx.get("data_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("cold_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("kibana", {}).get("count"), 1)
+        self.assertEqual(ctx.get("fleet_server", {}).get("count"), 1)
+        pools = {p["name"]: p for p in ctx.get("rke2", {}).get("pools", [])}
+        self.assertEqual(pools["hot_pool"]["disk_gb_per_node"], 100)
+        self.assertEqual(pools["cold_pool"]["disk_gb_per_node"], 100)
+
+    def test_initialize_project_proxmox_tfvars_uses_platform_v1_pools(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "openshift",
+            "openshift": {
+                "pools": [
+                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": 80}
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-platform-pools-") as td:
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
+            self.assertIn('"hot_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
+            self.assertIn('"cold_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
+            self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 4, ram_gb_per_node = 8, disk_gb = 80, full_clone = true }', tfvars)
+
+    def test_json_contract_platform_v1_is_normalized_for_addons(self) -> None:
+        payload = """
+        {
+          "schema_version": "es-sizing-platform.v1",
+          "platform": "openshift",
+          "project": {"name": "OS-1"},
+          "calculation": {
+            "inputs": {
+              "ingest_gb_per_day": 1,
+              "total_retention_days": 365,
+              "workload_type": "mixed"
+            },
+            "summary": {
+              "cluster_health_score": 93,
+              "total_nodes": 2,
+              "total_data_nodes": 2,
+              "total_vcpu_selected": 4,
+              "total_ram_gb_selected": 16,
+              "total_local_disk_gb_selected": 200,
+              "total_snapshot_storage_gb": 200,
+              "total_master_nodes": 0
+            },
+            "tiers": [
+              {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+              {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
+            ]
+          },
+          "platform_details": {
+            "pools": [
+              {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {"kibana_pods": 1, "fleet_pods": 1}},
+              {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {}},
+              {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": null, "composition": {}}
+            ],
+            "stack_components": {"vcpu": 4, "ram_gb": 8}
+          }
+        }
+        """
+        ctx = _parse_json_contract(payload)
+        self.assertEqual(ctx.get("platform_detected"), "openshift")
+        self.assertEqual(ctx.get("health_score"), 93)
+        self.assertEqual(ctx.get("inputs", {}).get("ingest_per_day_gb"), 1)
+        self.assertEqual(ctx.get("data_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("cold_nodes", {}).get("count"), 1)
+        self.assertEqual(ctx.get("kibana", {}).get("count"), 1)
+        self.assertEqual(ctx.get("fleet_server", {}).get("count"), 1)
+        pools = {p["name"]: p for p in ctx.get("rke2", {}).get("pools", [])}
+        self.assertEqual(pools["hot_pool"]["disk_gb_per_node"], 100)
+        self.assertEqual(pools["cold_pool"]["disk_gb_per_node"], 100)
+
+    def test_initialize_project_proxmox_tfvars_uses_platform_v1_pools(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "openshift",
+            "openshift": {
+                "pools": [
+                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": 80},
+                ]
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-platform-pools-") as td:
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
+            self.assertIn('"hot_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
+            self.assertIn('"cold_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
+            self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 4, ram_gb_per_node = 8, disk_gb = 80, full_clone = true }', tfvars)
+
     def test_addon_loader_matches_iac_only_trigger(self) -> None:
         loader = AddonLoader()
         analysis = {
@@ -117,6 +372,32 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("Grow root partition and filesystem on all nodes", bootstrap_playbook)
             self.assertIn('findmnt -n -o SOURCE /', bootstrap_playbook)
             self.assertIn("growpart /dev/", bootstrap_playbook)
+
+    def test_initialize_project_proxmox_tfvars_uses_rke2_pool_resources(self) -> None:
+        sizing_context = {
+            "source": "sizing_report",
+            "platform_detected": "rke2",
+            "rke2": {
+                "pools": [
+                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 12, "ram_gb_per_node": 20, "disk_gb_per_node": 100},
+                    {"name": "system_pool", "nodes": 2, "vcpu_per_node": 8, "ram_gb_per_node": 10, "disk_gb_per_node": 80},
+                ]
+            },
+        }
+        with tempfile.TemporaryDirectory(prefix="pi-proxmox-pools-") as td:
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
+            self.assertIn('"hot_pool" = { node_count = 1, vcpu_per_node = 12, ram_gb_per_node = 20, disk_gb = 100, full_clone = true }', tfvars)
+            self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 8, ram_gb_per_node = 10, disk_gb = 80, full_clone = true }', tfvars)
 
     def test_flux_gitlab_repo_and_token_flow_are_generated(self) -> None:
         sizing_context = {

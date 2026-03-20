@@ -38,6 +38,9 @@ class TerraformPlatformGenerator:
     def _openshift_pools(self) -> List[Dict[str, Any]]:
         return ((self.sizing.get("openshift") or {}).get("worker_pools") or [])
 
+    def _infra_pools(self) -> List[Dict[str, Any]]:
+        return self._rke2_pools() or ((self.sizing.get("openshift") or {}).get("pools") or [])
+
     def _rke2_tfvars(self) -> str:
         pools = self._rke2_pools()
         pool_lines = []
@@ -385,7 +388,7 @@ class TerraformPlatformGenerator:
 
     def _proxmox_tfvars(self) -> str:
         # Reuse RKE2 sizing signal as Proxmox VM pool baseline.
-        pools = self._rke2_pools()
+        pools = self._infra_pools()
         pool_lines = []
         for pool in pools:
             nodes = int(pool.get("nodes") or 0)
@@ -394,8 +397,11 @@ class TerraformPlatformGenerator:
                 requested_cpu = float(comp.get("total_requested_cpu") or 0.0)
                 requested_ram = float(comp.get("total_requested_ram_gb") or 0.0)
                 nodes = max(1, int(math.ceil(max(requested_cpu / 8.0, requested_ram / 32.0))))
+            vcpu = int(float(pool.get("vcpu_per_node") or 8))
+            ram = int(float(pool.get("ram_gb_per_node") or 32))
+            disk = int(float(pool.get("disk_gb_per_node") or 80))
             pool_lines.append(
-                f'  "{pool.get("name", "pool")}" = {{ node_count = {nodes}, vcpu_per_node = 8, ram_gb_per_node = 32, disk_gb = 80, full_clone = true }}'
+                f'  "{pool.get("name", "pool")}" = {{ node_count = {nodes}, vcpu_per_node = {vcpu}, ram_gb_per_node = {ram}, disk_gb = {disk}, full_clone = true }}'
             )
         if not pool_lines:
             pool_lines = ['  "workers" = { node_count = 3, vcpu_per_node = 8, ram_gb_per_node = 32, disk_gb = 80, full_clone = true }']
