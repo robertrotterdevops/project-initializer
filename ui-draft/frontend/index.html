@@ -738,6 +738,151 @@
         color: var(--accent-primary);
       }
 
+      .stage-kicker {
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
+      .stage-note {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin-bottom: 16px;
+      }
+
+      .stage-header-tools {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .stage-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+      }
+
+      .stage-status.ready {
+        color: var(--accent-success);
+        background: rgba(34, 197, 94, 0.12);
+      }
+
+      .stage-status.pending {
+        color: var(--accent-warning);
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .stage-status.optional {
+        color: var(--text-secondary);
+      }
+
+      .stage-toggle {
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .stage-toggle:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+      }
+
+      .stage-content {
+        display: block;
+      }
+
+      .stage-collapsed .stage-content {
+        display: none;
+      }
+
+      .stage-collapsed .stage-toggle {
+        transform: rotate(-90deg);
+      }
+
+      .review-strip {
+        position: sticky;
+        top: calc(var(--header-height) + 12px);
+        z-index: 30;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 12px 14px;
+        margin-bottom: 16px;
+        background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        backdrop-filter: blur(10px);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .review-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+      }
+
+      .review-pill strong {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      .review-pill.ready {
+        color: var(--accent-success);
+        background: rgba(34, 197, 94, 0.12);
+      }
+
+      .review-pill.warn {
+        color: var(--accent-warning);
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .review-pill.error {
+        color: var(--accent-error);
+        background: rgba(239, 68, 68, 0.12);
+      }
+
+      .review-strip-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .review-link-btn {
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.78rem;
+        cursor: pointer;
+      }
+
+      .review-link-btn:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+      }
+
       /* Form Grid */
       .form-grid {
         display: grid;
@@ -1683,11 +1828,36 @@
           <section class="page-section active" id="pageCreate">
             <div class="section-header">
               <h1 class="section-title">Create New Project</h1>
-              <p class="section-subtitle">Initialize a new DevOps project with automated skill assignment</p>
+              <p class="section-subtitle">Work left to right through platform choice, sizing, delivery settings, preview, and create.</p>
+            </div>
+
+            <div class="review-strip" id="createReviewStrip">
+              <div class="review-pill" id="reviewProjectName"><span>Project</span><strong>n/a</strong></div>
+              <div class="review-pill" id="reviewPlatform"><span>Platform</span><strong>n/a</strong></div>
+              <div class="review-pill warn" id="reviewSizing"><span>Sizing</span><strong>Not reviewed</strong></div>
+              <div class="review-pill" id="reviewAddons"><span>Addons</span><strong>n/a</strong></div>
+              <div class="review-pill warn" id="reviewReady"><span>Create</span><strong>Not ready</strong></div>
+              <div class="review-strip-actions">
+                <button type="button" class="review-link-btn" id="reviewIssuesBtn">Expand review issues</button>
+              </div>
             </div>
 
             <!-- Project Setup -->
             <div class="workspace-card" id="technologyCard">
+              <div class="card-header">
+                <div>
+                  <div class="stage-kicker">Stage 1</div>
+                  <h2 class="card-title"><i data-lucide="layout-template"></i>Project Identity & Target</h2>
+                </div>
+                <div class="stage-header-tools">
+                  <span class="stage-status pending" id="stage1Status">Needs input</span>
+                  <button type="button" class="stage-toggle" data-stage-target="stage1Content" aria-label="Toggle Stage 1">
+                    <i data-lucide="chevron-down"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="stage-content" id="stage1Content">
+              <p class="stage-note">Pick the delivery baseline, project location, and target platform before sizing or Git settings.</p>
               <div class="workspace-overview">
                 <div>
                   <div class="workspace-eyebrow">Deployment target</div>
@@ -1855,16 +2025,28 @@
                   </details>
                 </div>
               </div>
+              </div>
             </div>
 
             <!-- Platform & Sizing -->
-            <div class="card">
+            <div class="card" id="stage2Card">
               <div class="card-header">
-                <h2 class="card-title">
-                  <i data-lucide="server"></i>
-                  Platform & Sizing
-                </h2>
+                <div>
+                  <div class="stage-kicker">Stage 2</div>
+                  <h2 class="card-title">
+                    <i data-lucide="server"></i>
+                    Platform, Sizing & Runtime
+                  </h2>
+                </div>
+                <div class="stage-header-tools">
+                  <span class="stage-status pending" id="stage2Status">Review sizing</span>
+                  <button type="button" class="stage-toggle" data-stage-target="stage2Content" aria-label="Toggle Stage 2">
+                    <i data-lucide="chevron-down"></i>
+                  </button>
+                </div>
               </div>
+              <div class="stage-content" id="stage2Content">
+              <p class="stage-note">Confirm GitOps and IaC options, then validate sizing input, caveats, and addon plan before generation.</p>
               <div class="form-grid">
                 <div class="form-field full-width">
                   <label class="form-label">
@@ -1934,7 +2116,7 @@
                     <div class="file-input-dropzone" id="sizingDropzone">
                       <i data-lucide="upload-cloud"></i>
                       <p>Drop sizing report here or click to browse</p>
-                      <span>Supports JSON contract or markdown sizing report</span>
+                      <span>JSON contracts are preferred. Markdown remains legacy-only fallback.</span>
                     </div>
                     <input type="file" class="file-input" id="sizingFile" accept=".json,.md,application/json,text/markdown,text/plain">
                     <div class="filename" id="sizingFilename" style="display: none;"></div>
@@ -1942,19 +2124,43 @@
                       <button type="button" class="file-action-btn" id="pickSizingFileBtn">Choose file</button>
                       <button type="button" class="file-action-btn danger" id="clearSizingFileBtn">Clear file</button>
                     </div>
+                    <div class="form-hint">Supported schemas: <code>es-sizing.v1</code>, <code>es-sizing-rke2.v1</code>, <code>es-sizing-platform.v1</code>.</div>
+                    <div id="sizingPreviewPanel" class="card" style="display:none; margin-top: 14px; padding: 16px;">
+                      <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                        <strong>Sizing preview</strong>
+                        <span id="sizingPreviewStatus" class="status-badge" style="display:inline-flex;"><span id="sizingPreviewStatusText">Pending</span></span>
+                      </div>
+                      <div id="sizingPreviewMeta" class="form-hint" style="margin-bottom:10px;"></div>
+                      <div id="sizingPreviewWarnings" style="display:none; margin-bottom:10px;"></div>
+                      <div id="sizingPreviewCaveats" style="display:none; margin-bottom:10px;"></div>
+                      <div id="sizingPreviewAddons" style="display:none; margin-bottom:10px;"></div>
+                      <pre id="sizingPreviewBody" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5;"></pre>
+                    </div>
                   </div>
                 </div>
+              </div>
               </div>
             </div>
 
             <!-- Git Options -->
-            <div class="card">
+            <div class="card" id="stage3Card">
               <div class="card-header">
-                <h2 class="card-title">
-                  <i data-lucide="github"></i>
-                  Git Options
-                </h2>
+                <div>
+                  <div class="stage-kicker">Stage 3</div>
+                  <h2 class="card-title">
+                    <i data-lucide="github"></i>
+                    Repository & Delivery Controls
+                  </h2>
+                </div>
+                <div class="stage-header-tools">
+                  <span class="stage-status optional" id="stage3Status">Optional</span>
+                  <button type="button" class="stage-toggle" data-stage-target="stage3Content" aria-label="Toggle Stage 3">
+                    <i data-lucide="chevron-down"></i>
+                  </button>
+                </div>
               </div>
+              <div class="stage-content" id="stage3Content">
+              <p class="stage-note">Configure repository initialization, remote creation, branch defaults, and post-create push behavior.</p>
               <div class="form-grid">
                 <div class="form-field full-width">
                   <button class="btn btn-secondary" type="button" id="applyGitProfileBtn">
@@ -2050,16 +2256,21 @@
                   </label>
                 </div>
               </div>
+              </div>
             </div>
 
             <!-- Actions -->
             <div class="card actions-card">
               <div class="card-header">
-                <h2 class="card-title">
-                  <i data-lucide="zap"></i>
-                  Actions
-                </h2>
+                <div>
+                  <div class="stage-kicker">Stage 4</div>
+                  <h2 class="card-title">
+                    <i data-lucide="zap"></i>
+                    Review & Execute
+                  </h2>
+                </div>
               </div>
+              <p class="stage-note">Use Analyze when you want a dry preview. Use Create when sizing, caveats, and addon plan look correct.</p>
               <div class="btn-group">
                 <button class="btn btn-secondary" id="analyzeBtn">
                   <i data-lucide="search"></i>
@@ -2085,7 +2296,7 @@
               <div class="result-header">
                 <span class="result-title">
                   <i data-lucide="terminal"></i>
-                  Output
+                  Stage 5 · Result
                 </span>
                 <span class="status-badge" id="resultStatus" style="display: none;">
                   <span class="dot"></span>
@@ -2534,6 +2745,8 @@
         deploymentHistory: [],
         currentPage: 'create',
         sizingFile: null,
+        sizingPreview: null,
+        sizingPreviewRequestId: 0,
         isLoading: false,
         dialogTargetField: null,
         lastCreatedTargetType: 'local',
@@ -2559,6 +2772,153 @@
       // API Helpers
       function apiUrl(path) {
         return apiBase ? `${apiBase}${path}` : path;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function renderSizingPreview(preview) {
+        const panel = document.getElementById('sizingPreviewPanel');
+        const status = document.getElementById('sizingPreviewStatus');
+        const statusText = document.getElementById('sizingPreviewStatusText');
+        const meta = document.getElementById('sizingPreviewMeta');
+        const warnings = document.getElementById('sizingPreviewWarnings');
+        const caveats = document.getElementById('sizingPreviewCaveats');
+        const addons = document.getElementById('sizingPreviewAddons');
+        const body = document.getElementById('sizingPreviewBody');
+        if (!panel || !status || !statusText || !meta || !warnings || !caveats || !addons || !body) return;
+        if (!preview) {
+          panel.style.display = 'none';
+          warnings.style.display = 'none';
+          warnings.innerHTML = '';
+          caveats.style.display = 'none';
+          caveats.innerHTML = '';
+          addons.style.display = 'none';
+          addons.innerHTML = '';
+          body.textContent = '';
+          meta.textContent = '';
+          return;
+        }
+        panel.style.display = 'block';
+        const ok = !!preview.ok;
+        status.className = `status-badge ${ok ? 'success' : 'error'}`;
+        statusText.textContent = ok ? 'Ready' : 'Needs attention';
+        meta.textContent = [
+          `schema=${preview.schema_version || 'unknown'}`,
+          `source=${preview.source_format || 'unknown'}`,
+          `platform=${preview.effective_platform || preview.platform_detected || 'unknown'}`,
+          `health=${preview.health_score ?? 'n/a'}`,
+        ].join(' • ');
+
+        const warningItems = [];
+        if (preview.fatal_error) warningItems.push(preview.fatal_error);
+        (preview.warnings || []).forEach(item => warningItems.push(item));
+        if (warningItems.length) {
+          warnings.style.display = 'block';
+          warnings.innerHTML = warningItems.map(item => `<div class="form-hint" style="color: var(--accent-warning); margin-bottom:4px;">${escapeHtml(item.severity || 'warning').toUpperCase()}: ${escapeHtml(item.message)}</div>`).join('');
+        } else {
+          warnings.style.display = 'none';
+          warnings.innerHTML = '';
+        }
+
+        const caveatItems = preview.caveats || [];
+        if (caveatItems.length) {
+          caveats.style.display = 'block';
+          caveats.innerHTML = `
+            <div class="form-hint" style="margin-bottom:6px; color: var(--text-secondary);">Delivery caveats</div>
+            ${caveatItems.map(item => `<div class="form-hint" style="margin-bottom:4px; color:${item.severity === 'warning' ? 'var(--accent-warning)' : 'var(--text-secondary)'};">${escapeHtml((item.severity || 'info').toUpperCase())}: ${escapeHtml(item.message)}</div>`).join('')}
+          `;
+        } else {
+          caveats.style.display = 'none';
+          caveats.innerHTML = '';
+        }
+
+        const addonPreview = preview.addon_preview || {};
+        const addonItems = addonPreview.addons || [];
+        if (addonItems.length) {
+          addons.style.display = 'block';
+          addons.innerHTML = `
+            <div class="form-hint" style="margin-bottom:6px; color: var(--text-secondary);">Addon plan · category=${escapeHtml(addonPreview.primary_category || 'unknown')} · chain=${escapeHtml(addonPreview.priority_chain || 'default')}</div>
+            ${addonItems.map(item => `<div class="form-hint" style="margin-bottom:6px;"><strong>${escapeHtml(item.name)}</strong> — ${escapeHtml(item.description || '')}<br><span style="color: var(--text-muted);">Touches: ${escapeHtml((item.areas || []).join(', '))}</span></div>`).join('')}
+          `;
+        } else {
+          addons.style.display = 'none';
+          addons.innerHTML = '';
+        }
+
+        const tiers = preview.tiers || {};
+        const components = preview.components || {};
+        const pools = preview.pools || [];
+        const lines = [];
+        if (Object.keys(tiers).length) {
+          lines.push('tiers:');
+          Object.entries(tiers).forEach(([name, tier]) => {
+            lines.push(`  - ${name}: count=${tier.count ?? 0}, cpu=${tier.cpu ?? tier.cpu_request ?? tier.vcpu_per_node ?? 'n/a'}, ram=${tier.memory ?? tier.memory_gb ?? tier.ram_gb_per_node ?? 'n/a'}, disk=${tier.storage ?? tier.disk_gb ?? tier.disk_gb_per_node ?? 'n/a'}`);
+          });
+        }
+        if (Object.keys(components).length) {
+          lines.push('components:');
+          Object.entries(components).forEach(([name, component]) => {
+            if (!component || Object.keys(component).length === 0) return;
+            lines.push(`  - ${name}: count=${component.count ?? 0}, cpu=${component.cpu ?? component.cpu_request ?? 'n/a'}, ram=${component.memory ?? component.memory_gb ?? 'n/a'}`);
+          });
+        }
+        if (pools.length) {
+          lines.push('pools:');
+          pools.forEach(pool => {
+            lines.push(`  - ${pool.name}: nodes=${pool.nodes ?? pool.node_count ?? 0}, vcpu=${pool.vcpu_per_node ?? 'n/a'}, ram=${pool.ram_gb_per_node ?? 'n/a'}, disk=${pool.disk_gb_per_node ?? pool.disk_gb ?? 'n/a'}`);
+          });
+        }
+        body.textContent = lines.join('\n') || 'No sizing details extracted.';
+        updateCreateStageStatuses();
+      }
+
+      function clearSizingPreview() {
+        state.sizingPreview = null;
+        renderSizingPreview(null);
+        updateCreateStageStatuses();
+      }
+
+      async function requestSizingPreview() {
+        if (!state.sizingFile) {
+          clearSizingPreview();
+          return null;
+        }
+        const requestId = ++state.sizingPreviewRequestId;
+        const fd = new FormData();
+        fd.append('sizing_file', state.sizingFile);
+        fd.append('name', document.getElementById('name').value.trim() || 'preview-project');
+        fd.append('forced_type', document.getElementById('forcedType').value || 'auto');
+        fd.append('forced_chain', document.getElementById('forcedChain').value || '');
+        fd.append('platform', document.getElementById('platform').value || '');
+        fd.append('gitops_tool', document.getElementById('gitopsTool').value || '');
+        fd.append('description', document.getElementById('description').value.trim());
+        if (document.getElementById('enableOtelCollector').checked) fd.append('enable_otel_collector', 'true');
+        if (document.getElementById('useTerraformIac').checked) fd.append('use_terraform_iac', 'true');
+        try {
+          const res = await fetch(apiUrl('/api/sizing/preview'), { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({ ok: false, fatal_error: { message: 'Sizing preview failed' } }));
+          if (requestId !== state.sizingPreviewRequestId) return state.sizingPreview;
+          state.sizingPreview = data;
+          renderSizingPreview(data);
+          if (!res.ok) {
+            showToast((data.fatal_error && data.fatal_error.message) || 'Sizing preview failed', 'error');
+          }
+          return data;
+        } catch (err) {
+          const preview = { ok: false, warnings: [], fatal_error: { message: String(err) } };
+          if (requestId !== state.sizingPreviewRequestId) return preview;
+          state.sizingPreview = preview;
+          renderSizingPreview(preview);
+          showToast(`Sizing preview failed: ${err}`, 'error');
+          return preview;
+        }
       }
 
       // Toast Notifications
@@ -3446,6 +3806,7 @@
           if (!isSizingFileSupported(file.name)) {
             showToast('Unsupported sizing file. Use .json or .md', 'warning');
             sizingFileEl.value = '';
+            clearSizingPreview();
             return;
           }
           state.sizingFile = file;
@@ -3453,11 +3814,13 @@
           sizingDropzoneEl.querySelector('p').textContent = 'File selected';
           sizingFilenameEl.textContent = file.name;
           sizingFilenameEl.style.display = 'block';
+          requestSizingPreview();
         } else {
           state.sizingFile = null;
           sizingDropzoneEl.classList.remove('has-file');
           sizingDropzoneEl.querySelector('p').textContent = 'Drop sizing report here or click to browse';
           sizingFilenameEl.style.display = 'none';
+          clearSizingPreview();
         }
       });
 
@@ -3489,7 +3852,12 @@
         sizingDropzoneEl.classList.remove('has-file');
         sizingDropzoneEl.querySelector('p').textContent = 'Drop sizing report here or click to browse';
         sizingFilenameEl.style.display = 'none';
+        clearSizingPreview();
       });
+
+      function refreshSizingPreviewIfNeeded() {
+        if (state.sizingFile) requestSizingPreview();
+      }
 
       // Load Metadata (Chains)
       async function loadMeta() {
@@ -3516,8 +3884,23 @@
       if (gitopsSelectEl) {
         gitopsSelectEl.addEventListener('change', () => {
           state.gitopsTouched = true;
+          refreshSizingPreviewIfNeeded();
         });
       }
+      const previewSensitiveInputs = [
+        document.getElementById('name'),
+        document.getElementById('platform'),
+        document.getElementById('description'),
+        document.getElementById('forcedType'),
+        document.getElementById('forcedChain'),
+        document.getElementById('gitopsTool'),
+        document.getElementById('enableOtelCollector'),
+        document.getElementById('useTerraformIac'),
+      ].filter(Boolean);
+      previewSensitiveInputs.forEach((el) => {
+        const eventName = el.tagName === 'TEXTAREA' ? 'blur' : 'change';
+        el.addEventListener(eventName, refreshSizingPreviewIfNeeded);
+      });
 
       // Base Fields
       function baseFields() {
@@ -3900,18 +4283,124 @@
         } catch (_) { /* ignore */ }
       }
 
+      function isStage1Ready() {
+        const targetType = document.getElementById('targetType')?.value || 'local';
+        const hasBase = !!document.getElementById('name')?.value.trim() && !!document.getElementById('targetDir')?.value.trim();
+        if (!hasBase) return false;
+        if (targetType !== 'remote') return true;
+        return !!document.getElementById('remoteHost')?.value.trim()
+          && !!document.getElementById('remoteUser')?.value.trim()
+          && !!document.getElementById('remoteBaseDir')?.value.trim();
+      }
+
+      function isStage2Ready() {
+        if (!isStage1Ready()) return false;
+        return !(state.sizingPreview && state.sizingPreview.fatal_error);
+      }
+
+      function setStageCollapsed(contentId, collapsed) {
+        const content = document.getElementById(contentId);
+        if (!content) return;
+        const card = content.closest('.card, .workspace-card, .result-card');
+        if (!card) return;
+        card.classList.toggle('stage-collapsed', !!collapsed);
+      }
+
+      function setReviewPill(id, label, value, tone = '') {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = `review-pill${tone ? ` ${tone}` : ''}`;
+        el.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+      }
+
+      function scrollToCreateIssue(targetId) {
+        const el = document.getElementById(targetId);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      function expandReviewIssues() {
+        if (!isStage1Ready()) {
+          setStageCollapsed('stage1Content', false);
+          setStageCollapsed('stage2Content', false);
+          scrollToCreateIssue(document.getElementById('targetType')?.value === 'remote' ? 'remoteTargetSection' : 'name');
+          return;
+        }
+        if (state.sizingPreview?.fatal_error) {
+          setStageCollapsed('stage2Content', false);
+          scrollToCreateIssue('sizingPreviewPanel');
+          return;
+        }
+        if (!state.sizingPreview && state.sizingFile) {
+          setStageCollapsed('stage2Content', false);
+          scrollToCreateIssue('sizingDropzone');
+          return;
+        }
+        scrollToCreateIssue('createBtn');
+      }
+
+      function updateCreateStageStatuses() {
+        const stage1Status = document.getElementById('stage1Status');
+        const stage2Status = document.getElementById('stage2Status');
+        const stage3Status = document.getElementById('stage3Status');
+        const stage1Ready = isStage1Ready();
+        const stage2Ready = isStage2Ready();
+        const hasPreview = !!state.sizingPreview;
+        const configuredRepo = !!document.getElementById('gitRemoteUrl')?.value.trim() || !!document.getElementById('gitInit')?.checked || !!document.getElementById('gitPush')?.checked || !!document.getElementById('createRemoteRepo')?.checked;
+        if (stage1Status) {
+          stage1Status.textContent = stage1Ready ? 'Ready' : 'Needs input';
+          stage1Status.className = `stage-status ${stage1Ready ? 'ready' : 'pending'}`;
+        }
+        if (stage2Status) {
+          stage2Status.textContent = stage2Ready ? (hasPreview ? 'Ready' : 'Runtime defaults') : 'Review sizing';
+          stage2Status.className = `stage-status ${stage2Ready ? 'ready' : 'pending'}`;
+        }
+        if (stage3Status) {
+          stage3Status.textContent = configuredRepo ? 'Configured' : 'Optional';
+          stage3Status.className = `stage-status ${configuredRepo ? 'ready' : 'optional'}`;
+        }
+
+        const preview = state.sizingPreview || {};
+        const addonPreview = preview.addon_preview || {};
+        const addonCount = Array.isArray(addonPreview.addons) ? addonPreview.addons.length : 0;
+        const projectName = document.getElementById('name')?.value.trim() || 'n/a';
+        const platformValue = preview.effective_platform || document.getElementById('platform')?.value || state.activePlatform || 'n/a';
+        const sizingValue = preview.fatal_error ? 'Blocked' : hasPreview ? 'Reviewed' : 'Not reviewed';
+        const sizingTone = preview.fatal_error ? 'error' : hasPreview ? 'ready' : 'warn';
+        const readyValue = (stage1Ready && stage2Ready) ? 'Ready' : 'Not ready';
+        const readyTone = (stage1Ready && stage2Ready) ? 'ready' : 'warn';
+        setReviewPill('reviewProjectName', 'Project', projectName);
+        setReviewPill('reviewPlatform', 'Platform', platformValue);
+        setReviewPill('reviewSizing', 'Sizing', sizingValue, sizingTone);
+        setReviewPill('reviewAddons', 'Addons', addonCount ? String(addonCount) : 'pending', addonCount ? 'ready' : '');
+        setReviewPill('reviewReady', 'Create', readyValue, readyTone);
+      }
+
       function renderSummaryCard(event, logEl) {
         const card = document.createElement('div');
         card.className = 'summary-card';
         const addons = Array.isArray(event.addons_triggered) ? event.addons_triggered : [];
+        const filesCreated = Array.isArray(event.files_created) ? event.files_created.length : Number(event.files_created || 0);
+        const outputSummary = event.output_summary || {};
+        const families = Array.isArray(outputSummary.families) ? outputSummary.families : [];
+        const familyHtml = families.length
+          ? `<div style="margin-top:10px; border-top:1px solid var(--border-color); padding-top:10px;">
+              <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:8px;">Generated outputs by family</div>
+              ${families.map(group => `<div style="margin-bottom:8px;">
+                <div class="summary-row"><span class="label">${escapeHtml(group.family)}</span><span>${group.count}</span></div>
+                <div class="form-hint" style="margin-top:2px;">${escapeHtml((group.samples || []).join(', '))}</div>
+              </div>`).join('')}
+            </div>`
+          : '';
         card.innerHTML = `
           <div class="summary-title"><i data-lucide="check-circle"></i> ${event.name || 'Project'} created</div>
           <div class="summary-row"><span class="label">Path</span><span>${event.project_path || ''}</span></div>
           <div class="summary-row"><span class="label">Platform</span><span>${event.platform || 'auto'}</span></div>
           <div class="summary-row"><span class="label">Addons triggered</span><span>${addons.length}</span></div>
-          <div class="summary-row"><span class="label">Files created</span><span>${event.files_created || 0}</span></div>
+          <div class="summary-row"><span class="label">Files created</span><span>${filesCreated}</span></div>
+          ${familyHtml}
           <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:0.8rem;color:var(--text-muted)">Show details</summary>
-            <pre style="font-size:0.78rem;margin-top:6px;overflow:auto">${JSON.stringify(event, null, 2)}</pre>
+            <pre style="font-size:0.78rem;margin-top:6px;overflow:auto">${escapeHtml(JSON.stringify(event, null, 2))}</pre>
           </details>`;
         logEl.parentNode.insertBefore(card, logEl);
         lucide.createIcons();
@@ -3919,6 +4408,24 @@
 
       // Deployment dropdown change handler (status tab)
       document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.stage-toggle').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-stage-target');
+            const target = targetId ? document.getElementById(targetId) : null;
+            if (!target) return;
+            const card = target.closest('.card, .workspace-card, .result-card');
+            if (!card) return;
+            card.classList.toggle('stage-collapsed');
+          });
+        });
+        setStageCollapsed('stage3Content', true);
+        updateCreateStageStatuses();
+        document.getElementById('reviewIssuesBtn')?.addEventListener('click', expandReviewIssues);
+        ['name','targetDir','targetType','remoteHost','remoteUser','remoteBaseDir','platform','gitRemoteUrl','gitInit','gitPush','createRemoteRepo'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener(el.tagName === 'INPUT' && el.type === 'text' ? 'input' : 'change', updateCreateStageStatuses);
+        });
         const sel = document.getElementById('statusDeploymentSelect');
         const kubeconfigField = document.getElementById('statusKubeconfigField');
         if (sel) {
@@ -3978,6 +4485,21 @@
             }
           });
 
+          let sizingPreview = state.sizingPreview;
+          if (state.sizingFile && !sizingPreview) {
+            sizingPreview = await requestSizingPreview();
+          }
+          if (sizingPreview && sizingPreview.fatal_error) {
+            const continueWithoutSizing = window.confirm(`${sizingPreview.fatal_error.message}\n\nContinue and generate the project without applying sizing data?`);
+            if (!continueWithoutSizing) {
+              state.isLoading = false;
+              document.getElementById('createBtn').innerHTML = '<i data-lucide="plus"></i> Create Project';
+              lucide.createIcons();
+              return;
+            }
+            fd.append('continue_without_sizing', 'true');
+          }
+
           if (state.sizingFile) {
             fd.append('sizing_file', state.sizingFile);
           }
@@ -3986,7 +4508,14 @@
           const res = await fetch(apiUrl('/api/create/stream'), { method: 'POST', body: fd });
           if (!res.ok || !res.body) {
             const err = await res.json().catch(() => ({}));
-            showToast(err.detail || 'Create failed', 'error');
+            const detail = err.detail || err;
+            if (detail && typeof detail === 'object' && detail.sizing_preview) {
+              state.sizingPreview = detail.sizing_preview;
+              renderSizingPreview(detail.sizing_preview);
+              showToast(detail.message || 'Create failed', 'error');
+            } else {
+              showToast((detail && detail.message) || detail || 'Create failed', 'error');
+            }
             return;
           }
 
@@ -4039,12 +4568,22 @@
                 }
                 showToast('Project created successfully!');
                 loadDeploymentHistory();
+              } else if (event.step === 'warning') {
+                if (event.sizing_preview) {
+                  state.sizingPreview = event.sizing_preview;
+                  renderSizingPreview(event.sizing_preview);
+                }
+                showToast(event.message || 'Warning', 'warning');
               } else if (event.step === 'error') {
                 const statusBadge = document.getElementById('resultStatus');
                 if (statusBadge) {
                   statusBadge.style.display = 'inline-flex';
                   statusBadge.className = 'status-badge error';
                   document.getElementById('resultStatusText').textContent = 'Error';
+                }
+                if (event.sizing_preview) {
+                  state.sizingPreview = event.sizing_preview;
+                  renderSizingPreview(event.sizing_preview);
                 }
                 showToast(event.message || 'Create failed', 'error');
               }

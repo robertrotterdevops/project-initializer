@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from sizing_model import CanonicalSizingModel, SizingMessage, SizingParseResult
+
 
 # ---------------------------------------------------------------------------
 # Markdown table parser
@@ -59,6 +61,16 @@ def _safe_float(val: str) -> float:
 
 def _safe_int(val: str) -> int:
     return int(_safe_float(val))
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            continue
+        return value
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -696,17 +708,14 @@ def _normalize_elastic_calc(
     totals = summary_raw.get("totals", {}) or {}
     summary_raw.setdefault("total_nodes", summary_raw.get("total_nodes", totals.get("nodes", 0)))
     summary_raw.setdefault("total_data_nodes", summary_raw.get("total_data_nodes", totals.get("data_nodes", 0)))
-    summary_raw["total_vcpu"] = summary_raw.get("total_vcpu") or summary_raw.get("total_vcpu_selected") or totals.get("vcpu", 0)
-    summary_raw["total_ram_gb"] = summary_raw.get("total_ram_gb") or summary_raw.get("total_ram_gb_selected") or totals.get("ram_gb", 0)
-    summary_raw["total_disk_gb"] = summary_raw.get("total_disk_gb") or summary_raw.get("total_local_disk_gb_selected") or totals.get("local_disk_gb", 0)
-    summary_raw["total_snapshot_storage_gb"] = (
-        summary_raw.get("total_snapshot_storage_gb")
-        or totals.get("snapshot_storage_gb", 0)
-    )
+    summary_raw["total_vcpu"] = _first_present(summary_raw.get("total_vcpu"), summary_raw.get("total_vcpu_selected"), totals.get("vcpu"), 0)
+    summary_raw["total_ram_gb"] = _first_present(summary_raw.get("total_ram_gb"), summary_raw.get("total_ram_gb_selected"), totals.get("ram_gb"), 0)
+    summary_raw["total_disk_gb"] = _first_present(summary_raw.get("total_disk_gb"), summary_raw.get("total_local_disk_gb_selected"), totals.get("local_disk_gb"), 0)
+    summary_raw["total_snapshot_storage_gb"] = _first_present(summary_raw.get("total_snapshot_storage_gb"), totals.get("snapshot_storage_gb"), 0)
 
     inputs_raw = dict(calc.get("inputs", {}) or {})
-    inputs_raw["ingest_per_day_gb"] = inputs_raw.get("ingest_per_day_gb", inputs_raw.get("ingest_gb_per_day"))
-    inputs_raw["retention_days"] = inputs_raw.get("retention_days", inputs_raw.get("total_retention_days"))
+    inputs_raw["ingest_per_day_gb"] = _first_present(inputs_raw.get("ingest_per_day_gb"), inputs_raw.get("ingest_gb_per_day"))
+    inputs_raw["retention_days"] = _first_present(inputs_raw.get("retention_days"), inputs_raw.get("total_retention_days"))
 
     storage_class = _storage_class_for_platform(platform_value, platform_details)
     data_nodes = _node_profile_from_contract_tier(tier_map.get("hot", {}))
@@ -726,21 +735,43 @@ def _normalize_elastic_calc(
 
 
 def _normalize_platform_component_counts(platform_details: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int]:
+    def _component_count(value: Any) -> int:
+        if isinstance(value, dict):
+            return int(value.get("count") or value.get("pods") or value.get("replicas") or 0)
+        return int(value or 0)
+
     stack_components = (platform_details.get("stack_components") or {}) or (
         (platform_details.get("overhead_breakdown") or {}).get("stack_components") or {}
     )
     pools = platform_details.get("pools", []) or []
-    kibana_count = 0
-    fleet_count = 0
-    for pool in pools:
-        comp = pool.get("composition") or {}
-        kibana_count += int(comp.get("kibana_pods") or comp.get("kibana") or 0)
-        fleet_count += int(comp.get("fleet_pods") or comp.get("fleet") or 0)
+    root_composition = platform_details.get("composition") or {}
+
+    kibana_count = (
+        _component_count(root_composition.get("kibana_pods"))
+        or _component_count(root_composition.get("kibana"))
+        or _component_count(root_composition.get("count"))
+    )
+    fleet_count = (
+        _component_count(root_composition.get("fleet_pods"))
+        or _component_count(root_composition.get("fleet"))
+        or _component_count(root_composition.get("fleet_server"))
+    )
+
+    if kibana_count == 0 and fleet_count == 0:
+        for pool in pools:
+            comp = pool.get("composition") or {}
+            kibana_count += _component_count(comp.get("kibana_pods")) or _component_count(comp.get("kibana"))
+            fleet_count += (
+                _component_count(comp.get("fleet_pods"))
+                or _component_count(comp.get("fleet"))
+                or _component_count(comp.get("fleet_server"))
+            )
 
     shared_stack_cpu = float(stack_components.get("vcpu") or 0)
     shared_stack_ram = float(stack_components.get("ram_gb") or 0)
-    per_component_cpu = shared_stack_cpu / max(kibana_count + fleet_count, 1) if shared_stack_cpu else 2.0
-    per_component_ram = shared_stack_ram / max(kibana_count + fleet_count, 1) if shared_stack_ram else 4.0
+    total_components = max(kibana_count + fleet_count, 1)
+    per_component_cpu = shared_stack_cpu / total_components if shared_stack_cpu else 2.0
+    per_component_ram = shared_stack_ram / total_components if shared_stack_ram else 4.0
     kibana = _normalize_component(kibana_count, per_component_ram, per_component_cpu) if kibana_count > 0 else {}
     fleet = _normalize_component(fleet_count, per_component_ram, per_component_cpu) if fleet_count > 0 else {}
     return kibana, fleet, kibana_count + fleet_count
@@ -871,22 +902,146 @@ def _parse_json_contract(content: str) -> dict[str, Any]:
 # Public convenience function
 # ---------------------------------------------------------------------------
 
-def parse_sizing_file(filepath: str) -> dict[str, Any]:
-    """Parse a sizing file and return normalized sizing context for addons."""
-    path = Path(filepath)
-    content = path.read_text()
+def _canonical_model_from_context(
+    ctx: dict[str, Any], schema_version: str, source_format: str
+) -> CanonicalSizingModel:
+    return CanonicalSizingModel(
+        schema_version=schema_version,
+        source_format=source_format,
+        platform_detected=ctx.get("platform_detected"),
+        metadata=ctx.get("metadata", {}) or {},
+        inputs=ctx.get("inputs", {}) or {},
+        summary=ctx.get("summary", {}) or {},
+        tiers={
+            "hot": ctx.get("data_nodes", {}) or {},
+            "cold": ctx.get("cold_nodes", {}) or {},
+            "frozen": ctx.get("frozen_nodes", {}) or {},
+        },
+        components={
+            "master_nodes": ctx.get("master_nodes", {}) or {},
+            "kibana": ctx.get("kibana", {}) or {},
+            "fleet_server": ctx.get("fleet_server", {}) or {},
+        },
+        pools=tuple(((ctx.get("rke2") or {}).get("pools") or ((ctx.get("openshift") or {}).get("pools") or []))),
+        platform_details=(
+            ctx.get("rke2")
+            or ctx.get("openshift")
+            or ctx.get("aks")
+            or ctx.get("platform_details")
+            or {}
+        ),
+        raw=ctx.get("raw"),
+    )
 
-    # JSON contract path (preferred)
+
+def _collect_parse_warnings(
+    ctx: dict[str, Any], schema_version: str, source_format: str
+) -> tuple[SizingMessage, ...]:
+    warnings: list[SizingMessage] = []
+    if source_format == "markdown":
+        warnings.append(
+            SizingMessage(
+                code="legacy_markdown",
+                severity="warning",
+                message="Markdown sizing input is legacy. JSON contracts are preferred for more reliable scaffolding.",
+            )
+        )
+    if not ctx.get("platform_detected"):
+        warnings.append(
+            SizingMessage(
+                code="platform_missing",
+                severity="warning",
+                message="Could not confidently detect platform from sizing input.",
+                field_path="platform_detected",
+            )
+        )
+    if not (ctx.get("summary") or {}).get("total_nodes"):
+        warnings.append(
+            SizingMessage(
+                code="summary_missing",
+                severity="warning",
+                message="Sizing summary is incomplete; downstream generators may rely on defaults.",
+                field_path="summary.total_nodes",
+            )
+        )
+    if not (ctx.get("data_nodes") or {}).get("count") and not (ctx.get("cold_nodes") or {}).get("count"):
+        warnings.append(
+            SizingMessage(
+                code="tier_counts_empty",
+                severity="warning",
+                message="No hot/cold tier node counts were extracted from sizing input.",
+                field_path="tiers",
+            )
+        )
+    if schema_version == "es-sizing-platform.v1" and not (
+        ((ctx.get("openshift") or {}).get("pools") or ((ctx.get("rke2") or {}).get("pools") or []))
+    ):
+        warnings.append(
+            SizingMessage(
+                code="pool_data_missing",
+                severity="warning",
+                message="Platform pool sizing was not extracted; Terraform may fall back to generic worker pools.",
+                field_path="platform_details.pools",
+            )
+        )
+    return tuple(warnings)
+
+
+def parse_sizing_file_detailed(filepath: str) -> SizingParseResult:
+    path = Path(filepath)
     try:
-        if path.suffix.lower() == ".json" or content.lstrip().startswith("{"):
-            contract_ctx = _parse_json_contract(content)
-            return contract_ctx
-    except Exception:
-        # Fall through to markdown parsing for backward compatibility
-        pass
+        content = path.read_text()
+    except Exception as exc:
+        return SizingParseResult(
+            model=None,
+            addon_context=None,
+            fatal_error=SizingMessage("file_read_error", "error", f"Failed to read sizing file: {exc}", str(path)),
+        )
+
+    is_json_candidate = path.suffix.lower() == ".json" or content.lstrip().startswith("{")
+    if is_json_candidate:
+        try:
+            raw = json.loads(content)
+        except Exception as exc:
+            return SizingParseResult(
+                model=None,
+                addon_context=None,
+                fatal_error=SizingMessage("invalid_json", "error", f"Invalid sizing JSON: {exc}", str(path)),
+            )
+        schema_version = str(raw.get("schema_version") or "unknown")
+        try:
+            ctx = _parse_json_contract(content)
+        except Exception as exc:
+            return SizingParseResult(
+                model=None,
+                addon_context=None,
+                fatal_error=SizingMessage(
+                    "unsupported_schema",
+                    "error",
+                    f"Unsupported sizing contract: {schema_version} ({exc})",
+                    "schema_version",
+                ),
+            )
+        return SizingParseResult(
+            model=_canonical_model_from_context(ctx, schema_version, "json"),
+            addon_context=ctx,
+            warnings=_collect_parse_warnings(ctx, schema_version, "json"),
+        )
 
     parser = SizingReportParser(content, str(path))
-    return _normalize_markdown_context(parser)
+    ctx = _normalize_markdown_context(parser)
+    return SizingParseResult(
+        model=_canonical_model_from_context(ctx, "markdown", "markdown"),
+        addon_context=ctx,
+        warnings=_collect_parse_warnings(ctx, "markdown", "markdown"),
+    )
+
+def parse_sizing_file(filepath: str) -> dict[str, Any]:
+    """Parse a sizing file and return normalized sizing context for addons."""
+    result = parse_sizing_file_detailed(filepath)
+    if result.fatal_error is not None:
+        raise ValueError(result.fatal_error.message)
+    return result.addon_context or {}
 
 
 if __name__ == "__main__":

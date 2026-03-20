@@ -101,12 +101,29 @@ class ECKDeploymentGenerator:
             self._canonical_storage_class(
                 str(self.context.get("fallback_storage_class") or "")
             )
-            or "local-path"
+            or self._default_fallback_storage_class()
         )
         self.force_premium_to_fallback = (
             str(self.context.get("force_premium_to_fallback") or "true").strip().lower()
             != "false"
         )
+
+    def _default_fallback_storage_class(self) -> str:
+        if self.platform in {"rke2", "proxmox"}:
+            return "local-path"
+        if self.platform == "aks":
+            return "standard"
+        return "standard"
+
+    def _default_storage_class_for_tier(self, tier: str) -> str:
+        tier = str(tier or "").lower()
+        if self.platform in {"rke2", "proxmox"}:
+            return "local-path"
+        if self.platform == "aks":
+            return "premium" if tier == "hot" else "standard"
+        if self.platform == "openshift":
+            return "standard"
+        return "premium" if tier == "hot" else "standard"
 
     @staticmethod
     def _canonical_storage_class(value: str) -> str:
@@ -197,6 +214,24 @@ class ECKDeploymentGenerator:
                 commented.append(line)
         return "\n".join(commented)
 
+    def _render_pod_node_selector_block(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
+        """Render nodeSelector under podTemplate.spec for Kibana/Agent-style manifests."""
+        raw = self._render_node_selector(tier, tier_config)
+        if not raw:
+            return ""
+        raw = raw.replace("\n          nodeSelector:", "\n      nodeSelector:")
+        raw = raw.replace("\n            ", "\n        ")
+        if self.is_multi_tier:
+            return raw
+        lines = raw.split("\n")
+        commented = []
+        for line in lines:
+            if line.strip():
+                commented.append("  # " + line.lstrip())
+            else:
+                commented.append(line)
+        return "\n".join(commented)
+
     def generate(self) -> Dict[str, str]:
         """Generate all ECK manifests."""
         files = {}
@@ -222,7 +257,8 @@ class ECKDeploymentGenerator:
 
         # Kibana in its own folder
         files["kibana/kibana.yaml"] = self._generate_kibana()
-        files["kibana/ingress.yaml"] = self._generate_kibana_ingress()
+        if self._uses_inline_kibana_ingress():
+            files["kibana/ingress.yaml"] = self._generate_kibana_ingress()
         files["kibana/kustomization.yaml"] = self._generate_kibana_kustomization()
 
         # Agents in their own folder
@@ -252,16 +288,9 @@ class ECKDeploymentGenerator:
         return files
 
     def _generate_cluster_healthcheck_script(self) -> str:
-        return f"""#!/usr/bin/env bash
-set -euo pipefail
-
-NAMESPACE="{self.project_name}"
-ES_NAME="{self.project_name}"
-KB_NAME="{self.project_name}-kb"
-KIBANA_INGRESS="{self.project_name}-kibana"
-INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
-KUBECONFIG_FILE="$HOME/.kube/{self.project_name}"
-
+        kubeconfig_bootstrap = ""
+        if self.platform in {"rke2", "proxmox"}:
+            kubeconfig_bootstrap = f"""
 if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
   SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/')
   SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/')
@@ -277,6 +306,24 @@ if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass ||
     echo ">>> KUBECONFIG set to $KUBECONFIG"
   fi
 fi
+"""
+        else:
+            kubeconfig_bootstrap = """
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  echo ">>> KUBECONFIG is not set. For managed or externally delivered clusters, export kubeconfig before running this health check."
+fi
+"""
+
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="{self.project_name}"
+ES_NAME="{self.project_name}"
+KB_NAME="{self.project_name}-kb"
+KIBANA_INGRESS="{self.project_name}-kibana"
+INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
+KUBECONFIG_FILE="$HOME/.kube/{self.project_name}"
+{kubeconfig_bootstrap}
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
 
@@ -305,12 +352,17 @@ else
   echo "No running Elasticsearch pod found"
 fi
 
-sep "INGRESS ($NAMESPACE)"
+sep "INGRESS / ROUTES ($NAMESPACE)"
 kubectl get ingress -n "$NAMESPACE" 2>/dev/null || echo "No ingress resources found"
+kubectl get route -n "$NAMESPACE" 2>/dev/null || echo "No OpenShift routes found"
 KIBANA_HOST=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
   -o jsonpath='{{.spec.rules[0].host}}' 2>/dev/null || true)
 KIBANA_ADDR=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
   -o jsonpath='{{.status.loadBalancer.ingress[0].ip}}{{.status.loadBalancer.ingress[0].hostname}}' 2>/dev/null || true)
+if [[ -z "$KIBANA_HOST" ]]; then
+  KIBANA_HOST=$(kubectl get route -n "$NAMESPACE" "$KIBANA_INGRESS" \\
+    -o jsonpath='{{.spec.host}}' 2>/dev/null || true)
+fi
 if [[ -n "$KIBANA_HOST" ]]; then
   echo
   echo "  Kibana URL : https://${{KIBANA_HOST}}"
@@ -482,7 +534,7 @@ spec:
         cpu = self.master_nodes.get("cpu", "1")
         storage = self._min_storage_gi(self.master_nodes.get("storage", "1Gi"), 1)
         storage_class = self._resolve_storage_class(
-            self.master_nodes.get("storage_class"), "standard"
+            self.master_nodes.get("storage_class"), self._default_storage_class_for_tier("master")
         )
 
         # Calculate limits (2x requests for CPU)
@@ -539,7 +591,7 @@ spec:
         cpu = self.data_nodes.get("cpu", "2")
         storage = self.data_nodes.get("storage", "100Gi")
         storage_class = self._resolve_storage_class(
-            self.data_nodes.get("storage_class"), "premium"
+            self.data_nodes.get("storage_class"), self._default_storage_class_for_tier("hot")
         )
 
         # Calculate limits
@@ -607,7 +659,7 @@ spec:
         cpu = self.cold_nodes.get("cpu", "4")
         storage = self.cold_nodes.get("storage", "2000Gi")
         storage_class = self._resolve_storage_class(
-            self.cold_nodes.get("storage_class"), "standard"
+            self.cold_nodes.get("storage_class"), self._default_storage_class_for_tier("cold")
         )
         node_selector = self._render_node_selector_block("cold", self.cold_nodes)
 
@@ -662,6 +714,8 @@ spec:
 
         cpu_limit = str(int(cpu) * 2) if cpu.isdigit() else cpu
 
+        storage_class = self._default_storage_class_for_tier("frozen")
+
         return f"""
     # Frozen tier - searchable snapshots, minimal local cache
     - name: frozen
@@ -698,7 +752,7 @@ spec:
             resources:
               requests:
                 storage: {cache_storage}
-            storageClassName: local-path"""
+            storageClassName: {storage_class}"""
 
     def _generate_commented_warm_nodeset(self) -> str:
         """Generate commented warm tier node set as template example."""
@@ -833,7 +887,7 @@ spec:
         # Parse memory for limits (same as requests for Kibana)
         memory_limit = memory
         cpu_limit = str(int(cpu) * 2) if str(cpu).isdigit() else cpu
-        node_selector = self._render_node_selector_block("infra", None)
+        node_selector = self._render_pod_node_selector_block("infra", None)
 
         return f"""apiVersion: kibana.k8s.elastic.co/v1
 kind: Kibana
@@ -899,16 +953,23 @@ spec:
               cpu: "{cpu_limit}"{node_selector}
 """
 
+    def _uses_inline_kibana_ingress(self) -> bool:
+        """Return True when Kibana exposure should be generated in the kibana/ overlay."""
+        return self.platform not in {"openshift", "aks"}
+
     def _generate_kibana_kustomization(self) -> str:
         """Generate kustomization.yaml for kibana directory."""
+        resources = ["  - kibana.yaml"]
+        if self._uses_inline_kibana_ingress():
+            resources.append("  - ingress.yaml")
+        resource_block = "\n".join(resources)
         return f"""apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: {self.project_name}
 
 resources:
-  - kibana.yaml
-  - ingress.yaml
+{resource_block}
 
 commonLabels:
   app.kubernetes.io/part-of: {self.project_name}
@@ -943,8 +1004,10 @@ spec:
 
     def _generate_fleet_server(self) -> str:
         """Generate Fleet Server deployment."""
+        count = self.fleet_config.get("count", 1)
         memory = self.fleet_config.get("memory", "1Gi")
         cpu = self.fleet_config.get("cpu", "500m")
+        node_selector = self._render_pod_node_selector_block("infra", self.fleet_config)
 
         return f"""apiVersion: agent.k8s.elastic.co/v1alpha1
 kind: Agent
@@ -971,7 +1034,7 @@ spec:
   
   # Deployment for Fleet Server
   deployment:
-    replicas: 1
+    replicas: {count}
     podTemplate:
       spec:
         serviceAccountName: elastic-agent
@@ -984,7 +1047,7 @@ spec:
                 cpu: "{cpu}"
               limits:
                 memory: "{memory}"
-                cpu: "1"
+                cpu: "1"{node_selector}
 """
 
     def _is_eck_3x(self) -> bool:
@@ -1373,7 +1436,7 @@ commonLabels:
             sizing_note = f"""
 ## Sizing Source
 
-This cluster was sized using the **elasticsearch-openshift-sizing-assistant**.
+This cluster was sized using an Elastic sizing export normalized by project-initializer.
 - **Health Score**: {health_score}/100
 - **Profile**: Multi-tier (Hot/Cold/Frozen)
 """
@@ -1385,6 +1448,14 @@ This cluster was sized using the **elasticsearch-openshift-sizing-assistant**.
             + (self.cold_nodes.get("count", 0) if self.cold_nodes else 0)
             + (self.frozen_nodes.get("count", 0) if self.frozen_nodes else 0)
         )
+
+        hot_storage_class = self._resolve_storage_class(
+            self.data_nodes.get("storage_class"), self._default_storage_class_for_tier("hot")
+        )
+        cold_storage_class = self._resolve_storage_class(
+            (self.cold_nodes or {}).get("storage_class"), self._default_storage_class_for_tier("cold")
+        )
+        frozen_storage_class = self._default_storage_class_for_tier("frozen")
 
         return f"""# Elasticsearch Cluster: {self.project_name}
 
@@ -1404,8 +1475,9 @@ ECK-managed Elasticsearch cluster with the following components:
    ```
 
 2. Storage classes available:
-   - `premium` for hot tier
-   - `standard` for cold/frozen tiers
+   - hot tier default: `{hot_storage_class}`
+   - cold tier default: `{cold_storage_class}`
+   - frozen tier default: `{frozen_storage_class}`
 
 ## Deployment
 

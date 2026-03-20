@@ -723,6 +723,8 @@ snapshot_storage_gb = {int(self.snapshot_storage_gb)}
 
 Terraform modules for deploying AKS infrastructure for Elasticsearch.
 
+This is the managed-cluster variant of the shared delivery model. AKS replaces the in-repo bootstrap stage, but the sizing topology should stay aligned with the Proxmox/RKE2 reference path documented in `../platform/DELIVERY_BLUEPRINT.md`.
+
 ## Modules
 
 | Module | Description |
@@ -769,6 +771,13 @@ kubectl get nodes
 ```
 
 ## Node Pools
+
+Keep node pool intent stable across platforms:
+- `system` = platform services and operators
+- `eshot` = active Elasticsearch data tier
+- `escold` = lower-cost retention tier
+- `esfrozen` = searchable snapshot cache tier
+
 
 | Pool | Purpose | Default VM Size | Notes |
 |------|---------|-----------------|-------|

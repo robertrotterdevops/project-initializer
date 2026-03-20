@@ -1,0 +1,35 @@
+{
+  "schema_version": "es-sizing-platform.v1",
+  "platform": "openshift",
+  "project": {"name": "OS-1"},
+  "calculation": {
+    "inputs": {
+      "ingest_gb_per_day": 1,
+      "total_retention_days": 365,
+      "workload_type": "mixed"
+    },
+    "summary": {
+      "cluster_health_score": 93,
+      "total_nodes": 2,
+      "total_data_nodes": 2,
+      "total_vcpu_selected": 4,
+      "total_ram_gb_selected": 16,
+      "total_local_disk_gb_selected": 200,
+      "total_snapshot_storage_gb": 200,
+      "total_master_nodes": 0
+    },
+    "tiers": [
+      {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+      {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+      {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
+    ]
+  },
+  "platform_details": {
+    "pools": [
+      {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {"kibana_pods": 1, "fleet_pods": 1}},
+      {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {}},
+      {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": null, "composition": {}}
+    ],
+    "stack_components": {"vcpu": 4, "ram_gb": 8}
+  }
+}

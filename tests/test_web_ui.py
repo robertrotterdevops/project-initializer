@@ -6,7 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Backend path setup
 BACKEND_DIR = Path(__file__).parent.parent / "ui-draft" / "backend"
@@ -126,7 +126,7 @@ class TestSSEEndpoint(unittest.TestCase):
         mock_result = {
             "project_path": "/tmp/my-project",
             "addons_triggered": ["eck_deployment"],
-            "files_created": ["a.yaml", "b.yaml"],
+            "files_created": ["terraform/main.tf", "elasticsearch/cluster.yaml"],
             "effective_platform": "openshift",
         }
         with patch("backend_api.initialize_project", return_value=mock_result), \
@@ -143,6 +143,10 @@ class TestSSEEndpoint(unittest.TestCase):
             self.assertIn("project_path", done)
             self.assertIn("addons_triggered", done)
             self.assertIn("files_created", done)
+            self.assertIn("output_summary", done)
+            families = {item["family"] for item in done["output_summary"]["families"]}
+            self.assertIn("infrastructure", families)
+            self.assertIn("elastic", families)
 
     def test_stream_error_yields_error_event(self):
         """Submitting an empty name should yield HTTP 422 or an SSE error event."""
@@ -182,6 +186,220 @@ class TestSSEEndpoint(unittest.TestCase):
             self.assertTrue(mock_audit.append.called, "AUDIT_LOG.append was not called")
             first_call_args = mock_audit.append.call_args_list[0]
             self.assertEqual(first_call_args[0][0], "scaffold")
+
+
+class TestSizingApi(unittest.TestCase):
+    def test_preview_endpoint_returns_structured_preview(self):
+        import backend_api
+        preview = {
+            "ok": True,
+            "schema_version": "es-sizing-platform.v1",
+            "platform_detected": "rke2",
+            "warnings": [{"code": "derived_pool_disk", "severity": "warning", "message": "disk inferred"}],
+            "fatal_error": None,
+            "sizing_context_applied": True,
+            "pools": [{"name": "hot_pool", "nodes": 1}],
+        }
+        addon_preview = {"primary_category": "elasticsearch", "priority_chain": "default", "addons": [{"name": "eck_deployment", "description": "ECK", "priority": 20, "areas": ["elasticsearch/"]}]}
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=({"platform_detected": "rke2"}, "rke2", preview))), \
+             patch("backend_api._build_addon_preview", return_value=addon_preview):
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/sizing/preview",
+                data={"platform": "proxmox", "enable_otel_collector": "true", "description": "Rancher and Fleet managed"},
+                files={"sizing_file": ("sizing.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["platform_detected"], "rke2")
+            self.assertEqual(data["effective_platform"], "proxmox")
+            self.assertEqual(data["pools"][0]["name"], "hot_pool")
+            self.assertTrue(any(item["code"] == "proxmox_rke2_bootstrap" for item in data["caveats"]))
+            self.assertTrue(any(item["code"] == "rke2_otel_timing" for item in data["caveats"]))
+            self.assertEqual(data["addon_preview"]["addons"][0]["name"], "eck_deployment")
+
+    def test_create_rejects_fatal_sizing_error_by_default(self):
+        import backend_api
+        preview = {
+            "ok": False,
+            "warnings": [],
+            "fatal_error": {"code": "invalid_json", "severity": "error", "message": "Invalid sizing file"},
+            "sizing_context_applied": False,
+        }
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=(None, None, preview))):
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/create",
+                data={"name": "bad-sizing", "target_dir": "/tmp"},
+                files={"sizing_file": ("bad.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 422)
+            detail = resp.json()["detail"]
+            self.assertEqual(detail["message"], "Invalid sizing file")
+            self.assertFalse(detail["sizing_preview"]["sizing_context_applied"])
+
+    def test_create_includes_platform_caveats_in_response(self):
+        import backend_api
+        preview = {
+            "ok": True,
+            "platform_detected": "openshift",
+            "warnings": [],
+            "fatal_error": None,
+            "sizing_context_applied": True,
+        }
+        mock_result = {
+            "project_path": "/tmp/with-caveats",
+            "addons_triggered": [],
+            "files_created": ["platform/openshift/route.yaml", "docs/OBSERVABILITY_ROLLOUT.md"],
+        }
+        addon_preview = {"primary_category": "elasticsearch", "priority_chain": "openshift_focused", "addons": [{"name": "platform_manifests", "description": "Platform", "priority": 15, "areas": ["platform/"]}]}
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=({"platform_detected": "openshift"}, "openshift", preview))), \
+             patch("backend_api._build_addon_preview", return_value=addon_preview), \
+             patch("backend_api.initialize_project", return_value=mock_result), \
+             patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist:
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/create",
+                data={
+                    "name": "with-caveats",
+                    "target_dir": "/tmp",
+                    "platform": "openshift",
+                    "use_terraform_iac": "true",
+                    "enable_otel_collector": "true",
+                    "description": "OpenShift delivery",
+                },
+                files={"sizing_file": ("good.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["sizing_preview"]["effective_platform"], "openshift")
+            caveat_codes = {item["code"] for item in data["sizing_preview"]["caveats"]}
+            self.assertIn("openshift_delivery_scope", caveat_codes)
+            self.assertIn("openshift_iac_scope", caveat_codes)
+            self.assertIn("openshift_otel_scc", caveat_codes)
+            self.assertEqual(data["sizing_preview"]["addon_preview"]["addons"][0]["name"], "platform_manifests")
+            families = {item["family"] for item in data["output_summary"]["families"]}
+            self.assertIn("platform", families)
+            self.assertIn("automation", families)
+            self.assertTrue(mock_hist.add.called)
+
+    def test_create_can_continue_without_sizing(self):
+        import backend_api
+        preview = {
+            "ok": False,
+            "warnings": [],
+            "fatal_error": {"code": "invalid_json", "severity": "error", "message": "Invalid sizing file"},
+            "sizing_context_applied": False,
+        }
+        mock_result = {
+            "project_path": "/tmp/continue-sizing",
+            "addons_triggered": [],
+            "files_created": [],
+        }
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=(None, None, preview))), \
+             patch("backend_api.initialize_project", return_value=mock_result), \
+             patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist:
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/create",
+                data={
+                    "name": "continue-sizing",
+                    "target_dir": "/tmp",
+                    "platform": "proxmox",
+                    "continue_without_sizing": "true",
+                },
+                files={"sizing_file": ("bad.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertFalse(data["sizing_context_applied"])
+            self.assertEqual(data["sizing_parse_error"]["message"], "Invalid sizing file")
+            self.assertTrue(mock_hist.add.called)
+
+    def _parse_sse_events(self, content: str) -> list:
+        events = []
+        for chunk in content.split("\n\n"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            data_line = next((l for l in chunk.split("\n") if l.startswith("data: ")), None)
+            if data_line:
+                try:
+                    events.append(json.loads(data_line[6:]))
+                except json.JSONDecodeError:
+                    pass
+        return events
+
+    def test_stream_emits_platform_caveat_warning(self):
+        import backend_api
+        preview = {
+            "ok": True,
+            "platform_detected": "aks",
+            "warnings": [],
+            "fatal_error": None,
+            "sizing_context_applied": True,
+        }
+        mock_result = {
+            "project_path": "/tmp/aks-caveat-stream",
+            "addons_triggered": [],
+            "files_created": [],
+            "effective_platform": "aks",
+        }
+        addon_preview = {"primary_category": "azure", "priority_chain": "azure_focused", "addons": [{"name": "terraform_aks", "description": "AKS", "priority": 12, "areas": ["terraform/"]}]}
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=({"platform_detected": "aks"}, "aks", preview))), \
+             patch("backend_api._build_addon_preview", return_value=addon_preview), \
+             patch("backend_api.initialize_project", return_value=mock_result), \
+             patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist, \
+             patch("backend_api.AUDIT_LOG"):
+            mock_hist.add.return_value = {"id": "stream-id"}
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/create/stream",
+                data={
+                    "name": "aks-caveat-stream",
+                    "target_dir": "/tmp",
+                    "platform": "aks",
+                    "enable_otel_collector": "true",
+                },
+                files={"sizing_file": ("good.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            events = self._parse_sse_events(resp.text)
+            caveat_events = [e for e in events if e.get("message") == "Platform caveats detected"]
+            self.assertGreater(len(caveat_events), 0)
+            caveat_codes = {item["code"] for item in caveat_events[0].get("caveats", [])}
+            self.assertIn("aks_managed_cluster", caveat_codes)
+            self.assertIn("aks_otel_overlap", caveat_codes)
+            addon_events = [e for e in events if e.get("message") == "Addon plan computed"]
+            self.assertGreater(len(addon_events), 0)
+            self.assertEqual(addon_events[0]["addon_preview"]["addons"][0]["name"], "terraform_aks")
+
+    def test_stream_fatal_sizing_error_emits_error_event(self):
+        import backend_api
+        preview = {
+            "ok": False,
+            "warnings": [],
+            "fatal_error": {"code": "invalid_json", "severity": "error", "message": "Invalid sizing file"},
+            "sizing_context_applied": False,
+        }
+        with patch("backend_api._parse_uploaded_sizing_file", new=AsyncMock(return_value=(None, None, preview))):
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post(
+                "/api/create/stream",
+                data={"name": "bad-stream", "target_dir": "/tmp"},
+                files={"sizing_file": ("bad.json", b"{}", "application/json")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            events = self._parse_sse_events(resp.text)
+            self.assertEqual(events[-1]["step"], "error")
+            self.assertEqual(events[-1]["message"], "Invalid sizing file")
 
 
 class TestFluxStatusEndpoint(unittest.TestCase):

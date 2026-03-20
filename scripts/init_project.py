@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from project_analyzer import ProjectAnalyzer, analyze_project  # noqa: E402
 from generate_structure import initialize_project  # noqa: E402
-from sizing_parser import parse_sizing_file  # noqa: E402
+from sizing_parser import parse_sizing_file_detailed  # noqa: E402
 
 # Skill directory for addons
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -151,13 +151,15 @@ def run_init(name: str, desc: str, target: str | None, forced_type: str | None, 
     # Parse sizing file if provided
     sizing_context = None
     detected_platform = None
+    sizing_warnings: list[str] = []
+    sizing_error: str | None = None
     if sizing_file:
-        try:
-            sizing_context = parse_sizing_file(sizing_file)
-            
-            # Auto-detect platform from sizing file
-            detected_platform = sizing_context.get("platform_detected")
-            
+        detailed = parse_sizing_file_detailed(sizing_file)
+        sizing_warnings = [w.message for w in detailed.warnings]
+        sizing_error = detailed.fatal_error.message if detailed.fatal_error else None
+        if detailed.fatal_error is None:
+            sizing_context = detailed.addon_context
+            detected_platform = sizing_context.get("platform_detected") if sizing_context else None
             if not as_json:
                 print(f"Parsed sizing from : {sizing_file}")
                 print(f"  Health score     : {sizing_context.get('health_score', 'N/A')}/100")
@@ -172,15 +174,14 @@ def run_init(name: str, desc: str, target: str | None, forced_type: str | None, 
                 if sizing_context.get('frozen_nodes'):
                     fn = sizing_context['frozen_nodes']
                     print(f"  Frozen tier      : {fn.get('count', 0)} nodes, {fn.get('memory', 'N/A')} RAM")
-                if sizing_context.get('aks'):
-                    aks = sizing_context['aks']
-                    print(f"  AKS node pools   : {len(aks.get('node_pools', []))} pools")
-                if sizing_context.get('openshift'):
-                    openshift = sizing_context['openshift']
-                    print(f"  OpenShift pools  : {len(openshift.get('worker_pools', []))} pools")
-        except Exception as e:
+                pools = ((sizing_context.get('rke2') or {}).get('pools') or ((sizing_context.get('openshift') or {}).get('pools') or []))
+                if pools:
+                    print(f"  Infra pools      : {len(pools)} pools")
+                for msg in sizing_warnings:
+                    print(f"  Warning          : {msg}")
+        else:
             if not as_json:
-                print(f"Warning: Failed to parse sizing file: {e}")
+                print(f"Warning: Failed to parse sizing file: {sizing_error}")
             sizing_context = None
 
     # Use detected platform from sizing file if not manually set
@@ -200,6 +201,10 @@ def run_init(name: str, desc: str, target: str | None, forced_type: str | None, 
             result["git_error"] = git_result["error"]
 
     if as_json:
+        if sizing_file:
+            result["sizing_parse_warnings"] = sizing_warnings
+            result["sizing_parse_error"] = sizing_error
+            result["sizing_context_applied"] = sizing_context is not None
         print(json.dumps(result, indent=2))
     else:
         print(f"Project created at : {result['project_path']}")

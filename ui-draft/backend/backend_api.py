@@ -14,7 +14,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path, PurePosixPath
 from threading import RLock
 from typing import Any, Dict, List, Optional
@@ -45,7 +45,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from project_analyzer import ProjectAnalyzer, analyze_project  # type: ignore  # noqa: E402
 from generate_structure import initialize_project  # type: ignore  # noqa: E402
-from sizing_parser import parse_sizing_file  # type: ignore  # noqa: E402
+from sizing_parser import parse_sizing_file_detailed  # type: ignore  # noqa: E402
+from addon_loader import AddonLoader  # type: ignore  # noqa: E402
 
 
 USER_HOME = Path.home()
@@ -112,7 +113,7 @@ def _get_default_suggestions() -> List[str]:
 
 
 def _utcnow() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class GitRegistry:
@@ -799,6 +800,272 @@ def _override_chain(result: Dict[str, Any], forced_chain: str) -> Dict[str, Any]
     return analyzer.override_chain(result, forced_chain)
 
 
+def _serialize_sizing_messages(messages: List[Any] | tuple[Any, ...]) -> List[Dict[str, Any]]:
+    serialized = []
+    for message in messages or []:
+        serialized.append(
+            {
+                "code": getattr(message, "code", ""),
+                "severity": getattr(message, "severity", "warning"),
+                "message": getattr(message, "message", str(message)),
+                "field_path": getattr(message, "field_path", None),
+            }
+        )
+    return serialized
+
+
+def _build_sizing_preview_payload(result: Any) -> Dict[str, Any]:
+    model = result.model
+    ctx = result.addon_context or {}
+    pools = list(model.pools) if model else list(
+        ((ctx.get("rke2") or {}).get("pools") or ((ctx.get("openshift") or {}).get("pools") or []))
+    )
+    return {
+        "ok": result.fatal_error is None,
+        "schema_version": model.schema_version if model else None,
+        "source_format": model.source_format if model else None,
+        "platform_detected": model.platform_detected if model else None,
+        "health_score": ctx.get("health_score"),
+        "inputs": model.inputs if model else {},
+        "summary": model.summary if model else {},
+        "tiers": model.tiers if model else {},
+        "components": model.components if model else {},
+        "pools": pools,
+        "warnings": _serialize_sizing_messages(result.warnings),
+        "fatal_error": _serialize_sizing_messages([result.fatal_error])[0] if result.fatal_error else None,
+        "sizing_context_applied": result.addon_context is not None and result.fatal_error is None,
+    }
+
+
+def _build_delivery_caveats(
+    *,
+    effective_platform: Optional[str],
+    description: str = "",
+    enable_otel_collector: bool = False,
+    use_terraform_iac: bool = False,
+) -> List[Dict[str, str]]:
+    platform_name = (effective_platform or "").strip().lower()
+    raw = " ".join([description or "", platform_name]).lower()
+    caveats: List[Dict[str, str]] = []
+
+    def add(code: str, severity: str, message: str) -> None:
+        caveats.append({"code": code, "severity": severity, "message": message})
+
+    if platform_name == "proxmox":
+        add(
+            "proxmox_rke2_bootstrap",
+            "warning",
+            "Proxmox delivery uses the in-repo RKE2 bootstrap path. Terraform outputs, SSH reachability, and bootstrap-node kubeconfig retrieval must work before GitOps health checks will pass.",
+        )
+    elif platform_name == "rke2":
+        add(
+            "rke2_delivery_scope",
+            "info",
+            "RKE2 delivery assumes a workload cluster path. If infrastructure is external, validate kubeconfig access and storage-class alignment before generation.",
+        )
+        if any(token in raw for token in ("rancher", "fleet")):
+            add(
+                "rancher_governance_overlay",
+                "info",
+                "Rancher/Fleet governance is an overlay on top of the RKE2 workload cluster. Bootstrap or import the cluster first, then layer governance and GitOps policies.",
+            )
+    elif platform_name == "openshift":
+        add(
+            "openshift_delivery_scope",
+            "info",
+            "OpenShift scaffolding is aimed at Day-1 and Day-2 delivery. Review Routes, SCC posture, and worker-pool intent before rollout.",
+        )
+        if use_terraform_iac:
+            add(
+                "openshift_iac_scope",
+                "warning",
+                "Terraform in this scaffold does not provision an OpenShift cluster. It complements an existing platform with Elastic, GitOps, and platform overlays.",
+            )
+    elif platform_name == "aks":
+        add(
+            "aks_managed_cluster",
+            "info",
+            "AKS is treated as a managed-cluster delivery path. Validate ingress class, storage defaults, and node-pool mapping against your Azure baseline.",
+        )
+
+    if enable_otel_collector:
+        if platform_name == "openshift":
+            add(
+                "openshift_otel_scc",
+                "warning",
+                "OpenShift may reject hostPath-based collectors without the right SCC posture. Validate admission and namespace policy before enabling the collector in production.",
+            )
+        elif platform_name == "aks":
+            add(
+                "aks_otel_overlap",
+                "info",
+                "AKS already ships managed metrics-server and often Azure Monitor. Review overlap before enabling extra observability components.",
+            )
+        elif platform_name in {"proxmox", "rke2"}:
+            add(
+                "rke2_otel_timing",
+                "info",
+                "Apply observability only after the workload cluster is reachable and Elasticsearch credentials can be mirrored into the observability namespace.",
+            )
+
+    return caveats
+
+
+def _enrich_sizing_preview(
+    preview: Dict[str, Any],
+    *,
+    selected_platform: str = "",
+    description: str = "",
+    enable_otel_collector: bool = False,
+    use_terraform_iac: bool = False,
+) -> Dict[str, Any]:
+    enriched = dict(preview or {})
+    selected = (selected_platform or "").strip().lower()
+    detected = (enriched.get("platform_detected") or "").strip().lower()
+    if selected == "proxmox":
+        effective_platform = "proxmox"
+        platform_source = "user_selection"
+    elif detected:
+        effective_platform = detected
+        platform_source = "sizing_file"
+    elif selected:
+        effective_platform = selected
+        platform_source = "user_selection"
+    else:
+        effective_platform = None
+        platform_source = None
+    enriched["effective_platform"] = effective_platform
+    enriched["platform_source"] = platform_source
+    enriched["caveats"] = _build_delivery_caveats(
+        effective_platform=effective_platform,
+        description=description,
+        enable_otel_collector=enable_otel_collector,
+        use_terraform_iac=use_terraform_iac,
+    )
+    return enriched
+
+
+def _addon_preview_areas(name: str) -> List[str]:
+    return {
+        "sizing_integration": ["sizing/", "capacity planning", "resource requirements"],
+        "eck_deployment": ["elasticsearch/", "kibana/", "agents/"],
+        "flux_deployment": ["flux-system/", "apps/", "overlays/", "clusters/"],
+        "argo_deployment": ["argocd/", "apps/"],
+        "terraform_platform": ["terraform/", "platform/", "scripts/"],
+        "terraform_aks": ["terraform/", "platform/aks/"],
+        "terraform_gitops_trigger": ["scripts/", "docs/"],
+        "platform_manifests": ["platform/", "docs/"],
+        "observability_stack": ["observability/", "docs/", "infrastructure/"],
+        "rke2_bootstrap": ["scripts/", "ansible/", "docs/"],
+        "deployment_lifecycle": ["scripts/", "docs/"],
+        "scripts_docs": ["scripts/README.md", "docs/"],
+    }.get(name, ["generated scaffold"])
+
+
+def _build_addon_preview(
+    *,
+    project_name: str,
+    description: str,
+    forced_type: str,
+    forced_chain: str,
+    effective_platform: Optional[str],
+    gitops_tool: str,
+    use_terraform_iac: bool,
+    enable_otel_collector: bool,
+    sizing_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    effective_desc = _apply_forced_type(description, forced_type)
+    analysis = analyze_project(project_name or "preview-project", effective_desc, config_path=str(ROOT_DIR))
+    analysis = _override_chain(analysis, forced_chain)
+    loader = AddonLoader(config_path=str(ROOT_DIR))
+    context = {
+        "platform": effective_platform or "",
+        "gitops_tool": gitops_tool or "flux",
+        "iac_tool": "terraform" if use_terraform_iac else "",
+        "enable_otel_collector": enable_otel_collector,
+        "sizing_context": sizing_context or {},
+    }
+    matched = loader.match_addons(analysis, context=context, interactive_mode=False)
+    return {
+        "primary_category": analysis.get("primary_category"),
+        "priority_chain": analysis.get("priority_chain"),
+        "addons": [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "priority": spec.priority,
+                "areas": _addon_preview_areas(spec.name),
+            }
+            for spec in matched
+        ],
+    }
+
+
+def _classify_output_family(path: str) -> str:
+    normalized = (path or "").replace("\\", "/")
+    if normalized.startswith("terraform/") or normalized.startswith("ansible/"):
+        return "infrastructure"
+    if normalized.startswith("platform/"):
+        return "platform"
+    if normalized.startswith("elasticsearch/") or normalized.startswith("kibana/") or normalized.startswith("agents/"):
+        return "elastic"
+    if normalized.startswith("observability/") or normalized.startswith("sizing/"):
+        return "observability"
+    if normalized.startswith("scripts/") or normalized.startswith("docs/"):
+        return "automation"
+    if normalized.startswith("flux-system/") or normalized.startswith("argocd/") or normalized.startswith("apps/") or normalized.startswith("overlays/") or normalized.startswith("clusters/") or normalized.startswith("base/") or normalized.startswith("infrastructure/"):
+        return "gitops"
+    return "other"
+
+
+def _build_output_summary(result: Dict[str, Any]) -> Dict[str, Any]:
+    files = list(result.get("files_created") or [])
+    families: Dict[str, Dict[str, Any]] = {}
+    for path in files:
+        family = _classify_output_family(str(path))
+        bucket = families.setdefault(family, {"count": 0, "samples": []})
+        bucket["count"] += 1
+        if len(bucket["samples"]) < 5:
+            bucket["samples"].append(str(path))
+    ordered = []
+    for name in ["infrastructure", "platform", "elastic", "observability", "gitops", "automation", "other"]:
+        if name in families:
+            ordered.append({"family": name, **families[name]})
+    return {
+        "total_files": len(files),
+        "families": ordered,
+        "addons_triggered": list(result.get("addons_triggered") or []),
+    }
+
+
+async def _parse_uploaded_sizing_file(upload: Optional[UploadFile]) -> tuple[Optional[Dict[str, Any]], Optional[str], Dict[str, Any]]:
+    if upload is None:
+        return None, None, {"ok": True, "warnings": [], "fatal_error": None, "sizing_context_applied": False}
+    if not upload.filename:
+        raise HTTPException(status_code=400, detail="sizing_file must be provided")
+    lower_name = upload.filename.lower()
+    if not (lower_name.endswith(".md") or lower_name.endswith(".json")):
+        raise HTTPException(status_code=400, detail="sizing_file must be a .json or .md file")
+
+    suffix = ".json" if lower_name.endswith(".json") else ".md"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        raw = await upload.read()
+        tmp.write(raw)
+        tmp_path = Path(tmp.name)
+
+    try:
+        detailed = parse_sizing_file_detailed(str(tmp_path))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    preview = _build_sizing_preview_payload(detailed)
+    if detailed.fatal_error is not None:
+        return None, None, preview
+    sizing_context = detailed.addon_context
+    detected_platform = sizing_context.get("platform_detected") if sizing_context else None
+    return sizing_context, detected_platform, preview
+
+
 def _build_open_command(tool: str, target_path: Path) -> List[str]:
     if tool == "zed":
         if shutil.which("zed") is None:
@@ -1075,6 +1342,40 @@ def analyze(
     return result
 
 
+@app.post("/api/sizing/preview")
+async def preview_sizing_file(
+    sizing_file: Optional[UploadFile] = File(default=None),
+    name: str = Form("preview-project"),
+    forced_type: str = Form("auto"),
+    forced_chain: str = Form(""),
+    platform: str = Form(""),
+    gitops_tool: str = Form(""),
+    description: str = Form(""),
+    enable_otel_collector: bool = Form(False),
+    use_terraform_iac: bool = Form(False),
+) -> Dict[str, Any]:
+    sizing_context, _detected_platform, preview = await _parse_uploaded_sizing_file(sizing_file)
+    preview = _enrich_sizing_preview(
+        preview,
+        selected_platform=platform,
+        description=description,
+        enable_otel_collector=enable_otel_collector,
+        use_terraform_iac=use_terraform_iac,
+    )
+    preview["addon_preview"] = _build_addon_preview(
+        project_name=name,
+        description=description,
+        forced_type=forced_type,
+        forced_chain=forced_chain,
+        effective_platform=preview.get("effective_platform"),
+        gitops_tool=gitops_tool,
+        use_terraform_iac=use_terraform_iac,
+        enable_otel_collector=enable_otel_collector,
+        sizing_context=sizing_context,
+    )
+    return preview
+
+
 @app.post("/api/create")
 async def create_project(
     name: str = Form(...),
@@ -1107,6 +1408,7 @@ async def create_project(
     remote_auth_mode: str = Form("ssh_key"),
     remote_ssh_key_path: str = Form(""),
     remote_base_dir: str = Form(""),
+    continue_without_sizing: bool = Form(False),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> Dict[str, Any]:
     schema_id_clean = git_schema_id.strip() or None
@@ -1149,26 +1451,15 @@ async def create_project(
     effective_desc = _apply_forced_type(description, forced_type)
     sizing_context: Optional[Dict[str, Any]] = None
     detected_platform: Optional[str] = None
+    sizing_preview: Dict[str, Any] = {
+        "ok": True,
+        "warnings": [],
+        "fatal_error": None,
+        "sizing_context_applied": False,
+    }
 
     if sizing_file is not None:
-        if not sizing_file.filename:
-            raise HTTPException(status_code=400, detail="sizing_file must be provided")
-
-        lower_name = sizing_file.filename.lower()
-        if not (lower_name.endswith(".md") or lower_name.endswith(".json")):
-            raise HTTPException(status_code=400, detail="sizing_file must be a .json or .md file")
-
-        suffix = ".json" if lower_name.endswith(".json") else ".md"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            raw = await sizing_file.read()
-            tmp.write(raw)
-            tmp_path = Path(tmp.name)
-
-        try:
-            sizing_context = parse_sizing_file(str(tmp_path))
-            detected_platform = (sizing_context.get("platform_detected") if sizing_context else None)
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        sizing_context, detected_platform, sizing_preview = await _parse_uploaded_sizing_file(sizing_file)
 
     description_platform = _infer_platform_from_text(description)
     platform_source: Optional[str] = None
@@ -1187,6 +1478,37 @@ async def create_project(
     else:
         final_platform = None
         platform_source = None
+
+    sizing_preview = _enrich_sizing_preview(
+        sizing_preview,
+        selected_platform=final_platform or platform,
+        description=description,
+        enable_otel_collector=enable_otel_collector,
+        use_terraform_iac=use_terraform_iac,
+    )
+    sizing_preview["addon_preview"] = _build_addon_preview(
+        project_name=name,
+        description=description,
+        forced_type=forced_type,
+        forced_chain=forced_chain,
+        effective_platform=sizing_preview.get("effective_platform"),
+        gitops_tool=final_gitops if 'final_gitops' in locals() else gitops_tool,
+        use_terraform_iac=use_terraform_iac,
+        enable_otel_collector=enable_otel_collector,
+        sizing_context=sizing_context,
+    )
+
+    if sizing_preview.get("fatal_error") and not continue_without_sizing:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": sizing_preview["fatal_error"]["message"],
+                "sizing_preview": sizing_preview,
+            },
+        )
+    if sizing_preview.get("fatal_error") and continue_without_sizing:
+        sizing_context = None
+        detected_platform = None
 
     if not final_platform and sizing_context is None and not _has_infra_keywords(description):
         raise HTTPException(
@@ -1314,6 +1636,11 @@ async def create_project(
     result["iac_tool"] = "terraform" if use_terraform_iac else ""
     result["target_type"] = effective_target_type
     result["remote"] = remote_result
+    result["sizing_preview"] = sizing_preview
+    result["sizing_parse_warnings"] = sizing_preview.get("warnings", [])
+    result["sizing_parse_error"] = sizing_preview.get("fatal_error")
+    result["sizing_context_applied"] = sizing_preview.get("sizing_context_applied", False)
+    result["output_summary"] = _build_output_summary(result)
 
     if platform_source == "sizing_file" and platform and platform != final_platform:
         result["platform_override"] = {
@@ -1412,6 +1739,7 @@ async def _create_stream_generator(
     remote_auth_mode: str,
     remote_ssh_key_path: str,
     remote_base_dir: str,
+    continue_without_sizing: bool,
     sizing_bytes: Optional[bytes],
     sizing_filename: Optional[str],
 ):
@@ -1457,18 +1785,20 @@ async def _create_stream_generator(
         effective_desc = _apply_forced_type(description, forced_type)
         sizing_context: Optional[Dict[str, Any]] = None
         detected_platform: Optional[str] = None
+        sizing_preview: Dict[str, Any] = {
+            "ok": True,
+            "warnings": [],
+            "fatal_error": None,
+            "sizing_context_applied": False,
+        }
 
         if sizing_bytes is not None and sizing_filename:
-            lower_name = sizing_filename.lower()
-            suffix = ".json" if lower_name.endswith(".json") else ".md"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(sizing_bytes)
-                tmp_path = Path(tmp.name)
-            try:
-                sizing_context = parse_sizing_file(str(tmp_path))
-                detected_platform = (sizing_context.get("platform_detected") if sizing_context else None)
-            finally:
-                tmp_path.unlink(missing_ok=True)
+            suffix = ".json" if sizing_filename.lower().endswith(".json") else ".md"
+            upload = UploadFile(filename=sizing_filename, file=tempfile.SpooledTemporaryFile())
+            await upload.write(sizing_bytes)
+            await upload.seek(0)
+            sizing_context, detected_platform, sizing_preview = await _parse_uploaded_sizing_file(upload)
+            await upload.close()
 
         description_platform = _infer_platform_from_text(description)
         platform_source: Optional[str] = None
@@ -1487,6 +1817,39 @@ async def _create_stream_generator(
         else:
             final_platform = None
             platform_source = None
+
+        sizing_preview = _enrich_sizing_preview(
+            sizing_preview,
+            selected_platform=final_platform or platform,
+            description=description,
+            enable_otel_collector=enable_otel_collector,
+            use_terraform_iac=use_terraform_iac,
+        )
+        sizing_preview["addon_preview"] = _build_addon_preview(
+            project_name=name,
+            description=description,
+            forced_type=forced_type,
+            forced_chain=forced_chain,
+            effective_platform=sizing_preview.get("effective_platform"),
+            gitops_tool=gitops_tool,
+            use_terraform_iac=use_terraform_iac,
+            enable_otel_collector=enable_otel_collector,
+            sizing_context=sizing_context,
+        )
+        if sizing_preview.get("warnings"):
+            yield _sse("warning", "Sizing input parsed with warnings", warnings=sizing_preview["warnings"])
+        if sizing_preview.get("caveats"):
+            yield _sse("warning", "Platform caveats detected", caveats=sizing_preview["caveats"], sizing_preview=sizing_preview)
+        addon_preview = sizing_preview.get("addon_preview") or {}
+        if addon_preview.get("addons"):
+            yield _sse("addons", "Addon plan computed", addon_preview=addon_preview)
+        if sizing_preview.get("fatal_error") and not continue_without_sizing:
+            yield _sse("error", sizing_preview["fatal_error"]["message"], sizing_preview=sizing_preview)
+            return
+        if sizing_preview.get("fatal_error") and continue_without_sizing:
+            yield _sse("warning", "Sizing input was ignored due to parse error", sizing_preview=sizing_preview)
+            sizing_context = None
+            detected_platform = None
 
         final_gitops = gitops_tool if gitops_tool else "flux"
 
@@ -1595,6 +1958,11 @@ async def _create_stream_generator(
         result["iac_tool"] = "terraform" if use_terraform_iac else ""
         result["target_type"] = effective_target_type
         result["remote"] = remote_result
+        result["sizing_preview"] = sizing_preview
+        result["sizing_parse_warnings"] = sizing_preview.get("warnings", [])
+        result["sizing_parse_error"] = sizing_preview.get("fatal_error")
+        result["sizing_context_applied"] = sizing_preview.get("sizing_context_applied", False)
+        result["output_summary"] = _build_output_summary(result)
 
         if effective_target_type == "remote" and remote_cfg is not None:
             result["normalized_target_dir"] = remote_cfg["project_dir"]
@@ -1640,8 +2008,14 @@ async def _create_stream_generator(
             project_path=result.get("project_path", ""),
             addons_triggered=addons_triggered,
             files_created=result.get("files_created", []),
+            output_summary=result.get("output_summary", _build_output_summary(result)),
             platform=final_platform or "auto",
             name=safe_name,
+            target_type=effective_target_type,
+            sizing_preview=sizing_preview,
+            sizing_parse_warnings=sizing_preview.get("warnings", []),
+            sizing_parse_error=sizing_preview.get("fatal_error"),
+            sizing_context_applied=sizing_preview.get("sizing_context_applied", False),
         )
 
     except Exception as exc:
@@ -1680,6 +2054,7 @@ async def create_project_stream(
     remote_auth_mode: str = Form("ssh_key"),
     remote_ssh_key_path: str = Form(""),
     remote_base_dir: str = Form(""),
+    continue_without_sizing: bool = Form(False),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> StreamingResponse:
     sizing_bytes = await sizing_file.read() if sizing_file else None
@@ -1717,6 +2092,7 @@ async def create_project_stream(
             remote_auth_mode=remote_auth_mode,
             remote_ssh_key_path=remote_ssh_key_path,
             remote_base_dir=remote_base_dir,
+            continue_without_sizing=continue_without_sizing,
             sizing_bytes=sizing_bytes,
             sizing_filename=sizing_filename,
         ),

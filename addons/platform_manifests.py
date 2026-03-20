@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 ADDON_META = {
     "name": "platform_manifests",
     "version": "1.0",
-    "description": "Platform-specific manifests generator (RKE2/OpenShift/AKS)",
-    "triggers": {"platforms": ["rke2", "openshift", "aks"]},
+    "description": "Platform-specific manifests generator (RKE2/OpenShift/AKS/Proxmox)",
+    "triggers": {"platforms": ["rke2", "openshift", "aks", "proxmox"]},
     "priority": 15,
 }
 
@@ -36,7 +36,8 @@ class PlatformManifestsGenerator:
 
     def _openshift_worker_pools(self) -> List[Dict[str, Any]]:
         """Return parsed OpenShift worker pools from sizing context."""
-        return self.sizing.get("openshift", {}).get("worker_pools", []) or []
+        openshift = self.sizing.get("openshift", {}) or {}
+        return openshift.get("worker_pools", []) or openshift.get("pools", []) or []
 
     def _openshift_worker_config(self) -> List[Dict[str, Any]]:
         """Return parsed OpenShift worker config rows from sizing context."""
@@ -59,6 +60,7 @@ class PlatformManifestsGenerator:
 
         # Common platform files
         files["platform/README.md"] = self._generate_platform_readme()
+        files["platform/DELIVERY_BLUEPRINT.md"] = self._generate_delivery_blueprint()
 
         return files
 
@@ -792,6 +794,74 @@ spec:
     # Common
     # ------------------------------------------------------------------
 
+    def _is_rancher_governed_rke2(self) -> bool:
+        """Return true when the request describes a Rancher/Fleet-governed RKE2 delivery."""
+        raw = " ".join(
+            [
+                str(self.description or ""),
+                str(self.context.get("governance") or ""),
+                str(self.context.get("management_plane") or ""),
+                str(self.context.get("platform_variant") or ""),
+            ]
+        ).lower()
+        return self.platform == "rke2" and any(token in raw for token in ("rancher", "fleet"))
+
+    def _generate_delivery_blueprint(self) -> str:
+        """Generate a shared delivery model across supported platforms."""
+        rancher_note = ""
+        if self._is_rancher_governed_rke2():
+            rancher_note = (
+                "\n## Requested Variant\n\n"
+                "This project description indicates a Rancher-governed RKE2 delivery. "
+                "Treat the RKE2 bootstrap path as the workload-cluster build stage and add Rancher/Fleet import and governance after kubeconfig is available.\n"
+            )
+
+        return f"""# Platform Delivery Blueprint
+
+This repository uses **Proxmox-backed RKE2** as the most complete reference delivery path. Other platform outputs should mirror the same logical stages where the platform allows it.
+
+## Reference Pattern: Proxmox + RKE2
+
+1. Terraform provisions VMs and baseline network/disk settings.
+2. `scripts/bootstrap-rke2.sh` and Ansible build the workload cluster.
+3. GitOps reconciles platform, Elastic, and observability manifests.
+4. Post-deploy scripts finish credentials, health checks, and operator validation.
+
+## Delivery Variants
+
+### Proxmox + RKE2
+- Day-0 infrastructure is created by Terraform.
+- Day-1 cluster bootstrap is handled in-repo.
+- Use this as the reference implementation for pool naming, tier placement, and post-apply automation.
+
+### Rancher-governed RKE2
+- Build the workload cluster using the same Terraform + RKE2 bootstrap stages.
+- After bootstrap, import or register the cluster into Rancher.
+- Rancher/Fleet becomes the governance layer; application manifests should remain compatible with the base RKE2 layout.
+
+### OpenShift
+- OpenShift infrastructure is usually delivered externally.
+- This scaffold focuses on Day-1 and Day-2 assets: SCCs, Routes, MachineSet examples, namespace guardrails, and Elastic workloads.
+- MachineSet examples should follow the same tier-to-pool intent used by the RKE2 reference path.
+
+### Azure AKS
+- Terraform provisions managed cloud infrastructure, node pools, storage, registry, and monitoring.
+- Managed AKS replaces the in-repo bootstrap phase, but the sizing intent remains the same: system pool, hot tier, cold tier, frozen tier, and observability integration.
+- GitOps and Elastic manifests should stay aligned with the same workload topology.
+
+## Normalization Rules
+
+- Use normalized sizing pools as the source of truth for infrastructure counts and per-node resources.
+- Keep tier names stable (`hot`, `cold`, `frozen`, `system`) so downstream addons can reuse the same mapping.
+- Treat observability and Elastic manifests as platform overlays on top of the same sizing model, not separate sizing systems.
+{rancher_note}
+## Operator Notes
+
+- Review `platform/README.md` for platform-specific files.
+- Review `terraform/README.md` for Day-0 infrastructure flow where Terraform is used.
+- Review `docs/RKE2_BOOTSTRAP.md` when the platform depends on in-repo RKE2 bootstrap.
+"""
+
     def _generate_platform_readme(self) -> str:
         """Generate README for platform directory."""
         platform_info = {
@@ -804,6 +874,7 @@ spec:
                     "network-policy.yaml - Network isolation",
                     "ingress.yaml - nginx/traefik ingress",
                     "cluster-config.yaml - RKE2 config example",
+                    "../DELIVERY_BLUEPRINT.md - Reference model for Proxmox, Rancher-governed RKE2, OpenShift, and AKS",
                 ],
             ),
             "openshift": (
@@ -814,6 +885,7 @@ spec:
                     "route.yaml - OpenShift Routes",
                     "machineset-example.yaml - Dedicated node pool",
                     "resource-quota.yaml - Namespace quotas",
+                    "../DELIVERY_BLUEPRINT.md - Delivery parity with the RKE2 reference model",
                 ],
             ),
             "aks": (
@@ -824,6 +896,14 @@ spec:
                     "managed-identity.yaml - Workload Identity",
                     "ingress.yaml - Application Gateway/nginx",
                     "terraform-example.tf - Node pool Terraform",
+                    "../DELIVERY_BLUEPRINT.md - Managed-cluster variant of the same sizing topology",
+                ],
+            ),
+            "proxmox": (
+                "Proxmox + RKE2 Reference Delivery",
+                "Proxmox VE infrastructure feeding an RKE2 workload cluster",
+                [
+                    "../DELIVERY_BLUEPRINT.md - Reference Day-0 to Day-2 path used by the rest of the platform variants",
                 ],
             ),
         }
@@ -851,6 +931,8 @@ Platform-specific configurations for deploying {self.project_name} on {info[1]}.
 {"See individual files for specific requirements." if info[2] else "No platform-specific configuration needed."}
 
 ## Usage
+
+Read `DELIVERY_BLUEPRINT.md` first to understand how this platform maps to the shared delivery model.
 
 Apply platform-specific resources before deploying Elasticsearch:
 

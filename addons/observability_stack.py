@@ -46,8 +46,8 @@ class ObservabilityStackGenerator:
         return self.platform in ("aks",)
 
     def _has_builtin_metrics_server(self) -> bool:
-        """RKE2 and AKS ship metrics-server as a built-in addon."""
-        return self.platform in ("rke2", "aks")
+        """RKE2-derived and managed platforms ship metrics-server as a built-in addon."""
+        return self.platform in ("rke2", "proxmox", "aks")
 
     # ------------------------------------------------------------------
     # metrics-server
@@ -751,12 +751,24 @@ spec:
 """
 
         # --- README.md ---
+        platform_note = ""
+        if self.platform == "proxmox":
+            platform_note = (
+                "\n## Platform Note\n\n"
+                "This project targets Proxmox-backed RKE2 delivery. The collector runs on the RKE2 cluster after bootstrap; Proxmox itself is not the Kubernetes platform.\n"
+            )
+        elif self._is_openshift():
+            platform_note = (
+                "\n## Platform Note\n\n"
+                "OpenShift may require additional SCC review for hostPath-based collectors. Validate collector admission and adjust security policy before production rollout.\n"
+            )
+
         files[f"{prefix}/README.md"] = f"""# OpenTelemetry Collector
 
 Raw Kustomize manifests for the [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib) v{self.otel_version}.
 
 Deployed as a **DaemonSet** in the `observability` namespace to collect traces, metrics, and logs from all nodes.
-
+{platform_note}
 ## Configuration
 
 Edit `configmap.yaml` to customise the collector pipeline:
@@ -798,6 +810,27 @@ http: otel-collector.observability.svc.cluster.local:4318
     # ------------------------------------------------------------------
     # Documentation
     # ------------------------------------------------------------------
+
+    def _generate_rollout_doc(self) -> Dict[str, str]:
+        """Generate an operator-facing rollout note for observability enablement."""
+        note = "RKE2-style bootstrap and GitOps delivery are assumed. Validate collector placement after cluster bootstrap."
+        if self.platform == "proxmox":
+            note = "Proxmox is the Day-0 substrate. Apply observability only after the RKE2 workload cluster is bootstrapped and reachable."
+        elif self._is_openshift():
+            note = "OpenShift may reject hostPath-based collectors without the correct SCC posture. Validate admission and namespace policy before enabling the collector in production."
+        elif self._is_aks():
+            note = "AKS already ships managed metrics-server. Review Application Gateway and Azure Monitor overlap before enabling extra observability components."
+        return {
+            "docs/OBSERVABILITY_ROLLOUT.md": f"""# Observability Rollout Notes
+
+Platform: {self.platform or 'kubernetes'}
+
+- {note}
+- Validate Elasticsearch credentials mirroring before enabling OTEL ingestion.
+- Confirm network policies allow kubelet, DNS, and Elasticsearch traffic.
+- Import dashboards only after Kibana is reachable and Fleet output is configured.
+"""
+        }
 
     def _generate_data_flow_doc(self) -> Dict[str, str]:
         """Generate docs/OTEL_AGENT_DATA_FLOW.md describing data flow architecture."""
@@ -925,6 +958,7 @@ The Fleet default output must be configured via Kibana API after deployment. The
 
         if enable_otel:
             files.update(self._generate_otel_collector())
+            files.update(self._generate_rollout_doc())
             files.update(self._generate_data_flow_doc())
             files.update(self._generate_otel_dashboard())
             # Top-level observability kustomization.yaml (consumed by es-XX-observability Flux CR)

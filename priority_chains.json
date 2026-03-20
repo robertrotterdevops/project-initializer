@@ -289,7 +289,7 @@
     },
     "platform_manifests": {
       "path": "addons/platform_manifests.py",
-      "description": "Platform-specific manifests generator (RKE2/OpenShift/AKS)",
+      "description": "Platform-specific manifests generator (RKE2/OpenShift/AKS/Proxmox)",
       "supported_project_types": [
         "elasticsearch",
         "kubernetes"
@@ -298,7 +298,8 @@
         "platforms": [
           "rke2",
           "openshift",
-          "aks"
+          "aks",
+          "proxmox"
         ]
       },
       "priority": 15,

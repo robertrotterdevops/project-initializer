@@ -142,6 +142,43 @@ class TestPlatformManifestsUnit(unittest.TestCase):
         aks_keys = [k for k in files if k.startswith("platform/aks/")]
         self.assertGreater(len(aks_keys), 0, "No platform/aks/ files in output")
 
+    def test_openshift_worker_pools_fallback_to_normalized_pools(self):
+        """OpenShift MachineSet generation accepts normalized openshift.pools output."""
+        gen = PlatformManifestsGenerator(
+            "proj",
+            "ES on OCP",
+            {
+                "platform": "openshift",
+                "sizing_context": {
+                    "openshift": {
+                        "pools": [{"name": "Hot Pool", "workers": 2}],
+                        "worker_config": [{"pool_name": "Hot Pool", "vcpu": 8, "ram_gb": 32}],
+                    }
+                },
+            },
+        )
+        files = gen.generate()
+        machineset = files["platform/openshift/machineset-example.yaml"]
+        self.assertIn("replicas: 2", machineset)
+        self.assertIn("Target flavor for this pool: 8 vCPU / 32 GiB", machineset)
+
+    def test_delivery_blueprint_documents_cross_platform_variants(self):
+        """Shared platform blueprint documents the supported delivery patterns."""
+        gen = PlatformManifestsGenerator(
+            "proj",
+            "Rancher governed RKE2 Elastic platform with Fleet",
+            {"platform": "rke2"},
+        )
+        files = gen.generate()
+        blueprint = files["platform/DELIVERY_BLUEPRINT.md"]
+        readme = files["platform/README.md"]
+        self.assertIn("Proxmox + RKE2", blueprint)
+        self.assertIn("Rancher-governed RKE2", blueprint)
+        self.assertIn("OpenShift", blueprint)
+        self.assertIn("Azure AKS", blueprint)
+        self.assertIn("Requested Variant", blueprint)
+        self.assertIn("DELIVERY_BLUEPRINT.md", readme)
+
     def test_rke2_contains_storage_class(self):
         """At least one RKE2 file contains 'StorageClass' or 'storage' substring."""
         gen = PlatformManifestsGenerator("proj", "ES on RKE2", {"platform": "rke2"})
@@ -177,9 +214,9 @@ class TestLowerPriorityAddonSmoke(unittest.TestCase):
         self.assertGreater(len(result), 0)
 
     def test_observability_stack_smoke(self):
-        """observability_stack.main returns non-empty dict."""
+        """observability_stack.main returns non-empty dict when a feature is enabled."""
         from addons.observability_stack import main
-        result = main("smoke", "Observability", {"platform": "rke2"})
+        result = main("smoke", "Observability", {"platform": "rke2", "enable_otel_collector": True})
         self.assertIsInstance(result, dict)
         self.assertGreater(len(result), 0)
 
@@ -226,6 +263,15 @@ class TestLowerPriorityAddonSmoke(unittest.TestCase):
         result = main("smoke", "Platform test", {"platform": "rke2"})
         self.assertIsInstance(result, dict)
         self.assertGreater(len(result), 0)
+
+    def test_terraform_platform_readme_references_delivery_blueprint(self):
+        """Platform Terraform docs should point back to the shared delivery model."""
+        from addons.terraform_platform import main
+        result = main("smoke", "Platform test", {"platform": "proxmox"})
+        readme = result.get("terraform/README.md", "")
+        self.assertIn("Proxmox-backed RKE2", readme)
+        self.assertIn("../platform/DELIVERY_BLUEPRINT.md", readme)
+        self.assertIn("bootstrap-rke2.sh", readme)
 
 
 # ---------------------------------------------------------------------------

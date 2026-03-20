@@ -193,20 +193,15 @@ echo "[5/5] Deployment trigger finished."
 """
 
 
-def _cluster_healthcheck_script(project_name: str) -> str:
-    return f"""#!/usr/bin/env bash
-set -euo pipefail
-
-NAMESPACE="{project_name}"
-ES_NAME="{project_name}"
-KIBANA_INGRESS="{project_name}-kibana"
-INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
-KUBECONFIG_FILE="$HOME/.kube/{project_name}"
-
+def _cluster_healthcheck_script(project_name: str, platform: str = "") -> str:
+    platform = (platform or "").lower()
+    kubeconfig_bootstrap = """
 if [[ -f "$KUBECONFIG_FILE" ]]; then
   export KUBECONFIG="$KUBECONFIG_FILE"
   echo ">>> Using existing KUBECONFIG at $KUBECONFIG_FILE"
-elif [[ -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
+"""
+    if platform in {"rke2", "proxmox"}:
+        kubeconfig_bootstrap += """elif [[ -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
   SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/' || true)
   SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/' || true)
   SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/' || true)
@@ -226,6 +221,23 @@ elif [[ -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
     fi
   fi
 fi
+"""
+    else:
+        kubeconfig_bootstrap += """elif [[ -z "${KUBECONFIG:-}" ]]; then
+  echo ">>> KUBECONFIG is not set. For managed or externally delivered clusters, export kubeconfig before running this health check."
+fi
+"""
+
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+NAMESPACE="{project_name}"
+ES_NAME="{project_name}"
+KIBANA_INGRESS="{project_name}-kibana"
+INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
+KUBECONFIG_FILE="$HOME/.kube/{project_name}"
+
+{kubeconfig_bootstrap}
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
 
@@ -254,12 +266,17 @@ else
   echo "No running Elasticsearch pod found"
 fi
 
-sep "INGRESS ($NAMESPACE)"
+sep "INGRESS / ROUTES ($NAMESPACE)"
 kubectl get ingress -n "$NAMESPACE" 2>/dev/null || echo "No ingress resources found"
+kubectl get route -n "$NAMESPACE" 2>/dev/null || echo "No OpenShift routes found"
 KIBANA_HOST=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
   -o jsonpath='{{.spec.rules[0].host}}' 2>/dev/null || true)
 KIBANA_ADDR=$(kubectl get ingress -n "$NAMESPACE" "$KIBANA_INGRESS" \\
   -o jsonpath='{{.status.loadBalancer.ingress[0].ip}}{{.status.loadBalancer.ingress[0].hostname}}' 2>/dev/null || true)
+if [[ -z "$KIBANA_HOST" ]]; then
+  KIBANA_HOST=$(kubectl get route -n "$NAMESPACE" "$KIBANA_INGRESS" \\
+    -o jsonpath='{{.spec.host}}' 2>/dev/null || true)
+fi
 if [[ -n "$KIBANA_HOST" ]]; then
   echo
   echo "  Kibana URL : https://${{KIBANA_HOST}}"
@@ -336,7 +353,7 @@ fi
             "scripts/post-terraform-deploy.sh": _script_header(project_name, platform)
             + git_push_block
             + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
-            "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name),
+            "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
             "docs/DEPLOYMENT_PIPELINE.md": (
                 "# Deployment Pipeline\n\n"
                 "1. Terraform creates infrastructure and VMs.\n"
@@ -349,7 +366,7 @@ fi
     tail = _flux_tail(project_name, eck_version=eck_version) if gitops == "flux" else _argo_tail(project_name)
     return {
         "scripts/post-terraform-deploy.sh": _script_header(project_name, platform) + git_push_block + tail,
-        "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name),
+        "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
         "docs/DEPLOYMENT_PIPELINE.md": (
             "# Deployment Pipeline\n\n"
             "Use this sequence to complete deployment:\n\n"

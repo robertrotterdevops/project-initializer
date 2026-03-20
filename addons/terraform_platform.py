@@ -435,9 +435,30 @@ class TerraformPlatformGenerator:
         )
 
     def _readme(self) -> str:
+        platform_notes = {
+            "proxmox": (
+                "This is the reference Day-0 path for Proxmox-backed RKE2. Terraform creates VMs and sizing-derived pools; RKE2 bootstrap and GitOps follow after apply.",
+                "After `terraform apply`, run `../scripts/bootstrap-rke2.sh` to build the cluster before reconciling GitOps.",
+            ),
+            "rke2": (
+                "This scaffold models workload-cluster pools for RKE2. Use it as the baseline topology for Rancher-governed RKE2 as well.",
+                "If this cluster will be governed by Rancher/Fleet, import it after bootstrap rather than changing pool semantics.",
+            ),
+            "openshift": (
+                "This scaffold is a Day-1/Day-2 starting point. OpenShift infrastructure is often provisioned elsewhere, so review the generated pools as placement guidance rather than a complete installer.",
+                "Keep tier-to-pool naming aligned with the RKE2 reference model so ECK and observability overlays remain portable.",
+            ),
+        }
+        overview, follow_up = platform_notes.get(
+            self.platform,
+            (
+                "This Terraform scaffold is platform-aware and generated from project-initializer.",
+                "Review provider auth, network CIDRs, node pools, and GitOps path before apply.",
+            ),
+        )
         return (
             f"# Terraform ({self.platform.upper()})\n\n"
-            "This Terraform scaffold is platform-aware and generated from project-initializer.\n\n"
+            f"{overview}\n\n"
             "## Structure\n\n"
             "- `main.tf`: root orchestration\n"
             "- `providers.tf`: providers and authentication inputs\n"
@@ -446,14 +467,17 @@ class TerraformPlatformGenerator:
             "- `modules/*`: platform module scaffold\n\n"
             "## Inputs\n\n"
             "- `terraform.tfvars.example` is pre-filled from sizing context when available.\n"
-            "- Review provider auth, network CIDRs, node pools, and GitOps path before apply.\n\n"
+            "- Review provider auth, network CIDRs, node pools, and GitOps path before apply.\n"
+            "- Review `../platform/DELIVERY_BLUEPRINT.md` for how this platform maps to Proxmox RKE2, Rancher-governed RKE2, OpenShift, and AKS delivery models.\n\n"
             "## Run\n\n"
             "```bash\n"
             "cd terraform\n"
             "terraform init\n"
             "cp terraform.tfvars.example terraform.tfvars\n"
             "terraform plan\n"
-            "```\n"
+            "```\n\n"
+            "## Follow-up\n\n"
+            f"- {follow_up}\n"
         )
 
 

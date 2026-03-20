@@ -202,84 +202,6 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn('"cold_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
             self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 4, ram_gb_per_node = 8, disk_gb = 80, full_clone = true }', tfvars)
 
-    def test_json_contract_platform_v1_is_normalized_for_addons(self) -> None:
-        payload = """
-        {
-          "schema_version": "es-sizing-platform.v1",
-          "platform": "openshift",
-          "project": {"name": "OS-1"},
-          "calculation": {
-            "inputs": {
-              "ingest_gb_per_day": 1,
-              "total_retention_days": 365,
-              "workload_type": "mixed"
-            },
-            "summary": {
-              "cluster_health_score": 93,
-              "total_nodes": 2,
-              "total_data_nodes": 2,
-              "total_vcpu_selected": 4,
-              "total_ram_gb_selected": 16,
-              "total_local_disk_gb_selected": 200,
-              "total_snapshot_storage_gb": 200,
-              "total_master_nodes": 0
-            },
-            "tiers": [
-              {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
-              {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
-              {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
-            ]
-          },
-          "platform_details": {
-            "pools": [
-              {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {"kibana_pods": 1, "fleet_pods": 1}},
-              {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": null, "composition": {}},
-              {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": null, "composition": {}}
-            ],
-            "stack_components": {"vcpu": 4, "ram_gb": 8}
-          }
-        }
-        """
-        ctx = _parse_json_contract(payload)
-        self.assertEqual(ctx.get("platform_detected"), "openshift")
-        self.assertEqual(ctx.get("health_score"), 93)
-        self.assertEqual(ctx.get("inputs", {}).get("ingest_per_day_gb"), 1)
-        self.assertEqual(ctx.get("data_nodes", {}).get("count"), 1)
-        self.assertEqual(ctx.get("cold_nodes", {}).get("count"), 1)
-        self.assertEqual(ctx.get("kibana", {}).get("count"), 1)
-        self.assertEqual(ctx.get("fleet_server", {}).get("count"), 1)
-        pools = {p["name"]: p for p in ctx.get("rke2", {}).get("pools", [])}
-        self.assertEqual(pools["hot_pool"]["disk_gb_per_node"], 100)
-        self.assertEqual(pools["cold_pool"]["disk_gb_per_node"], 100)
-
-    def test_initialize_project_proxmox_tfvars_uses_platform_v1_pools(self) -> None:
-        sizing_context = {
-            "source": "sizing_report",
-            "platform_detected": "openshift",
-            "openshift": {
-                "pools": [
-                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
-                    {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 4, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
-                    {"name": "system_pool", "nodes": 2, "vcpu_per_node": 4, "ram_gb_per_node": 8, "disk_gb_per_node": 80},
-                ]
-            },
-        }
-        with tempfile.TemporaryDirectory(prefix="pi-platform-pools-") as td:
-            out_dir = Path(td) / "sample-project"
-            initialize_project(
-                project_name="sample-project",
-                description="",
-                target_directory=str(out_dir),
-                platform="proxmox",
-                gitops_tool="flux",
-                iac_tool="terraform",
-                sizing_context=sizing_context,
-            )
-            tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
-            self.assertIn('"hot_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
-            self.assertIn('"cold_pool" = { node_count = 1, vcpu_per_node = 4, ram_gb_per_node = 16, disk_gb = 100, full_clone = true }', tfvars)
-            self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 4, ram_gb_per_node = 8, disk_gb = 80, full_clone = true }', tfvars)
-
     def test_addon_loader_matches_iac_only_trigger(self) -> None:
         loader = AddonLoader()
         analysis = {
@@ -324,6 +246,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertTrue((out_dir / "ansible/rke2-bootstrap.yml").exists())
             self.assertTrue((out_dir / "docs/DEPLOYMENT_ATTENTION.md").exists())
             self.assertTrue((out_dir / "docs/RKE2_BOOTSTRAP.md").exists())
+            self.assertTrue((out_dir / "platform/DELIVERY_BLUEPRINT.md").exists())
             self.assertTrue((out_dir / "sizing/config.json").exists())
             tfvars = (out_dir / "terraform/terraform.tfvars.example").read_text()
             versions_tf = (out_dir / "terraform/versions.tf").read_text()
@@ -332,6 +255,7 @@ class TestIacHardening(unittest.TestCase):
             proxmox_module_tf = (out_dir / "terraform/modules/proxmox_cluster/main.tf").read_text()
             deploy_script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
             healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
+            delivery_blueprint = (out_dir / "platform/DELIVERY_BLUEPRINT.md").read_text()
             self.assertIn("proxmox_node_pools", tfvars)
             self.assertIn("proxmox_endpoint", tfvars)
             self.assertIn("gitops_flux_path", tfvars)
@@ -354,6 +278,8 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('resource "local_file"', proxmox_module_tf)
             self.assertIn('scripts/bootstrap-rke2.sh', deploy_script)
             self.assertIn("terraform apply -auto-approve -parallelism=4", deploy_script)
+            self.assertIn("Rancher-governed RKE2", delivery_blueprint)
+            self.assertIn("Azure AKS", delivery_blueprint)
             self.assertIn('NAMESPACE="sample-project"', healthcheck_script)
             self.assertIn('ES_NAME="sample-project"', healthcheck_script)
             self.assertNotIn('KB_NAME=', healthcheck_script)
@@ -921,6 +847,154 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("Waiting for agent auto-enrollment (ECK 3.x)", deploy_script)
             self.assertNotIn("ENROLLMENT_TOKEN", deploy_script)
             self.assertNotIn("kubectl set env daemonset", deploy_script)
+
+    def test_aks_eck_defaults_hot_to_premium_and_cold_to_standard_storage(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-aks-storage-defaults-") as td:
+            out_dir = Path(td) / "aks-storage-defaults"
+            initialize_project(
+                project_name="aks-storage-defaults",
+                description="AKS Elasticsearch deployment",
+                target_directory=str(out_dir),
+                platform="aks",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "data_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                    "cold_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "200Gi"},
+                    "frozen_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "cache_storage": "300Gi"},
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertIn("storageClassName: premium", es_cluster)
+            self.assertIn("storageClassName: standard", es_cluster)
+
+    def test_openshift_eck_defaults_to_standard_storage(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-ocp-storage-defaults-") as td:
+            out_dir = Path(td) / "ocp-storage-defaults"
+            initialize_project(
+                project_name="ocp-storage-defaults",
+                description="OpenShift Elasticsearch deployment",
+                target_directory=str(out_dir),
+                platform="openshift",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "data_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                    "cold_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "200Gi"},
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertNotIn("storageClassName: premium", es_cluster)
+            self.assertIn("storageClassName: standard", es_cluster)
+
+    def test_observability_rollout_doc_emits_platform_warning(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-otel-rollout-ocp-") as td:
+            out_dir = Path(td) / "otel-rollout-ocp"
+            initialize_project(
+                project_name="otel-rollout-ocp",
+                description="OpenShift observability deployment",
+                target_directory=str(out_dir),
+                platform="openshift",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                enable_otel_collector=True,
+            )
+            rollout = (out_dir / "docs/OBSERVABILITY_ROLLOUT.md").read_text()
+            self.assertIn("OpenShift may reject hostPath-based collectors", rollout)
+            self.assertIn("Validate Elasticsearch credentials mirroring", rollout)
+
+    def test_openshift_uses_platform_route_instead_of_inline_kibana_ingress(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-ocp-kibana-exposure-") as td:
+            out_dir = Path(td) / "ocp-exposure"
+            initialize_project(
+                project_name="ocp-exposure",
+                description="OpenShift Elasticsearch deployment",
+                target_directory=str(out_dir),
+                platform="openshift",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={"source": "sizing_report", "eck_operator": {"version": "3.0.0"}},
+            )
+            kibana_kustomization = (out_dir / "kibana/kustomization.yaml").read_text()
+            route_yaml = (out_dir / "platform/openshift/route.yaml").read_text()
+            self.assertNotIn("- ingress.yaml", kibana_kustomization)
+            self.assertFalse((out_dir / "kibana/ingress.yaml").exists())
+            self.assertIn("kind: Route", route_yaml)
+            self.assertIn("name: ocp-exposure-kibana", route_yaml)
+
+    def test_aks_uses_platform_ingress_instead_of_inline_kibana_ingress(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-aks-kibana-exposure-") as td:
+            out_dir = Path(td) / "aks-exposure"
+            initialize_project(
+                project_name="aks-exposure",
+                description="AKS Elasticsearch deployment",
+                target_directory=str(out_dir),
+                platform="aks",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={"source": "sizing_report", "eck_operator": {"version": "3.0.0"}},
+            )
+            kibana_kustomization = (out_dir / "kibana/kustomization.yaml").read_text()
+            aks_ingress = (out_dir / "platform/aks/ingress.yaml").read_text()
+            self.assertNotIn("- ingress.yaml", kibana_kustomization)
+            self.assertFalse((out_dir / "kibana/ingress.yaml").exists())
+            self.assertIn("azure/application-gateway", aks_ingress)
+
+    def test_healthcheck_script_for_managed_platforms_does_not_fetch_rke2_kubeconfig(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-healthcheck-aks-") as td:
+            out_dir = Path(td) / "aks-healthcheck"
+            initialize_project(
+                project_name="aks-healthcheck",
+                description="Managed AKS Elasticsearch deployment",
+                target_directory=str(out_dir),
+                platform="aks",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            healthcheck = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
+            self.assertNotIn("/etc/rancher/rke2/rke2.yaml", healthcheck)
+            self.assertIn("For managed or externally delivered clusters", healthcheck)
+            self.assertIn("kubectl get route", healthcheck)
+
+    def test_fleet_server_uses_sizing_count_and_infra_selector(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-fleet-sizing-") as td:
+            out_dir = Path(td) / "fleet-sizing"
+            initialize_project(
+                project_name="fleet-sizing",
+                description="Elasticsearch on proxmox RKE2",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "fleet_server": {"count": 2, "memory": "4Gi", "cpu": "2", "node_selector": {"node-role.kubernetes.io/system": "true"}},
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            fleet_server = (out_dir / "agents/fleet-server.yaml").read_text()
+            self.assertIn("replicas: 2", fleet_server)
+            self.assertIn('"node-role.kubernetes.io/system": "true"', fleet_server)
+
+    def test_observability_skips_metrics_server_for_proxmox_rke2_delivery(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-otel-proxmox-") as td:
+            out_dir = Path(td) / "otel-proxmox"
+            initialize_project(
+                project_name="otel-proxmox",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                enable_otel_collector=True,
+            )
+            self.assertFalse((out_dir / "platform/metrics-server").exists())
+            otel_readme = (out_dir / "observability/otel-collector/README.md").read_text()
+            self.assertIn("Proxmox-backed RKE2 delivery", otel_readme)
 
     def test_otel_dashboard_ndjson_generated(self) -> None:
         """Verify dashboard ndjson file present in output with Lens format."""

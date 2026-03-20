@@ -277,11 +277,16 @@ class TestFullPipelineVerification(unittest.TestCase):
 
     def test_full_pipeline_matches_es06_reference(self):
         """FLUX-04: Generated critical files match es-06 reference exactly (whitespace-stripped)."""
+        if not os.path.isdir(ES06_REF):
+            self.skipTest(f"External reference not available: {ES06_REF}")
+
         with tempfile.TemporaryDirectory() as out_dir:
             _run_full_pipeline(out_dir)
             for f in CRITICAL_FILES:
-                gen_content = open(os.path.join(out_dir, f)).read().strip()
-                ref_content = open(os.path.join(ES06_REF, f)).read().strip()
+                with open(os.path.join(out_dir, f)) as gen_fh:
+                    gen_content = gen_fh.read().strip()
+                with open(os.path.join(ES06_REF, f)) as ref_fh:
+                    ref_content = ref_fh.read().strip()
                 self.assertEqual(gen_content, ref_content, f"Mismatch in {f}")
 
     def test_full_pipeline_directory_structure(self):
