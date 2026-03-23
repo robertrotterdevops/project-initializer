@@ -99,6 +99,42 @@ class TestECKDeploymentUnit(unittest.TestCase):
         )
         self.assertTrue(found, "No agents/ file mentions 'fleet'")
 
+    def test_kibana_and_fleet_fall_back_from_missing_infra_to_master(self):
+        context = {
+            "platform": "rke2",
+            "sizing_context": {
+                "source": "sizing_report",
+                "master_nodes": {"count": 3, "memory": "4Gi", "cpu": "2"},
+                "data_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                "cold_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                "kibana": {"count": 1, "memory": "4Gi", "cpu": "2"},
+                "fleet_server": {"count": 1, "memory": "4Gi", "cpu": "2"},
+                "eck_operator": {"version": "3.0.0"},
+            },
+        }
+        files = ECKDeploymentGenerator("proj", "ES on RKE2", context).generate()
+        kibana = yaml.safe_load(files["kibana/kibana.yaml"])
+        fleet = yaml.safe_load(files["agents/fleet-server.yaml"])
+        kibana_selector = kibana["spec"]["podTemplate"]["spec"]["nodeSelector"]
+        fleet_selector = fleet["spec"]["deployment"]["podTemplate"]["spec"]["nodeSelector"]
+        self.assertEqual(kibana_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
+        self.assertEqual(fleet_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
+
+    def test_fleet_cpu_request_never_exceeds_limit(self):
+        context = {
+            "platform": "rke2",
+            "sizing_context": {
+                "source": "sizing_report",
+                "fleet_server": {"count": 1, "memory": "4Gi", "cpu": "2"},
+                "eck_operator": {"version": "3.0.0"},
+            },
+        }
+        files = ECKDeploymentGenerator("proj", "ES on RKE2", context).generate()
+        fleet = yaml.safe_load(files["agents/fleet-server.yaml"])
+        resources = fleet["spec"]["deployment"]["podTemplate"]["spec"]["containers"][0]["resources"]
+        self.assertEqual(resources["requests"]["cpu"], "2")
+        self.assertEqual(resources["limits"]["cpu"], "2")
+
 
 # ---------------------------------------------------------------------------
 # Task 1 — TEST-01 platform_manifests deep assertions

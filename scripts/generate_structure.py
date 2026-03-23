@@ -17,7 +17,19 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from project_analyzer import ProjectAnalyzer, analyze_project  # noqa: E402
-from addon_loader import AddonLoader, run_matched_addons  # noqa: E402
+from addon_loader import AddonLoader, run_matched_addons_with_trace  # noqa: E402
+from generation_governance import (  # noqa: E402
+    apply_header_policy,
+    build_file_record,
+    build_generation_manifest,
+    build_generation_validation_report,
+    build_operations_manifest,
+    default_header_policy,
+    default_license_policy,
+    governance_docs,
+    write_json_file,
+    write_text_file,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -141,9 +153,7 @@ def generate_readme(base_path: str, context: Dict, template_path: str) -> str:
 
     content = render_template(template, context)
     out = os.path.join(base_path, "README.md")
-    with open(out, "w") as fh:
-        fh.write(content)
-    return out
+    return write_text_file(out, content)
 
 
 def generate_agents_doc(base_path: str, context: Dict, template_path: str) -> str:
@@ -166,9 +176,7 @@ def generate_agents_doc(base_path: str, context: Dict, template_path: str) -> st
 
     content = render_template(template, context)
     out = os.path.join(base_path, "AGENTS.md")
-    with open(out, "w") as fh:
-        fh.write(content)
-    return out
+    return write_text_file(out, content)
 
 
 def generate_basic_files(base_path: str, context: Dict) -> List[str]:
@@ -177,54 +185,54 @@ def generate_basic_files(base_path: str, context: Dict) -> List[str]:
 
     # .gitignore
     gitignore = os.path.join(base_path, ".gitignore")
-    with open(gitignore, "w") as fh:
-        fh.write(
-            ".opencode/\n.venv/\n__pycache__/\n*.pyc\nenv/\nvenv/\n"
-            ".vscode/\n.idea/\n*.swp\n.DS_Store\nThumbs.db\n"
-        )
+    write_text_file(
+        gitignore,
+        ".opencode/\n.venv/\n__pycache__/\n*.pyc\nenv/\nvenv/\n"
+        ".vscode/\n.idea/\n*.swp\n.DS_Store\nThumbs.db\n",
+    )
     generated.append(gitignore)
 
     # Terraform starters
     tf_dir = os.path.join(base_path, "terraform")
     if os.path.isdir(tf_dir):
         main_tf = os.path.join(tf_dir, "main.tf")
-        with open(main_tf, "w") as fh:
-            fh.write(
-                render_template(
-                    "# Terraform configuration for {{project_name}}\n\n"
-                    'terraform {\n  required_version = ">= 1.0"\n}\n',
-                    context,
-                )
-            )
+        write_text_file(
+            main_tf,
+            render_template(
+                "# Terraform configuration for {{project_name}}\n\n"
+                'terraform {\n  required_version = ">= 1.0"\n}\n',
+                context,
+            ),
+        )
         generated.append(main_tf)
 
         vars_tf = os.path.join(tf_dir, "variables.tf")
-        with open(vars_tf, "w") as fh:
-            fh.write(
-                render_template(
-                    '# Input variables\n\nvariable "project_name" {\n'
-                    '  description = "Project name"\n  type        = string\n'
-                    '  default     = "{{project_name}}"\n}\n\n'
-                    'variable "environment" {\n  description = "Environment"\n'
-                    '  type        = string\n  default     = "dev"\n}\n',
-                    context,
-                )
-            )
+        write_text_file(
+            vars_tf,
+            render_template(
+                '# Input variables\n\nvariable "project_name" {\n'
+                '  description = "Project name"\n  type        = string\n'
+                '  default     = "{{project_name}}"\n}\n\n'
+                'variable "environment" {\n  description = "Environment"\n'
+                '  type        = string\n  default     = "dev"\n}\n',
+                context,
+            ),
+        )
         generated.append(vars_tf)
 
     # K8s namespace
     k8s_dir = os.path.join(base_path, "k8s")
     if os.path.isdir(k8s_dir):
         ns = os.path.join(k8s_dir, "namespace.yaml")
-        with open(ns, "w") as fh:
-            fh.write(
-                render_template(
-                    "apiVersion: v1\nkind: Namespace\nmetadata:\n"
-                    "  name: {{project_name}}\n  labels:\n"
-                    "    project: {{project_name}}\n",
-                    context,
-                )
-            )
+        write_text_file(
+            ns,
+            render_template(
+                "apiVersion: v1\nkind: Namespace\nmetadata:\n"
+                "  name: {{project_name}}\n  labels:\n"
+                "    project: {{project_name}}\n",
+                context,
+            ),
+        )
         generated.append(ns)
 
     return generated
@@ -303,9 +311,7 @@ load skill {primary_skill}
 """
 
     out = os.path.join(opencode_dir, "context.md")
-    with open(out, "w") as fh:
-        fh.write(content)
-    return out
+    return write_text_file(out, content)
 
 
 # ------------------------------------------------------------------
@@ -330,6 +336,8 @@ def initialize_project(
     forced_chain: Optional[str] = None,
     enable_metrics_server: bool = False,
     enable_otel_collector: bool = False,
+    license_policy: Optional[Dict] = None,
+    header_policy: Optional[Dict] = None,
 ) -> Dict:
     """
     Analyse, scaffold, and generate documentation for a new project.
@@ -406,6 +414,9 @@ def initialize_project(
     else:
         context["sizing_configured"] = "false"
 
+    license_policy = dict(default_license_policy() | (license_policy or {}))
+    header_policy = dict(default_header_policy() | (header_policy or {}))
+
     # Create directories/files
     structure = analysis.get("project_structure", [])
     created = create_project_structure(target_directory, structure)
@@ -431,6 +442,15 @@ def initialize_project(
 
     # Addon autodiscovery and loading
     generated_files = [readme, agents, opencode_context] + config_files
+    file_records = [
+        build_file_record(project_root=target_directory, full_path=readme, source_type="core", source_name="readme"),
+        build_file_record(project_root=target_directory, full_path=agents, source_type="core", source_name="agents_doc"),
+        build_file_record(project_root=target_directory, full_path=opencode_context, source_type="core", source_name="opencode_context"),
+    ]
+    for path in config_files:
+        file_records.append(
+            build_file_record(project_root=target_directory, full_path=path, source_type="core", source_name="basic_files")
+        )
 
     # Build context for addon matching
     addon_context = {
@@ -450,30 +470,222 @@ def initialize_project(
 
     # Determine if running in interactive mode (platform or gitops_tool explicitly set)
     interactive_mode = bool(platform or gitops_tool)
+    manifest_path = os.path.join(target_directory, "project-initializer-manifest.json")
+    operations_manifest_path = os.path.join(target_directory, "project-initializer-operations.json")
+    validation_report_path = os.path.join(target_directory, "project-initializer-validation-report.json")
 
     try:
         # Use AddonLoader for autodiscovery and matching
-        addon_files = run_matched_addons(
+        addon_run = run_matched_addons_with_trace(
             analysis=analysis,
             project_name=project_name,
             description=description,
             context=addon_context,
             interactive_mode=interactive_mode,
         )
+        addon_files = addon_run.get("files", {})
+        addon_sources = addon_run.get("file_sources", {})
 
         # Write addon-generated files to disk
         for filepath, content in addon_files.items():
             full_path = os.path.join(target_directory, filepath)
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, "w") as f:
-                f.write(content)
+            executable = filepath.startswith("scripts/") and filepath.endswith(".sh")
+            write_text_file(full_path, content, executable=executable)
             generated_files.append(full_path)
-            if filepath.startswith("scripts/") and filepath.endswith(".sh"):
-                os.chmod(full_path, 0o755)
+            source_meta = addon_sources.get(filepath, {})
+            file_records.append(
+                build_file_record(
+                    project_root=target_directory,
+                    full_path=full_path,
+                    source_type=source_meta.get("source_type", "addon"),
+                    source_name=source_meta.get("source_name", "unknown_addon"),
+                    executable=executable,
+                )
+            )
             logging.info(f"Generated addon file: {filepath}")
+
+        governance_outputs = governance_docs(
+            project_name=project_name,
+            project_root=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            manifest_path=manifest_path,
+            file_records=file_records,
+        )
+        for full_path, content in governance_outputs.items():
+            write_text_file(full_path, content)
+            generated_files.append(full_path)
+            file_records.append(
+                build_file_record(
+                    project_root=target_directory,
+                    full_path=full_path,
+                    source_type="governance",
+                    source_name=Path(full_path).name.lower(),
+                )
+            )
+
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=manifest_path,
+                source_type="governance",
+                source_name="generation_manifest",
+            )
+        )
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=operations_manifest_path,
+                source_type="governance",
+                source_name="operations_manifest",
+            )
+        )
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=validation_report_path,
+                source_type="governance",
+                source_name="generation_validation_report",
+            )
+        )
+        apply_header_policy(
+            project_root=target_directory,
+            file_records=file_records,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            skip_paths=["project-initializer-manifest.json"],
+        )
+        manifest_payload = build_generation_manifest(
+            project_name=project_name,
+            description=description,
+            project_path=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            analysis=analysis,
+            sizing_context=sizing_context,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            file_records=file_records,
+        )
+        write_json_file(manifest_path, manifest_payload)
+        generated_files.append(manifest_path)
+        operations_payload = build_operations_manifest(
+            project_name=project_name,
+            project_path=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            file_records=file_records,
+        )
+        write_json_file(operations_manifest_path, operations_payload)
+        generated_files.append(operations_manifest_path)
+        validation_payload = build_generation_validation_report(
+            project_root=target_directory,
+            manifest_path=manifest_path,
+            file_records=file_records,
+            license_policy=license_policy,
+            header_policy=header_policy,
+        )
+        write_json_file(validation_report_path, validation_payload)
+        generated_files.append(validation_report_path)
 
     except Exception as e:
         logging.warning(f"Addon loading failed: {e}")
+
+    if not os.path.exists(manifest_path):
+        governance_outputs = governance_docs(
+            project_name=project_name,
+            project_root=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            manifest_path=manifest_path,
+            file_records=file_records,
+        )
+        for full_path, content in governance_outputs.items():
+            if not os.path.exists(full_path):
+                write_text_file(full_path, content)
+                generated_files.append(full_path)
+                file_records.append(
+                    build_file_record(
+                        project_root=target_directory,
+                        full_path=full_path,
+                        source_type="governance",
+                        source_name=Path(full_path).name.lower(),
+                    )
+                )
+
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=manifest_path,
+                source_type="governance",
+                source_name="generation_manifest",
+            )
+        )
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=operations_manifest_path,
+                source_type="governance",
+                source_name="operations_manifest",
+            )
+        )
+        file_records.append(
+            build_file_record(
+                project_root=target_directory,
+                full_path=validation_report_path,
+                source_type="governance",
+                source_name="generation_validation_report",
+            )
+        )
+        apply_header_policy(
+            project_root=target_directory,
+            file_records=file_records,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            skip_paths=["project-initializer-manifest.json"],
+        )
+        manifest_payload = build_generation_manifest(
+            project_name=project_name,
+            description=description,
+            project_path=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            analysis=analysis,
+            sizing_context=sizing_context,
+            license_policy=license_policy,
+            header_policy=header_policy,
+            file_records=file_records,
+        )
+        write_json_file(manifest_path, manifest_payload)
+        generated_files.append(manifest_path)
+        operations_payload = build_operations_manifest(
+            project_name=project_name,
+            project_path=target_directory,
+            platform=platform,
+            gitops_tool=gitops_tool,
+            iac_tool=iac_tool,
+            file_records=file_records,
+        )
+        write_json_file(operations_manifest_path, operations_payload)
+        generated_files.append(operations_manifest_path)
+        validation_payload = build_generation_validation_report(
+            project_root=target_directory,
+            manifest_path=manifest_path,
+            file_records=file_records,
+            license_policy=license_policy,
+            header_policy=header_policy,
+        )
+        write_json_file(validation_report_path, validation_payload)
+        generated_files.append(validation_report_path)
 
     return {
         "project_path": target_directory,
@@ -493,6 +705,11 @@ def initialize_project(
         "repo_url": repo_url,
         "target_revision": target_revision,
         "sizing_context": sizing_context,
+        "generation_manifest": manifest_path,
+        "generation_operations_manifest": operations_manifest_path,
+        "generation_validation_report": validation_report_path,
+        "license_policy": license_policy,
+        "header_policy": header_policy,
     }
 
 

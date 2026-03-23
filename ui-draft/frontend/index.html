@@ -1756,6 +1756,10 @@
               <i data-lucide="refresh-cw"></i>
               <span>Git Sync</span>
             </a>
+            <a class="nav-item" data-page="validate">
+              <i data-lucide="shield-check"></i>
+              <span>Validate & Deploy</span>
+            </a>
             <a class="nav-item" data-page="status">
               <i data-lucide="activity"></i>
               <span>Status</span>
@@ -2133,6 +2137,7 @@
                       <div id="sizingPreviewMeta" class="form-hint" style="margin-bottom:10px;"></div>
                       <div id="sizingPreviewWarnings" style="display:none; margin-bottom:10px;"></div>
                       <div id="sizingPreviewCaveats" style="display:none; margin-bottom:10px;"></div>
+                      <div id="sizingPreviewGovernance" style="display:none; margin-bottom:10px;"></div>
                       <div id="sizingPreviewAddons" style="display:none; margin-bottom:10px;"></div>
                       <pre id="sizingPreviewBody" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5;"></pre>
                     </div>
@@ -2259,11 +2264,75 @@
               </div>
             </div>
 
+            <div class="card" id="stage4Card">
+              <div class="card-header">
+                <div>
+                  <div class="stage-kicker">Stage 4</div>
+                  <h2 class="card-title">
+                    <i data-lucide="shield-check"></i>
+                    License, Metadata & Review
+                  </h2>
+                </div>
+                <div class="stage-header-tools">
+                  <span class="stage-status optional" id="stage4Status">Optional</span>
+                </div>
+              </div>
+              <div class="stage-content" id="stage4Content">
+              <p class="stage-note">Define license, ownership, confidentiality, and managed header behavior before generation.</p>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label class="form-label"><i data-lucide="shield"></i>Policy profile</label>
+                  <select class="form-select" id="policyProfile"></select>
+                  <div class="form-hint" id="policyProfileHint">Applies recommended governance defaults.</div>
+                </div>
+                <div class="form-field">
+                  <label class="form-label"><i data-lucide="badge-check"></i>License</label>
+                  <select class="form-select" id="licenseId">
+                    <option value="UNLICENSED">UNLICENSED / internal</option>
+                    <option value="MIT">MIT</option>
+                    <option value="Apache-2.0">Apache-2.0</option>
+                    <option value="Proprietary">Proprietary</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label"><i data-lucide="lock"></i>Confidentiality</label>
+                  <select class="form-select" id="confidentiality">
+                    <option value="internal">Internal</option>
+                    <option value="public">Public</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label"><i data-lucide="file-badge"></i>Header mode</label>
+                  <select class="form-select" id="headerMode">
+                    <option value="none">None</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="full">Full managed header</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="form-label"><i data-lucide="copyright"></i>Copyright owner</label>
+                  <input type="text" class="form-input" id="copyrightOwner" placeholder="Robert Rotter">
+                </div>
+                <div class="form-field full-width">
+                  <label class="form-label"><i data-lucide="building-2"></i>Organization</label>
+                  <input type="text" class="form-input" id="organization" placeholder="Elastic Platform Team">
+                </div>
+                <div class="form-field full-width">
+                  <div id="governancePreviewPanel" class="card" style="padding: 16px;">
+                    <strong>Governance preview</strong>
+                    <div id="governancePreviewBody" class="form-hint" style="margin-top:8px; white-space:pre-wrap;"></div>
+                  </div>
+                </div>
+              </div>
+              </div>
+            </div>
+
             <!-- Actions -->
             <div class="card actions-card">
               <div class="card-header">
                 <div>
-                  <div class="stage-kicker">Stage 4</div>
+                  <div class="stage-kicker">Stage 5</div>
                   <h2 class="card-title">
                     <i data-lucide="zap"></i>
                     Review & Execute
@@ -2296,7 +2365,7 @@
               <div class="result-header">
                 <span class="result-title">
                   <i data-lucide="terminal"></i>
-                  Stage 5 · Result
+                  Stage 6 · Result
                 </span>
                 <span class="status-badge" id="resultStatus" style="display: none;">
                   <span class="dot"></span>
@@ -2603,6 +2672,129 @@
             </div>
           </section>
 
+          <section class="page-section" id="pageValidate">
+            <div class="section-header">
+              <h1 class="section-title">Validate & Deploy</h1>
+              <p class="section-subtitle">Run post-generation checks and selected generated scripts against local or remote projects.</p>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title"><i data-lucide="folder-check"></i>Project Selection</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-field full-width">
+                  <label class="form-label"><i data-lucide="history"></i>Generated Project</label>
+                  <select class="form-select" id="validationDeploymentSelect">
+                    <option value="">Select a generated project</option>
+                  </select>
+                  <div class="form-hint">Projects come from deployment history and retain local or remote linkage.</div>
+                </div>
+                <div class="form-field full-width">
+                  <div class="btn-group">
+                    <button class="btn btn-secondary" type="button" id="validationLoadBtn"><i data-lucide="refresh-cw"></i>Load Summary</button>
+                    <button class="btn btn-secondary" type="button" id="validationDiagnosticsBtn"><i data-lucide="stethoscope"></i>Run Diagnostics</button>
+                    <button class="btn btn-primary" type="button" id="validationRunBtn"><i data-lucide="shield"></i>Run Validation</button>
+                    <button class="btn btn-secondary" type="button" id="validationExportBtn"><i data-lucide="download"></i>Export Output</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2 class="card-title"><i data-lucide="scroll-text"></i>Generated Scripts</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-field full-width">
+                  <label class="form-label"><i data-lucide="terminal-square"></i>Script Action</label>
+                  <select class="form-select" id="validationScriptSelect">
+                    <option value="">Select a generated script</option>
+                  </select>
+                  <div class="form-hint" id="validationScriptHint">Generated scripts can be executed from the UI. Only Post Terraform Deploy is treated as a dangerous action.</div>
+                </div>
+                <div class="form-field full-width" id="validationScriptArgs"></div>
+                <div class="form-field full-width" id="validationConfirmationField" style="display:none;">
+                  <label class="form-label"><i data-lucide="shield-alert"></i>Mutating Confirmation</label>
+                  <input type="text" class="form-input" id="validationConfirmationInput" placeholder="Type confirmation phrase to enable execution">
+                  <div class="form-hint" id="validationConfirmationHint">Mutating operations require explicit confirmation.</div>
+                </div>
+                <div class="form-field">
+                  <label class="checkbox-wrapper">
+                    <input type="checkbox" id="validationAllowMutating">
+                    <span class="checkbox-custom"><i data-lucide="check"></i></span>
+                    <span class="checkbox-label">Allow dangerous action</span>
+                  </label>
+                </div>
+                <div class="form-field">
+                  <button class="btn btn-secondary" type="button" id="validationRunScriptBtn"><i data-lucide="play"></i>Run Script</button>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i>Environment Diagnostics</h2></div>
+              <pre id="validationDiagnosticsOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:140px;">Select a project to inspect local or remote execution readiness.</pre>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="package-search"></i>Project Summary</h2></div>
+              <pre id="validationSummaryOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:120px;">Select a project to inspect generated artifacts and script bindings.</pre>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="list-tree"></i>Runbook Step Actions</h2></div>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+                <div class="form-field" style="min-width:220px; margin:0;">
+                  <label class="form-label">Step filter</label>
+                  <select class="form-select" id="validationStepFilter">
+                    <option value="all">All steps</option>
+                    <option value="ready">Ready</option>
+                    <option value="pending">Pending</option>
+                    <option value="completed">Completed</option>
+                    <option value="mutating">Mutating</option>
+                  </select>
+                </div>
+                <div class="form-field" style="margin:0;">
+                  <button class="btn btn-secondary" type="button" id="validationCopyNextCommandBtn"><i data-lucide="copy"></i>Copy Next Command</button>
+                </div>
+              </div>
+              <div id="validationStepActions" style="display:grid; gap:12px;">Select a project to inspect step actions.</div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="panel-right-open"></i>Step Detail</h2></div>
+              <div id="validationStepDetail" style="display:grid; gap:12px;">Select a runbook step to inspect docs, prerequisites, and suggested actions.</div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="history"></i>Execution Timeline</h2></div>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+                <div class="form-field" style="min-width:240px; margin:0;">
+                  <label class="form-label">Timeline filter</label>
+                  <select class="form-select" id="validationTimelineFilter">
+                    <option value="all">All runs</option>
+                    <option value="validation">Validation only</option>
+                    <option value="safe">Safe scripts</option>
+                    <option value="mutating">Mutating scripts</option>
+                    <option value="ok">Successful only</option>
+                    <option value="failed">Failed only</option>
+                  </select>
+                </div>
+              </div>
+              <div id="validationTimeline" style="display:grid; gap:12px;">No validation or execution history yet.</div>
+            </div>
+            <div class="card" id="postDeployResultCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="rocket"></i> Post Terraform Deploy Result</h2></div>
+              <div id="postDeployResultBody" class="form-hint">No post-deploy run yet.</div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="list-checks"></i>Validation / Execution Output</h2></div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                <button class="btn btn-secondary" type="button" id="validationCopyRunOutputBtn"><i data-lucide="copy"></i>Copy Output</button>
+                <button class="btn btn-secondary" type="button" id="validationExportRunBtn"><i data-lucide="download"></i>Export Selected Run</button>
+              </div>
+              <pre id="validationActionOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:180px;">No validation run yet.</pre>
+            </div>
+          </section>
+
           <section class="page-section" id="pageStatus">
             <div class="section-header">
               <h1 class="section-title">Flux Status</h1>
@@ -2626,6 +2818,16 @@
                 <button class="btn btn-secondary" id="statusRefreshBtn"><i data-lucide="refresh-cw"></i> Refresh Now</button>
                 <span class="form-hint" id="statusLastPolled"></span>
               </div>
+            </div>
+
+            <div class="card" id="statusOverviewCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i> Cluster Overview</h2></div>
+              <div id="statusOverviewBody" class="form-hint">No status data yet.</div>
+            </div>
+
+            <div class="card" id="statusAccessCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="key-round"></i> Access & Kubeconfig</h2></div>
+              <div id="statusAccessBody" class="form-hint">No access data yet.</div>
             </div>
 
             <div class="card" id="statusKsCard" style="display:none">
@@ -2733,6 +2935,37 @@
         },
       };
 
+      const policyProfiles = {
+        'internal-default': {
+          label: 'Internal default',
+          license_id: 'UNLICENSED',
+          confidentiality: 'internal',
+          header_mode: 'minimal',
+          description: 'Internal delivery with lightweight managed headers.',
+        },
+        'restricted-managed': {
+          label: 'Restricted managed',
+          license_id: 'Proprietary',
+          confidentiality: 'restricted',
+          header_mode: 'full',
+          description: 'Restricted delivery with full managed headers and ownership metadata.',
+        },
+        'apache-public': {
+          label: 'Apache public',
+          license_id: 'Apache-2.0',
+          confidentiality: 'public',
+          header_mode: 'full',
+          description: 'Public-facing project with Apache-2.0 and explicit provenance.',
+        },
+        'mit-public': {
+          label: 'MIT public',
+          license_id: 'MIT',
+          confidentiality: 'public',
+          header_mode: 'minimal',
+          description: 'Open project with MIT licensing and minimal managed headers.',
+        },
+      };
+
       const savedPlatform = localStorage.getItem('pi-ui-platform') || 'openshift';
 
       // State
@@ -2756,6 +2989,7 @@
         gitopsTouched: false,
         activeGitTab: 'repos',
         discoveredRepos: [],
+        activePolicyProfile: localStorage.getItem('pi-policy-profile') || 'internal-default',
         sshKeys: [],
         selectedKey: null,
         environment: {
@@ -2763,6 +2997,11 @@
           supports_native_picker: true,
           supports_gui_open: true,
         },
+        validationSummary: null,
+        validationDiagnostics: null,
+        validationSelectedStep: '',
+        validationArtifactPreview: null,
+        validationSelectedRunAt: '',
       };
 
       const isDesktopRuntime = !window.location.protocol.startsWith('http');
@@ -2783,6 +3022,83 @@
           .replace(/'/g, '&#39;');
       }
 
+      function renderGovernancePreview(preview) {
+        const body = document.getElementById('governancePreviewBody');
+        if (!body) return;
+        const governance = preview?.governance_preview || null;
+        if (!governance) {
+          body.textContent = 'License=UNLICENSED • confidentiality=internal • header=none';
+          return;
+        }
+        const license = governance.license_policy || {};
+        const header = governance.header_policy || {};
+        const validation = governance.validation || { items: [] };
+        const lines = [
+          `profile=${governance.policy_profile || 'custom'}`,
+          `license=${license.license_id || 'UNLICENSED'} • confidentiality=${license.confidentiality || 'internal'} • header=${header.mode || 'none'}`,
+        ];
+        if ((validation.items || []).length) {
+          lines.push(...validation.items.map(item => `${(item.severity || 'info').toUpperCase()}: ${item.message}`));
+        }
+        body.textContent = lines.join('\n');
+      }
+
+      function renderPolicyProfileOptions() {
+        const select = document.getElementById('policyProfile');
+        const hint = document.getElementById('policyProfileHint');
+        if (!select) return;
+        const current = state.activePolicyProfile || select.value || 'internal-default';
+        const options = Object.entries(policyProfiles).map(([key, profile]) => `<option value="${escapeHtml(key)}">${escapeHtml(profile.label || key)}</option>`).join('');
+        select.innerHTML = options;
+        if (policyProfiles[current]) {
+          select.value = current;
+        }
+        const profile = policyProfiles[select.value] || null;
+        if (hint && profile) {
+          hint.textContent = profile.description || 'Applies recommended governance defaults.';
+        }
+      }
+
+      function applyPolicyProfile(profileKey, { preserveOwnership = true, silent = false } = {}) {
+        const profile = policyProfiles[profileKey];
+        const select = document.getElementById('policyProfile');
+        if (!profile || !select) return;
+        state.activePolicyProfile = profileKey;
+        localStorage.setItem('pi-policy-profile', profileKey);
+        select.value = profileKey;
+        const hint = document.getElementById('policyProfileHint');
+        if (hint) hint.textContent = profile.description || 'Applies recommended governance defaults.';
+        document.getElementById('licenseId').value = profile.license_id || 'UNLICENSED';
+        document.getElementById('confidentiality').value = profile.confidentiality || 'internal';
+        document.getElementById('headerMode').value = profile.header_mode || 'none';
+        if (!preserveOwnership) {
+          document.getElementById('copyrightOwner').value = '';
+          document.getElementById('organization').value = '';
+        }
+        if (!silent) {
+          updateCreateStageStatuses();
+          refreshSizingPreviewIfNeeded();
+        }
+      }
+
+      async function loadPresetCatalog() {
+        try {
+          const res = await fetch(apiUrl('/api/presets'));
+          if (!res.ok) return;
+          const data = await res.json().catch(() => ({}));
+          Object.assign(platformPresets, data.platform_presets || {});
+          Object.assign(policyProfiles, data.policy_profiles || {});
+        } catch (_) {
+          // keep local defaults
+        }
+        renderPolicyProfileOptions();
+        if (policyProfiles[state.activePolicyProfile]) {
+          applyPolicyProfile(state.activePolicyProfile, { silent: true });
+        } else {
+          applyPolicyProfile('internal-default', { silent: true });
+        }
+      }
+
       function renderSizingPreview(preview) {
         const panel = document.getElementById('sizingPreviewPanel');
         const status = document.getElementById('sizingPreviewStatus');
@@ -2790,19 +3106,23 @@
         const meta = document.getElementById('sizingPreviewMeta');
         const warnings = document.getElementById('sizingPreviewWarnings');
         const caveats = document.getElementById('sizingPreviewCaveats');
+        const governance = document.getElementById('sizingPreviewGovernance');
         const addons = document.getElementById('sizingPreviewAddons');
         const body = document.getElementById('sizingPreviewBody');
-        if (!panel || !status || !statusText || !meta || !warnings || !caveats || !addons || !body) return;
+        if (!panel || !status || !statusText || !meta || !warnings || !caveats || !governance || !addons || !body) return;
         if (!preview) {
           panel.style.display = 'none';
           warnings.style.display = 'none';
           warnings.innerHTML = '';
           caveats.style.display = 'none';
           caveats.innerHTML = '';
+          governance.style.display = 'none';
+          governance.innerHTML = '';
           addons.style.display = 'none';
           addons.innerHTML = '';
           body.textContent = '';
           meta.textContent = '';
+          renderGovernancePreview(null);
           return;
         }
         panel.style.display = 'block';
@@ -2837,6 +3157,20 @@
         } else {
           caveats.style.display = 'none';
           caveats.innerHTML = '';
+        }
+
+        const governancePreview = preview.governance_preview || {};
+        const governanceValidation = governancePreview.validation || {};
+        if (governancePreview.license_policy || (governanceValidation.items || []).length) {
+          governance.style.display = 'block';
+          governance.innerHTML = `
+            <div class="form-hint" style="margin-bottom:6px; color: var(--text-secondary);">Governance review</div>
+            <div class="form-hint">License=${escapeHtml(governancePreview.license_policy?.license_id || 'UNLICENSED')} • Confidentiality=${escapeHtml(governancePreview.license_policy?.confidentiality || 'internal')} • Header=${escapeHtml(governancePreview.header_policy?.mode || 'none')}</div>
+            ${(governanceValidation.items || []).map(item => `<div class="form-hint" style="margin-top:4px; color:${item.severity === 'warning' ? 'var(--accent-warning)' : 'var(--text-secondary)'};">${escapeHtml((item.severity || 'info').toUpperCase())}: ${escapeHtml(item.message)}</div>`).join('')}
+          `;
+        } else {
+          governance.style.display = 'none';
+          governance.innerHTML = '';
         }
 
         const addonPreview = preview.addon_preview || {};
@@ -2876,6 +3210,7 @@
           });
         }
         body.textContent = lines.join('\n') || 'No sizing details extracted.';
+        renderGovernancePreview(preview);
         updateCreateStageStatuses();
       }
 
@@ -2899,6 +3234,12 @@
         fd.append('platform', document.getElementById('platform').value || '');
         fd.append('gitops_tool', document.getElementById('gitopsTool').value || '');
         fd.append('description', document.getElementById('description').value.trim());
+        fd.append('license_id', document.getElementById('licenseId').value || 'UNLICENSED');
+        fd.append('confidentiality', document.getElementById('confidentiality').value || 'internal');
+        fd.append('header_mode', document.getElementById('headerMode').value || 'none');
+        fd.append('copyright_owner', document.getElementById('copyrightOwner').value.trim());
+        fd.append('organization', document.getElementById('organization').value.trim());
+        fd.append('policy_profile', document.getElementById('policyProfile').value || '');
         if (document.getElementById('enableOtelCollector').checked) fd.append('enable_otel_collector', 'true');
         if (document.getElementById('useTerraformIac').checked) fd.append('use_terraform_iac', 'true');
         try {
@@ -2966,12 +3307,14 @@
           pageId === 'create' ? 'Create Project' :
           pageId === 'analyze' ? 'Analyze' :
           pageId === 'sync' ? 'Git Workspace' :
+          pageId === 'validate' ? 'Validate & Deploy' :
           pageId === 'status' ? 'Status' : 'Settings';
 
         state.currentPage = pageId;
 
         if (pageId !== 'status') stopStatusPolling();
         if (pageId === 'status') { populateStatusDropdown(); loadAuditLog(); }
+        if (pageId === 'validate') { populateValidationDropdown(); }
 
         // Close mobile sidebar
         document.getElementById('sidebar').classList.remove('open');
@@ -3629,6 +3972,18 @@
         showToast('Applied Git Workspace profile to Create form');
       }
 
+      async function saveGovernanceProfilePreference(profileKey) {
+        try {
+          await fetch(apiUrl('/api/preferences'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ governance_profile: profileKey }),
+          });
+        } catch (_) {
+          // keep local fallback only
+        }
+      }
+
       async function loadGitPrefs(silent = false) {
         try {
           const res = await fetch(apiUrl('/api/preferences'));
@@ -3638,6 +3993,10 @@
           }
           // New format: git_credentials
           const creds = prefs.git_credentials || {};
+          const savedGovernanceProfile = prefs.governance_profile || localStorage.getItem('pi-policy-profile') || 'internal-default';
+          if (policyProfiles[savedGovernanceProfile]) {
+            state.activePolicyProfile = savedGovernanceProfile;
+          }
           // Fallback: migrate from old git_profile
           const legacy = prefs.git_profile || JSON.parse(localStorage.getItem(gitPrefsStorageKey) || '{}');
           // Populate GitLab row
@@ -3683,6 +4042,7 @@
           }
           state.deploymentHistory = data.entries || [];
           updateRecentProjects();
+          populateValidationDropdown();
         } catch (err) {
           showToast(`Failed to load deployments: ${err}`, 'error');
         }
@@ -3706,6 +4066,8 @@
 
       function loadDeploymentIntoForm(entry) {
         if (!entry) return;
+        state.lastCreatedTargetType = entry.target_type || 'local';
+        state.lastCreatedRemote = entry.remote || null;
         const nameEl = document.getElementById('name');
         const descriptionEl = document.getElementById('description');
         const gitRemoteEl = document.getElementById('gitRemoteUrl');
@@ -3724,6 +4086,18 @@
         }
         if (entry.gitops_tool && document.getElementById('gitopsTool')) {
           document.getElementById('gitopsTool').value = entry.gitops_tool;
+        }
+        if (entry.policy_profile && policyProfiles[entry.policy_profile]) {
+          applyPolicyProfile(entry.policy_profile, { silent: true });
+        }
+        if (entry.license_id && document.getElementById('licenseId')) {
+          document.getElementById('licenseId').value = entry.license_id;
+        }
+        if (entry.confidentiality && document.getElementById('confidentiality')) {
+          document.getElementById('confidentiality').value = entry.confidentiality;
+        }
+        if (entry.header_mode && document.getElementById('headerMode')) {
+          document.getElementById('headerMode').value = entry.header_mode;
         }
         if (entry.target_type) {
           setTargetType(entry.target_type);
@@ -3896,6 +4270,11 @@
         document.getElementById('gitopsTool'),
         document.getElementById('enableOtelCollector'),
         document.getElementById('useTerraformIac'),
+        document.getElementById('licenseId'),
+        document.getElementById('confidentiality'),
+        document.getElementById('headerMode'),
+        document.getElementById('copyrightOwner'),
+        document.getElementById('organization'),
       ].filter(Boolean);
       previewSensitiveInputs.forEach((el) => {
         const eventName = el.tagName === 'TEXTAREA' ? 'blur' : 'change';
@@ -3933,6 +4312,12 @@
           remote_auth_mode: 'ssh_key',
           remote_ssh_key_path: document.getElementById('remoteSshKeyPath').value.trim(),
           remote_base_dir: document.getElementById('remoteBaseDir').value.trim(),
+          license_id: document.getElementById('licenseId').value,
+          confidentiality: document.getElementById('confidentiality').value,
+          header_mode: document.getElementById('headerMode').value,
+          copyright_owner: document.getElementById('copyrightOwner').value.trim(),
+          organization: document.getElementById('organization').value.trim(),
+          policy_profile: document.getElementById('policyProfile').value,
         };
       }
 
@@ -3952,6 +4337,7 @@
             fd.append('host', state.lastCreatedRemote.host);
             fd.append('user', state.lastCreatedRemote.user);
             fd.append('remote_path', state.lastCreatedRemote.project_dir);
+            fd.append('port', state.lastCreatedRemote.port || '22');
             fd.append('tool', tool);
             const res = await fetch(apiUrl('/api/open-remote'), { method: 'POST', body: fd });
             const data = await res.json();
@@ -4179,6 +4565,732 @@
       });
 
       // Create Button
+      // --- Validate & Deploy Tab ---
+      function populateValidationDropdown() {
+        const sel = document.getElementById('validationDeploymentSelect');
+        if (!sel) return;
+        const currentVal = sel.value;
+        sel.innerHTML = '<option value="">— select a deployment —</option>';
+        (state.deploymentHistory || []).forEach(entry => {
+          const opt = document.createElement('option');
+          opt.value = entry.id;
+          opt.textContent = `${entry.name} (${entry.target_type || 'local'})`;
+          sel.appendChild(opt);
+        });
+        if (currentVal) sel.value = currentVal;
+      }
+
+      function renderValidationScriptArguments(selected) {
+        const argsHost = document.getElementById('validationScriptArgs');
+        const confirmationField = document.getElementById('validationConfirmationField');
+        const confirmationHint = document.getElementById('validationConfirmationHint');
+        if (!argsHost) return;
+        const existingValues = {};
+        argsHost.querySelectorAll('input[id^="validationArg_"]').forEach((input) => {
+          existingValues[input.id.replace('validationArg_', '')] = input.value;
+        });
+        const args = selected?.arguments || [];
+        if (!selected || !args.length) {
+          argsHost.innerHTML = '<div class="form-hint">This script does not declare additional runtime inputs.</div>';
+        } else {
+          argsHost.innerHTML = args.map(arg => `
+            <div class="form-field full-width" data-script-arg="${escapeHtml(arg.name)}">
+              <label class="form-label">${escapeHtml(arg.label || arg.name)}${arg.required ? ' *' : ''}</label>
+              <input type="text" class="form-input" id="validationArg_${escapeHtml(arg.name)}" placeholder="${escapeHtml(arg.placeholder || '')}" value="${escapeHtml(existingValues[arg.name] || '')}">
+              <div class="form-hint">${escapeHtml(arg.description || 'Optional runtime input.')}</div>
+            </div>
+          `).join('');
+        }
+        if (confirmationField && confirmationHint) {
+          if (selected?.confirmation_required) {
+            confirmationField.style.display = '';
+            confirmationHint.textContent = `Type '${selected.confirmation_phrase || ''}' exactly to allow this mutating action.`;
+          } else {
+            confirmationField.style.display = 'none';
+          }
+        }
+      }
+
+      function collectValidationScriptArguments(selected) {
+        const values = {};
+        for (const arg of (selected?.arguments || [])) {
+          const input = document.getElementById(`validationArg_${arg.name}`);
+          values[arg.name] = input?.value || '';
+        }
+        return values;
+      }
+
+      function updateValidationScriptState() {
+        const scriptSelect = document.getElementById('validationScriptSelect');
+        const scriptHint = document.getElementById('validationScriptHint');
+        const runBtn = document.getElementById('validationRunScriptBtn');
+        const allowMutating = document.getElementById('validationAllowMutating')?.checked;
+        const confirmationInput = document.getElementById('validationConfirmationInput');
+        const summary = state.validationSummary;
+        if (!scriptSelect || !scriptHint || !runBtn) return;
+        const selected = (summary?.scripts || []).find(item => item.key === scriptSelect.value);
+        renderValidationScriptArguments(selected);
+        if (!selected) {
+          scriptHint.textContent = 'Choose a generated script. Only Post Terraform Deploy requires explicit dangerous-action confirmation.';
+          runBtn.disabled = true;
+          return;
+        }
+        const failed = (selected.prerequisite_checks || []).filter(item => !item.ok);
+        const remoteBlocked = selected.blocked_reasons || [];
+        const requiredChecks = selected.remote_gate?.required_checks || [];
+        const scope = (selected.applies_to || []).join(', ') || 'local, remote';
+        const args = collectValidationScriptArguments(selected);
+        const missingRequired = (selected.arguments || []).filter(arg => arg.required && !(args[arg.name] || '').trim());
+        if (selected.dangerous && !allowMutating) {
+          scriptHint.textContent = `${selected.title} is the main dangerous action. Enable dangerous action to run it. Scope: ${scope}.`;
+          runBtn.disabled = true;
+          return;
+        }
+        if (selected.dangerous && selected.confirmation_required) {
+          const expected = selected.confirmation_phrase || '';
+          if ((confirmationInput?.value || '').trim() !== expected) {
+            scriptHint.textContent = `${selected.title} requires confirmation phrase '${expected}'. Scope: ${scope}.`;
+            runBtn.disabled = true;
+            return;
+          }
+        }
+        if (!selected.exists) {
+          scriptHint.textContent = `${selected.title} is not present in this project. Scope: ${scope}.`;
+          runBtn.disabled = true;
+          return;
+        }
+        if (missingRequired.length) {
+          scriptHint.textContent = `${selected.title} needs arguments: ${missingRequired.map(item => item.label || item.name).join(', ')}.`;
+          runBtn.disabled = true;
+          return;
+        }
+        const warningParts = [];
+        if (failed.length) warningParts.push(`warnings: ${failed.map(item => `${item.name} (${item.detail})`).join('; ')}`);
+        if (remoteBlocked.length) warningParts.push(`remote checks: ${remoteBlocked.join('; ')}`);
+        scriptHint.textContent = `${selected.title} available. Scope: ${scope}. Execution context: ${selected.execution_context || 'project_root'}. Recommended order: ${selected.recommended_order || 'n/a'}.${warningParts.length ? ` ${warningParts.join(' • ')}` : ''}${selected.remote_gate?.required_checks?.length ? ` Required checks: ${selected.remote_gate.required_checks.join(', ')}.` : ''}`;
+        runBtn.disabled = false;
+      }
+
+      function formatRunbookProgress(data) {
+        if (!data || typeof data !== 'object') {
+          return [];
+        }
+        const lines = [
+          `runbook_platform=${data.platform || 'generic'}`,
+          data.note ? `runbook_note=${data.note}` : '',
+          data.next_command ? `next_command=${data.next_command}` : '',
+          'runbook_steps:',
+        ];
+        (data.steps || []).forEach(step => {
+          lines.push(`  - [${step.status}] [${step.recommended_order || 'n/a'}] ${step.key}${step.blocked_by?.length ? ` (waiting on: ${step.blocked_by.join(', ')})` : ''}`);
+          if (step.suggested_command) lines.push(`      command: ${step.suggested_command}`);
+          (step.docs_resolved || []).forEach(doc => lines.push(`      doc: ${doc.path} (${doc.exists ? 'present' : 'missing'})`));
+          (step.remediation || []).forEach(item => lines.push(`      remediation: ${item}`));
+          if (step.last_run && Object.keys(step.last_run).length) {
+            lines.push(`      last_run: ${step.last_run.ok ? 'ok' : 'failed'} ${step.last_run.script_key || ''}`.trim());
+          }
+        });
+        lines.push('', 'runbook_guidance:');
+        (data.guidance || []).forEach(line => lines.push(`  - ${line}`));
+        return lines.filter(Boolean);
+      }
+
+      function formatDiagnosticsResult(data) {
+        if (!data || typeof data !== 'object') {
+          return JSON.stringify(data ?? {}, null, 2);
+        }
+        const counts = data.counts || { pass: 0, warning: 0, blocking: 0 };
+        const clusterApi = (data.items || []).find(item => item.name === 'cluster_api');
+        const nodesReady = (data.items || []).find(item => item.name === 'nodes_ready');
+        const kubeconfig = (data.items || []).find(item => item.name === 'kubeconfig');
+        const lines = [
+          `cluster_status=${clusterApi?.ok ? 'reachable' : 'unverified'}`,
+          `nodes=${nodesReady?.detail || 'unknown'}`,
+          `kubeconfig=${kubeconfig?.ok ? 'available' : 'missing or not loaded'}`,
+          `target_type=${data.target_type || 'local'}`,
+          data.remote?.host ? `remote_host=${data.remote.host}` : '',
+          `checks=${counts.pass || 0} pass / ${counts.warning || 0} warning / ${counts.blocking || 0} blocking`,
+          '',
+          'next_actions:',
+          ...((data.next_actions || []).map(item => `  - ${item}`)),
+          '',
+          'details:',
+          ...((data.items || []).map(item => `  - [${item.classification || 'pass'}] ${item.scope}/${item.name}: ${item.detail}`)),
+        ].filter(Boolean);
+        return lines.join('\n');
+      }
+
+      async function copyTextToClipboard(text, successMessage = 'Copied to clipboard') {
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast(successMessage, 'success');
+            return true;
+          }
+        } catch (_) {}
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+        showToast(successMessage, 'success');
+        return true;
+      }
+
+      function openArtifactPath(path) {
+        if (!path) {
+          showToast('No linked path available', 'warning');
+          return;
+        }
+        if (!state.environment?.supports_gui_open) {
+          showToast('GUI open is disabled in this session. Use preview or copy path.', 'warning');
+          return;
+        }
+        try {
+          window.open(`file://${path}`, '_blank', 'noopener');
+          showToast('Open request sent', 'success');
+        } catch (err) {
+          showToast(`Open failed: ${err}`, 'error');
+        }
+      }
+
+      function getFilteredValidationSteps(summary) {
+        const filter = document.getElementById('validationStepFilter')?.value || 'all';
+        const steps = summary?.runbook_progress?.steps || [];
+        if (filter === 'all') return steps;
+        return steps.filter(step => {
+          if (filter === 'mutating') {
+            const script = (summary?.scripts || []).find(item => item.key === step.key);
+            return script && !script.safe;
+          }
+          return step.status === filter;
+        });
+      }
+
+      function renderValidationStepDetail(summary) {
+        const host = document.getElementById('validationStepDetail');
+        if (!host) return;
+        const steps = summary?.runbook_progress?.steps || [];
+        const selectedKey = state.validationSelectedStep || steps[0]?.key || '';
+        const step = steps.find(item => item.key === selectedKey);
+        const selectedScript = (summary?.scripts || []).find(item => item.key === selectedKey) || null;
+        if (!step) {
+          host.textContent = 'Select a runbook step to inspect docs, prerequisites, and suggested actions.';
+          return;
+        }
+        state.validationSelectedStep = step.key;
+        const failed = (step.failed_prerequisites || []).map(item => `<li>${escapeHtml(item.name)} — ${escapeHtml(item.detail || 'missing')}</li>`).join('');
+        const prereq = (step.prerequisite_checks || []).map(item => `<li>${escapeHtml(item.name)} — ${escapeHtml(item.detail || '')}</li>`).join('');
+        const remediation = (step.remediation || []).map(item => `<li>${escapeHtml(item)}</li>`).join('');
+        const docs = (step.docs_resolved || []).map(doc => `
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:4px;">
+            <span class="form-hint">${escapeHtml(doc.path)} ${doc.exists ? '' : '(missing)'}</span>
+            <button class="btn btn-secondary btn-sm validation-doc-copy" type="button" data-doc-path="${escapeHtml(doc.path)}"><i data-lucide="copy"></i>Copy path</button>
+            ${doc.exists ? `<button class="btn btn-secondary btn-sm validation-doc-preview" type="button" data-doc-path="${escapeHtml(doc.path)}"><i data-lucide="file-search"></i>Preview</button>` : ''}
+            ${doc.exists && summary?.target_type !== 'remote' ? `<button class="btn btn-secondary btn-sm validation-doc-open" type="button" data-doc-resolved="${escapeHtml(doc.resolved_path || '')}"><i data-lucide="external-link"></i>Open</button>` : ''}
+          </div>`).join('');
+        const preview = state.validationArtifactPreview;
+        const remoteCtx = summary?.target_type === 'remote' ? summary?.remote || {} : null;
+        const remoteLine = remoteCtx?.host ? `${remoteCtx.user || 'user'}@${remoteCtx.host}:${remoteCtx.project_dir || ''}` : '';
+        host.innerHTML = `
+          <div class="card" style="padding:12px;">
+            <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;">[${escapeHtml(String(step.recommended_order || 'n/a'))}] ${escapeHtml(step.title || step.key || 'step')}</div>
+                <div class="form-hint">status=${escapeHtml(step.status || 'ready')} ${step.blocked_by?.length ? `• waiting on ${escapeHtml(step.blocked_by.join(', '))}` : ''}</div>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                ${step.suggested_command ? `<button class="btn btn-secondary btn-sm validation-copy-command" type="button" data-command="${escapeHtml(step.suggested_command)}"><i data-lucide="copy"></i>Copy command</button>` : ''}
+              </div>
+            </div>
+            ${step.description ? `<div style="margin-top:8px; color:var(--text-secondary); font-size:0.9rem;">${escapeHtml(step.description)}</div>` : ''}
+            ${(step.prerequisite_checks || []).length ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Prerequisites</strong><ul style="margin:6px 0 0 18px;">${prereq}</ul></div>` : ''}
+            ${(step.failed_prerequisites || []).length ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Blocking prerequisites</strong><ul style="margin:6px 0 0 18px;">${failed}</ul></div>` : ''}
+            ${(step.remediation || []).length ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Remediation</strong><ul style="margin:6px 0 0 18px;">${remediation}</ul></div>` : ''}
+            ${summary?.target_type === 'remote' ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Remote execution</strong><div class="form-hint">${escapeHtml(remoteLine || 'remote target')}</div><div class="form-hint">Use diagnostics first if SSH, kubeconfig, or remote tools are failing.</div>${selectedScript?.blocked_reasons?.length ? `<ul style="margin:6px 0 0 18px;">${selectedScript.blocked_reasons.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}</div>` : ''}
+            ${selectedScript ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Execution context</strong><div class="form-hint">${escapeHtml(selectedScript.execution_context || 'project_root')} • applies to ${(selectedScript.applies_to || []).join(', ') || 'local, remote'}</div><div class="form-hint">Required checks: ${(selectedScript.remote_gate?.required_checks || []).join(', ') || 'none'}</div></div>` : ''}
+            ${(step.docs_resolved || []).length ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Linked docs</strong>${docs}</div>` : ''}
+            ${step.last_run && Object.keys(step.last_run).length ? `<div style="margin-top:10px;"><strong style="font-size:0.85rem;">Last run</strong><div class="form-hint">${escapeHtml(step.last_run.created_at || '')} ${step.last_run.ok ? 'ok' : 'failed'} ${escapeHtml(step.last_run.script_key || '')}</div></div>` : ''}
+          </div>
+          <div class="card" style="padding:12px;">
+            <div style="font-weight:600; margin-bottom:8px;">Artifact Preview</div>
+            <div class="form-hint" style="margin-bottom:8px;">${preview?.path ? `Showing ${escapeHtml(preview.path)}${preview.truncated ? ' (truncated)' : ''}` : 'Select Preview on a linked doc to load text content.'}</div>
+            <pre style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:180px;">${escapeHtml(preview?.content || 'No artifact loaded.')}</pre>
+          </div>`;
+        lucide.createIcons();
+      }
+
+      async function loadArtifactPreview(path) {
+        const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        if (!deploymentId || !path) {
+          showToast('Select a project and artifact first', 'warning');
+          return null;
+        }
+        try {
+          const url = apiUrl(`/api/project/artifact-preview?deployment_id=${encodeURIComponent(deploymentId)}&path=${encodeURIComponent(path)}`);
+          const res = await fetch(url);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showToast(data.detail || 'Failed to load artifact preview', 'error');
+            return null;
+          }
+          state.validationArtifactPreview = data;
+          renderValidationStepDetail(state.validationSummary);
+          showToast('Artifact preview loaded', 'success');
+          return data;
+        } catch (err) {
+          showToast(`Artifact preview failed: ${err}`, 'error');
+          return null;
+        }
+      }
+
+      function renderValidationStepActions(summary) {
+        const host = document.getElementById('validationStepActions');
+        if (!host) return;
+        const runbook = summary?.runbook_progress;
+        if (!runbook) {
+          host.textContent = 'Select a project to inspect step actions.';
+          renderValidationStepDetail(null);
+          return;
+        }
+        const steps = getFilteredValidationSteps(summary);
+        if (!steps.length) {
+          host.innerHTML = '<div class="form-hint">No runbook steps match the active filter.</div>';
+          renderValidationStepDetail(summary);
+          return;
+        }
+        if (!steps.some(step => step.key === state.validationSelectedStep)) {
+          state.validationSelectedStep = steps[0]?.key || '';
+        }
+        host.innerHTML = steps.map(step => {
+          const script = (summary?.scripts || []).find(item => item.key === step.key);
+          return `
+            <div class="card" style="padding:12px; border:${state.validationSelectedStep === step.key ? '1px solid var(--accent)' : '1px solid var(--border)'};">
+              <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+                <div>
+                  <div style="font-weight:600;">[${escapeHtml(String(step.recommended_order || 'n/a'))}] ${escapeHtml(step.title || step.key || 'step')}</div>
+                  <div class="form-hint">status=${escapeHtml(step.status || 'ready')} ${step.blocked_by?.length ? `• waiting on ${escapeHtml(step.blocked_by.join(', '))}` : ''}${script && script.dangerous ? ' • dangerous' : ''}</div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button class="btn btn-secondary btn-sm validation-step-detail" type="button" data-step-key="${escapeHtml(step.key)}"><i data-lucide="panel-right-open"></i>Details</button>
+                  ${step.suggested_command ? `<button class="btn btn-secondary btn-sm validation-copy-command" type="button" data-command="${escapeHtml(step.suggested_command)}"><i data-lucide="copy"></i>Copy command</button>` : ''}
+                </div>
+              </div>
+            </div>`;
+        }).join('');
+        renderValidationStepDetail(summary);
+        lucide.createIcons();
+      }
+
+      function getFilteredTimelineEntries(summary) {
+        const filter = document.getElementById('validationTimelineFilter')?.value || 'all';
+        const items = summary?.history_timeline || [];
+        if (filter === 'all') return items;
+        return items.filter(item => {
+          if (filter === 'validation') return item.kind === 'validation';
+          if (filter === 'safe') return item.kind !== 'validation' && item.safe;
+          if (filter === 'mutating') return item.kind !== 'validation' && !item.safe;
+          if (filter === 'ok') return !!item.ok;
+          if (filter === 'failed') return !item.ok;
+          return true;
+        });
+      }
+
+      function getSelectedTimelineEntry(summary = state.validationSummary) {
+        const items = summary?.history_timeline || [];
+        return items.find(item => item.created_at === state.validationSelectedRunAt) || items[0] || null;
+      }
+
+      function renderLongTextDetails(title, value, open = false) {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        const summary = escapeHtml(title || 'details');
+        const safe = escapeHtml(text);
+        return `<details ${open ? 'open' : ''} style="margin-top:8px;"><summary style="cursor:pointer; color:var(--text-secondary);">${summary}</summary><pre style="white-space:pre-wrap; margin:8px 0 0; font-size:12px; line-height:1.5;">${safe}</pre></details>`;
+      }
+
+      function renderPostDeployResult(result) {
+        const card = document.getElementById('postDeployResultCard');
+        const body = document.getElementById('postDeployResultBody');
+        if (!card || !body) return;
+        if (!result || (result.script?.key !== 'post-terraform-deploy' && result.script_key !== 'post-terraform-deploy')) {
+          card.style.display = 'none';
+          body.textContent = 'No post-deploy run yet.';
+          return;
+        }
+        const sequencing = result.sequencing || {};
+        const log = result.log || result;
+        const substeps = result.substeps || [];
+        const substepCards = substeps.length
+          ? `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:12px;">${substeps.map(step => {
+              const tone = step.status === 'ok' ? 'var(--accent-success)' : (step.status === 'warning' ? 'var(--accent-warning)' : 'var(--text-secondary)');
+              return `<div style="padding:12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-tertiary);">
+                <div class="form-hint">${escapeHtml(step.title || step.key || 'step')}</div>
+                <div style="font-weight:600; color:${tone}; text-transform:capitalize;">${escapeHtml(step.status || 'unknown')}</div>
+                <div class="form-hint" style="margin-top:6px;">${escapeHtml(step.detail || '')}</div>
+              </div>`;
+            }).join('')}</div>`
+          : '<div class="form-hint" style="margin-top:12px;">No chained sub-step summary was captured for this run.</div>';
+        body.innerHTML = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
+            <div><div class="form-hint">Result</div><div style="font-weight:600; color:${log.ok ? 'var(--accent-success)' : 'var(--accent-error)'};">${escapeHtml(log.ok ? 'ok' : 'failed')}</div></div>
+            <div><div class="form-hint">Target</div><div style="font-weight:600;">${escapeHtml(result.execution_context?.target_type || result.target_type || 'local')}</div></div>
+            <div><div class="form-hint">Cluster access</div><div style="font-weight:600;">${escapeHtml((result.execution_context?.prerequisite_warnings || []).length ? 'needs review' : 'ready')}</div></div>
+            <div><div class="form-hint">Next step</div><div style="font-weight:600;">${escapeHtml(sequencing.current_step?.title || sequencing.current_step?.key || 'review output')}</div></div>
+          </div>
+          ${result.execution_context?.remote?.host ? `<div class="form-hint" style="margin-top:12px;">remote=${escapeHtml(`${result.execution_context.remote.user || 'user'}@${result.execution_context.remote.host}:${result.execution_context.remote.project_dir || ''}`)}</div>` : ''}
+          ${sequencing.post_run_guidance?.length ? `<div class="form-hint" style="margin-top:12px;">${escapeHtml(sequencing.post_run_guidance.join(' '))}</div>` : ''}
+          <div style="margin-top:12px; font-weight:600;">Chained follow-up steps</div>
+          ${substepCards}
+          ${renderLongTextDetails('stdout', log.stdout, !log.ok)}
+          ${renderLongTextDetails('stderr', log.stderr, !log.ok)}
+        `;
+        card.style.display = '';
+      }
+
+      function renderSelectedRunOutput(summary) {
+        const output = document.getElementById('validationActionOutput');
+        if (!output) return;
+        const selected = getSelectedTimelineEntry(summary);
+        if (!selected) {
+          output.textContent = 'No validation run yet.';
+          state.validationSelectedRunAt = '';
+          renderPostDeployResult(null);
+          return;
+        }
+        state.validationSelectedRunAt = selected.created_at || '';
+        output.textContent = [
+          `title=${selected.title || selected.script_key || selected.kind || 'run'}`,
+          `result=${selected.ok ? 'ok' : 'failed'}`,
+          `created_at=${selected.created_at || ''}`,
+          `target_type=${selected.target_type || 'local'}`,
+          selected.remote_context?.host ? `remote=${selected.remote_context.user || 'user'}@${selected.remote_context.host}:${selected.remote_context.project_dir || ''}` : '',
+          selected.summary ? `summary=${selected.summary}` : '',
+          '',
+          summarizeCommandLog({ command: selected.command || '', stdout: selected.stdout || '', stderr: selected.stderr || '' }),
+          '',
+          'raw_details=Use Export Selected Run for the full record.',
+        ].filter(Boolean).join('\n');
+        renderPostDeployResult(selected);
+      }
+
+      function renderValidationTimeline(summary) {
+        const host = document.getElementById('validationTimeline');
+        if (!host) return;
+        const items = getFilteredTimelineEntries(summary);
+        if (!summary || !items.length) {
+          host.textContent = summary ? 'No timeline entries match the active filter.' : 'No validation or execution history yet.';
+          return;
+        }
+        if (!items.some(item => item.created_at === state.validationSelectedRunAt)) {
+          state.validationSelectedRunAt = items[0]?.created_at || '';
+        }
+        host.innerHTML = items.map(item => `
+          <div class="card" style="padding:12px; border:${state.validationSelectedRunAt === item.created_at ? '1px solid var(--accent)' : '1px solid var(--border)'};">
+            <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;">${escapeHtml(item.title || item.script_key || item.kind)}</div>
+                <div class="form-hint">${escapeHtml(item.created_at || '')} • ${escapeHtml(item.kind || 'script')} • ${escapeHtml(item.target_type || 'local')} • ${item.ok ? 'ok' : 'failed'}${item.out_of_order ? ' • out-of-order' : ''}${item.safe ? '' : ' • mutating'}${item.failure_classification ? ` • ${escapeHtml(item.failure_classification)}` : ''}</div>
+                ${item.remote_context?.host ? `<div class="form-hint">remote=${escapeHtml(`${item.remote_context.user || 'user'}@${item.remote_context.host}:${item.remote_context.project_dir || ''}`)}</div>` : ''}
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm validation-run-select" type="button" data-run-at="${escapeHtml(item.created_at || '')}"><i data-lucide="panel-right-open"></i>View log</button>
+              </div>
+            </div>
+            ${item.summary ? `<div style="margin-top:8px; color:var(--text-secondary); font-size:0.9rem;">${escapeHtml(item.summary)}</div>` : ''}
+            ${item.failure_classification ? `<div class="form-hint" style="margin-top:8px;">Retry guidance: ${escapeHtml(item.failure_classification === 'connectivity' ? 'Verify SSH reachability and remote project path.' : item.failure_classification === 'auth' ? 'Re-check kubeconfig or cluster login before retrying.' : item.failure_classification === 'missing_tools' ? 'Install required tools on the execution host before retrying.' : 'Inspect script output and linked docs before retrying.')}</div>` : ''}
+          </div>`).join('');
+        lucide.createIcons();
+      }
+
+      function renderValidationSummary(data) {
+        const out = document.getElementById('validationSummaryOutput');
+        const scriptSelect = document.getElementById('validationScriptSelect');
+        const diagnosticsOut = document.getElementById('validationDiagnosticsOutput');
+        if (!out || !scriptSelect) return;
+        state.validationSummary = data || null;
+        state.validationDiagnostics = data?.environment_diagnostics || null;
+        if (!data) {
+          state.validationSelectedStep = '';
+          state.validationArtifactPreview = null;
+          state.validationSelectedRunAt = '';
+        }
+        if (diagnosticsOut) {
+          diagnosticsOut.textContent = state.validationDiagnostics ? formatDiagnosticsResult(state.validationDiagnostics) : 'Select a project to inspect local or remote execution readiness.';
+        }
+        if (!data) {
+          out.textContent = 'Select a project to inspect generated artifacts and script bindings.';
+          scriptSelect.innerHTML = '<option value="">Select a generated script</option>';
+          renderValidationStepActions(null);
+          renderValidationTimeline(null);
+          renderSelectedRunOutput(null);
+          updateValidationScriptState();
+          return;
+        }
+        if (!data.runbook_progress?.steps?.some(step => step.key === state.validationSelectedStep)) {
+          state.validationSelectedStep = data.runbook_progress?.steps?.[0]?.key || '';
+        }
+        const lines = [
+          `project_root=${data.project_root || 'n/a'}`,
+          `target_type=${data.target_type || 'local'}`,
+          data.remote?.host ? `remote_host=${data.remote.host}` : '',
+          '',
+          ...formatRunbookProgress(data.runbook_progress),
+          '',
+          'artifacts:',
+          ...(data.artifacts || []).map(item => `  - ${item.path}: ${item.exists ? 'present' : 'missing'}`),
+          '',
+          'scripts:',
+          ...(data.scripts || []).map(item => {
+            const failed = (item.prerequisite_checks || []).filter(check => !check.ok).map(check => check.name).join(', ');
+            const argCount = (item.arguments || []).length;
+            return `  - [${item.recommended_order || 'n/a'}] ${item.key}: ${item.exists ? 'available' : 'missing'}${item.dangerous ? ' (dangerous)' : ''}${argCount ? ` [args: ${argCount}]` : ''}${failed ? ` [warnings: ${failed}]` : ''}`;
+          }),
+          '',
+          'recent_runs:',
+          ...((data.recent_runs || []).length ? data.recent_runs.map(item => `  - ${item.created_at || ''} ${item.script_key}: ${item.ok ? 'ok' : 'failed'}`) : ['  - none']),
+        ].filter(Boolean);
+        out.textContent = lines.join('\n');
+        renderValidationStepActions(data);
+        renderValidationTimeline(data);
+        renderSelectedRunOutput(data);
+        scriptSelect.innerHTML = '<option value="">Select a generated script</option>' + (data.scripts || []).filter(item => item.exists).map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.title)}${item.safe ? '' : ' [mutating]'}${item.ready ? '' : ' [blocked]'}</option>`).join('');
+        updateValidationScriptState();
+      }
+
+      async function loadValidationSummary(options = {}) {
+        const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        if (!deploymentId) {
+          if (!options.silent) showToast('Select a generated project first', 'warning');
+          return null;
+        }
+        try {
+          const res = await fetch(apiUrl(`/api/project/operations?deployment_id=${encodeURIComponent(deploymentId)}`));
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (!options.silent) showToast(data.detail || 'Failed to load project operations', 'error');
+            return null;
+          }
+          renderValidationSummary(data);
+          if (options.preserveActionOutput) {
+            return data;
+          }
+          renderSelectedRunOutput(data);
+          return data;
+        } catch (err) {
+          if (!options.silent) showToast(`Failed to load validation summary: ${err}`, 'error');
+          return null;
+        }
+      }
+
+      async function runProjectDiagnostics() {
+        const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        const output = document.getElementById('validationDiagnosticsOutput');
+        if (!deploymentId || !output) {
+          showToast('Select a generated project first', 'warning');
+          return;
+        }
+        try {
+          const res = await fetch(apiUrl(`/api/project/diagnostics?deployment_id=${encodeURIComponent(deploymentId)}`));
+          const data = await res.json().catch(() => ({}));
+          output.textContent = formatDiagnosticsResult(data);
+          if (!res.ok) {
+            showToast(data.detail || 'Diagnostics failed', 'error');
+            return;
+          }
+          state.validationDiagnostics = data;
+          const counts = data.counts || {};
+          const tone = (counts.blocking || 0) > 0 ? 'error' : ((counts.warning || 0) > 0 ? 'warning' : 'success');
+          showToast(data.ok ? 'Diagnostics completed' : 'Diagnostics completed with issues', tone);
+        } catch (err) {
+          showToast(`Diagnostics failed: ${err}`, 'error');
+        }
+      }
+
+      async function runProjectValidation() {
+        const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        const output = document.getElementById('validationActionOutput');
+        if (!deploymentId || !output) {
+          showToast('Select a generated project first', 'warning');
+          return;
+        }
+        try {
+          const fd = new FormData();
+          fd.append('deployment_id', deploymentId);
+          const res = await fetch(apiUrl('/api/project/validate'), { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({}));
+          output.textContent = formatValidationResult(data);
+          if (data.run_record?.created_at) {
+            state.validationSelectedRunAt = data.run_record.created_at;
+            await loadValidationSummary({ preserveActionOutput: true, silent: true });
+          }
+          if (!res.ok) {
+            showToast(data.detail || 'Validation failed', 'error');
+            return;
+          }
+          const counts = data.counts || {};
+          const tone = (counts.blocking || 0) > 0 ? 'error' : ((counts.warning || 0) > 0 ? 'warning' : 'success');
+          showToast(data.ok ? 'Validation completed' : 'Validation completed with issues', tone);
+        } catch (err) {
+          showToast(`Validation failed: ${err}`, 'error');
+        }
+      }
+
+      function formatValidationResult(data) {
+        if (!data || typeof data !== 'object') {
+          return JSON.stringify(data ?? {}, null, 2);
+        }
+        const counts = data.counts || { pass: 0, warning: 0, blocking: 0 };
+        const lines = [
+          `pass=${counts.pass || 0}`,
+          `warning=${counts.warning || 0}`,
+          `blocking=${counts.blocking || 0}`,
+          '',
+          'items:',
+          ...((data.items || []).map(item => `  - [${item.classification || 'pass'}] ${item.scope}: ${item.message}`)),
+        ];
+        return lines.join('\n');
+      }
+
+      function exportValidationOutput() {
+        const output = document.getElementById('validationActionOutput');
+        if (!output || !output.textContent.trim()) {
+          showToast('No validation output to export', 'warning');
+          return;
+        }
+        const blob = new Blob([output.textContent], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'project-validation-output.json';
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+
+      async function copySelectedRunOutput() {
+        const output = document.getElementById('validationActionOutput');
+        if (!output || !output.textContent.trim()) {
+          showToast('No run output to copy', 'warning');
+          return;
+        }
+        await copyTextToClipboard(output.textContent, 'Run output copied');
+      }
+
+      function exportSelectedRun() {
+        const selected = getSelectedTimelineEntry();
+        if (!selected) {
+          showToast('No run selected', 'warning');
+          return;
+        }
+        const blob = new Blob([JSON.stringify(selected, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${(selected.script_key || selected.kind || 'run').replace(/[^a-z0-9_-]+/gi, '-')}-${(selected.created_at || 'latest').replace(/[^0-9A-Za-z_-]+/g, '-')}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function summarizeCommandLog(log, maxLines = 18) {
+        const lines = [];
+        if (log?.command) lines.push(`command=${log.command}`);
+        if (log?.stdout) lines.push(...String(log.stdout).split('\n').filter(Boolean).slice(0, maxLines));
+        if (log?.stderr) {
+          lines.push('', 'stderr:');
+          lines.push(...String(log.stderr).split('\n').filter(Boolean).slice(0, Math.max(6, Math.floor(maxLines / 2))));
+        }
+        return lines.join('\n');
+      }
+
+      async function runValidationScript() {
+        const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        const scriptKey = document.getElementById('validationScriptSelect')?.value;
+        const allowMutating = document.getElementById('validationAllowMutating')?.checked;
+        const confirmationText = document.getElementById('validationConfirmationInput')?.value || '';
+        const output = document.getElementById('validationActionOutput');
+        const runBtn = document.getElementById('validationRunScriptBtn');
+        const selected = (state.validationSummary?.scripts || []).find(item => item.key === scriptKey);
+        if (!deploymentId || !scriptKey || !output || !selected) {
+          showToast('Select a project and script first', 'warning');
+          return;
+        }
+        const originalLabel = runBtn?.innerHTML || '';
+        if (runBtn) {
+          runBtn.disabled = true;
+          runBtn.innerHTML = '<span class="spinner"></span> Running...';
+        }
+        output.textContent = `Running ${selected.title || scriptKey}...`;
+        try {
+          const fd = new FormData();
+          fd.append('deployment_id', deploymentId);
+          fd.append('script_key', scriptKey);
+          fd.append('script_arguments', JSON.stringify(collectValidationScriptArguments(selected)));
+          fd.append('confirmation_text', confirmationText);
+          if (allowMutating) fd.append('allow_mutating', 'true');
+          const res = await fetch(apiUrl('/api/project/run-script'), { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({}));
+          const sequencing = data.sequencing || {};
+          await loadValidationSummary({ preserveActionOutput: true, silent: true });
+          const currentSummary = state.validationSummary?.runbook_progress || {};
+          const rendered = [
+            `script=${data.script?.title || scriptKey}`,
+            `result=${data.log?.ok ? 'ok' : 'failed'}`,
+            `target_type=${data.execution_context?.target_type || 'local'}`,
+            data.execution_context?.remote?.host ? `remote=${data.execution_context.remote.user || 'user'}@${data.execution_context.remote.host}:${data.execution_context.remote.project_dir || ''}` : '',
+            data.execution_context?.prerequisite_warnings?.length ? `warnings=${data.execution_context.prerequisite_warnings.join(' ; ')}` : '',
+            data.execution_context?.remote_gate_warnings?.length ? `remote_checks=${data.execution_context.remote_gate_warnings.join(' ; ')}` : '',
+            '',
+            summarizeCommandLog(data.log || {}),
+            '',
+            ...formatRunbookProgress({
+              platform: currentSummary.platform || '',
+              note: sequencing.warning || currentSummary.note || '',
+              next_command: sequencing.next_command || currentSummary.next_command || '',
+              steps: (currentSummary.steps || []).map(step => step.key === scriptKey && sequencing.current_step?.key === scriptKey ? { ...step, ...sequencing.current_step } : step),
+              guidance: sequencing.post_run_guidance || [],
+            }),
+            '',
+            'raw_details=Use View log in the Execution Timeline or Export Selected Run for full output.',
+          ].filter(Boolean).join('\n');
+          output.textContent = rendered;
+          if (data.run_record?.created_at) {
+            state.validationSelectedRunAt = data.run_record.created_at;
+            renderValidationTimeline(state.validationSummary);
+          }
+          if (sequencing.current_step?.key) {
+            state.validationSelectedStep = sequencing.current_step.key;
+            renderValidationStepActions(state.validationSummary);
+          }
+          renderPostDeployResult(data);
+          if (scriptKey === 'post-terraform-deploy') {
+            const statusSelect = document.getElementById('statusDeploymentSelect');
+            if (statusSelect) statusSelect.value = deploymentId;
+            await pollFluxStatus(deploymentId);
+          }
+          output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (scriptKey === 'post-terraform-deploy') {
+            document.getElementById('postDeployResultCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          if (!res.ok) {
+            showToast(data.detail || 'Script run failed', 'error');
+            return;
+          }
+          if (data.sequencing?.out_of_order) {
+            showToast(data.sequencing.warning || 'Script ran out of recommended order', 'warning');
+          } else {
+            showToast(data.log?.ok ? 'Script completed' : 'Script completed with errors', data.log?.ok ? 'success' : 'warning');
+          }
+        } catch (err) {
+          showToast(`Script run failed: ${err}`, 'error');
+        } finally {
+          if (runBtn) {
+            runBtn.innerHTML = originalLabel;
+            updateValidationScriptState();
+          }
+        }
+      }
+
       // --- Status Tab ---
       let statusPollInterval = null;
 
@@ -4206,6 +5318,8 @@
             return;
           }
           const data = await res.json();
+          renderStatusOverview(data);
+          renderStatusAccess(data);
           renderKustomizationTable(data.kustomizations || []);
           renderEsPodHealth(data.es_pods);
           document.getElementById('statusLastPolled').textContent = `Last polled: ${new Date().toLocaleTimeString()}`;
@@ -4224,19 +5338,64 @@
           const badgeClass = readyLower === 'true' ? 'ready'
             : readyLower === 'false' && (ks.reason || '').toLowerCase().includes('progressing') ? 'reconciling'
             : readyLower === 'false' ? 'failed' : 'unknown';
+          const message = String(ks.message || '').trim();
+          const showFold = message.length > 120 || message.includes('\n');
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem">${ks.name}</td>
-            <td>${ks.namespace}</td>
-            <td><span class="status-badge ${badgeClass}"><span class="dot"></span>${ks.ready || 'Unknown'}</span></td>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem">${escapeHtml(ks.name)}</td>
+            <td>${escapeHtml(ks.namespace)}</td>
+            <td><span class="status-badge ${badgeClass}"><span class="dot"></span>${escapeHtml(ks.ready || 'Unknown')}</span></td>
             <td>
-              ${ks.reason ? `<span style="font-size:0.8rem;color:var(--text-secondary)">${ks.reason}</span>` : ''}
-              ${ks.message && badgeClass !== 'ready' ? `<span class="ks-message-expand">${ks.message}</span>` : ''}
+              ${ks.reason ? `<div style="font-size:0.8rem;color:var(--text-secondary)">${escapeHtml(ks.reason)}</div>` : ''}
+              ${message && badgeClass !== 'ready' ? (showFold
+                ? `<details style="margin-top:6px;"><summary style="cursor:pointer; color:var(--text-secondary);">${escapeHtml(message.slice(0, 96))}${message.length > 96 ? '…' : ''}</summary><div style="margin-top:6px; white-space:pre-wrap; font-size:0.82rem; color:var(--text-secondary);">${escapeHtml(message)}</div></details>`
+                : `<div style="margin-top:6px; white-space:pre-wrap; font-size:0.82rem; color:var(--text-secondary);">${escapeHtml(message)}</div>`)
+              : ''}
             </td>
             <td style="font-size:0.78rem;color:var(--text-muted)">${ks.polled_at ? new Date(ks.polled_at).toLocaleTimeString() : ''}</td>`;
           tbody.appendChild(tr);
         }
         lucide.createIcons();
+      }
+
+      function renderStatusAccess(data) {
+        const card = document.getElementById('statusAccessCard');
+        const body = document.getElementById('statusAccessBody');
+        const access = data?.access_summary;
+        if (!card || !body) return;
+        if (!access) {
+          card.style.display = 'none';
+          body.textContent = 'No access data yet.';
+          return;
+        }
+        body.innerHTML = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
+            <div><div class="form-hint">Mode</div><div style="font-weight:600;">${escapeHtml(access.mode || access.target_type || 'unknown')}</div></div>
+            <div><div class="form-hint">Kubeconfig</div><div style="font-weight:600; color:${access.kubeconfig?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.kubeconfig?.source || 'unknown')}</div><div class="form-hint">${escapeHtml(access.kubeconfig?.detail || 'No kubeconfig data')}</div></div>
+            <div><div class="form-hint">Context</div><div style="font-weight:600; color:${access.kubectl_context?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.kubectl_context?.detail || 'not checked')}</div></div>
+            <div><div class="form-hint">Cluster API</div><div style="font-weight:600; color:${access.cluster_api?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.cluster_api?.detail || 'not checked')}</div></div>
+            <div><div class="form-hint">Nodes</div><div style="font-weight:600; color:${access.nodes_ready?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.nodes_ready?.detail || 'not checked')}</div></div>
+          </div>
+          ${access.remote?.host ? `<div class="form-hint" style="margin-top:12px;">remote=${escapeHtml(`${access.remote.user || 'user'}@${access.remote.host}:${access.remote.project_dir || ''}`)}:${escapeHtml(access.remote.port || '22')}</div>` : ''}
+        `;
+        card.style.display = '';
+      }
+
+      function renderStatusOverview(data) {
+        const card = document.getElementById('statusOverviewCard');
+        const body = document.getElementById('statusOverviewBody');
+        if (!card || !body || !data) return;
+        const summary = data.kustomization_summary || { counts: {} };
+        const cluster = data.cluster_summary || {};
+        const counts = summary.counts || {};
+        body.innerHTML = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
+            <div><div class="form-hint">Cluster</div><div style="font-weight:600; text-transform:capitalize;">${escapeHtml(cluster.status || 'unknown')}</div></div>
+            <div><div class="form-hint">Kustomizations</div><div style="font-weight:600;">${counts.ready || 0}/${counts.total || 0} ready</div></div>
+            <div><div class="form-hint">Reconciling</div><div style="font-weight:600;">${counts.reconciling || 0}</div></div>
+            <div><div class="form-hint">Failed</div><div style="font-weight:600;">${counts.failed || 0}</div></div>
+          </div>`;
+        card.style.display = '';
       }
 
       function renderEsPodHealth(esPods) {
@@ -4298,6 +5457,12 @@
         return !(state.sizingPreview && state.sizingPreview.fatal_error);
       }
 
+      function isStage4Ready() {
+        const governance = state.sizingPreview?.governance_preview || null;
+        if (!governance) return true;
+        return !!governance.validation?.ok;
+      }
+
       function setStageCollapsed(contentId, collapsed) {
         const content = document.getElementById(contentId);
         if (!content) return;
@@ -4336,6 +5501,10 @@
           scrollToCreateIssue('sizingDropzone');
           return;
         }
+        if (!isStage4Ready()) {
+          scrollToCreateIssue('stage4Card');
+          return;
+        }
         scrollToCreateIssue('createBtn');
       }
 
@@ -4343,8 +5512,10 @@
         const stage1Status = document.getElementById('stage1Status');
         const stage2Status = document.getElementById('stage2Status');
         const stage3Status = document.getElementById('stage3Status');
+        const stage4Status = document.getElementById('stage4Status');
         const stage1Ready = isStage1Ready();
         const stage2Ready = isStage2Ready();
+        const stage4Ready = isStage4Ready();
         const hasPreview = !!state.sizingPreview;
         const configuredRepo = !!document.getElementById('gitRemoteUrl')?.value.trim() || !!document.getElementById('gitInit')?.checked || !!document.getElementById('gitPush')?.checked || !!document.getElementById('createRemoteRepo')?.checked;
         if (stage1Status) {
@@ -4359,6 +5530,10 @@
           stage3Status.textContent = configuredRepo ? 'Configured' : 'Optional';
           stage3Status.className = `stage-status ${configuredRepo ? 'ready' : 'optional'}`;
         }
+        if (stage4Status) {
+          stage4Status.textContent = stage4Ready ? 'Ready' : 'Needs review';
+          stage4Status.className = `stage-status ${stage4Ready ? 'ready' : 'pending'}`;
+        }
 
         const preview = state.sizingPreview || {};
         const addonPreview = preview.addon_preview || {};
@@ -4367,8 +5542,8 @@
         const platformValue = preview.effective_platform || document.getElementById('platform')?.value || state.activePlatform || 'n/a';
         const sizingValue = preview.fatal_error ? 'Blocked' : hasPreview ? 'Reviewed' : 'Not reviewed';
         const sizingTone = preview.fatal_error ? 'error' : hasPreview ? 'ready' : 'warn';
-        const readyValue = (stage1Ready && stage2Ready) ? 'Ready' : 'Not ready';
-        const readyTone = (stage1Ready && stage2Ready) ? 'ready' : 'warn';
+        const readyValue = (stage1Ready && stage2Ready && stage4Ready) ? 'Ready' : 'Not ready';
+        const readyTone = (stage1Ready && stage2Ready && stage4Ready) ? 'ready' : 'warn';
         setReviewPill('reviewProjectName', 'Project', projectName);
         setReviewPill('reviewPlatform', 'Platform', platformValue);
         setReviewPill('reviewSizing', 'Sizing', sizingValue, sizingTone);
@@ -4419,9 +5594,73 @@
           });
         });
         setStageCollapsed('stage3Content', true);
+        loadPresetCatalog();
         updateCreateStageStatuses();
+        renderGovernancePreview(null);
         document.getElementById('reviewIssuesBtn')?.addEventListener('click', expandReviewIssues);
-        ['name','targetDir','targetType','remoteHost','remoteUser','remoteBaseDir','platform','gitRemoteUrl','gitInit','gitPush','createRemoteRepo'].forEach((id) => {
+        document.getElementById('validationLoadBtn')?.addEventListener('click', loadValidationSummary);
+        document.getElementById('validationDiagnosticsBtn')?.addEventListener('click', runProjectDiagnostics);
+        document.getElementById('validationRunBtn')?.addEventListener('click', runProjectValidation);
+        document.getElementById('validationExportBtn')?.addEventListener('click', exportValidationOutput);
+        document.getElementById('validationCopyRunOutputBtn')?.addEventListener('click', copySelectedRunOutput);
+        document.getElementById('validationExportRunBtn')?.addEventListener('click', exportSelectedRun);
+        document.getElementById('validationRunScriptBtn')?.addEventListener('click', runValidationScript);
+        document.getElementById('validationDeploymentSelect')?.addEventListener('change', () => loadValidationSummary());
+        document.getElementById('validationStepFilter')?.addEventListener('change', () => renderValidationStepActions(state.validationSummary));
+        document.getElementById('validationTimelineFilter')?.addEventListener('change', () => renderValidationTimeline(state.validationSummary));
+        document.getElementById('validationCopyNextCommandBtn')?.addEventListener('click', async () => {
+          const nextCommand = state.validationSummary?.runbook_progress?.next_command || '';
+          if (!nextCommand) {
+            showToast('No recommended next command is available', 'warning');
+            return;
+          }
+          await copyTextToClipboard(nextCommand, 'Next command copied');
+        });
+        const validationActionClick = async (event) => {
+          const copyBtn = event.target.closest('.validation-copy-command');
+          if (copyBtn?.dataset.command) {
+            await copyTextToClipboard(copyBtn.dataset.command, 'Command copied');
+            return;
+          }
+          const copyDocBtn = event.target.closest('.validation-doc-copy');
+          if (copyDocBtn?.dataset.docPath) {
+            await copyTextToClipboard(copyDocBtn.dataset.docPath, 'Document path copied');
+            return;
+          }
+          const previewBtn = event.target.closest('.validation-doc-preview');
+          if (previewBtn?.dataset.docPath) {
+            await loadArtifactPreview(previewBtn.dataset.docPath);
+            return;
+          }
+          const openBtn = event.target.closest('.validation-doc-open');
+          if (openBtn?.dataset.docResolved) {
+            openArtifactPath(openBtn.dataset.docResolved);
+            return;
+          }
+          const detailBtn = event.target.closest('.validation-step-detail');
+          if (detailBtn?.dataset.stepKey) {
+            state.validationSelectedStep = detailBtn.dataset.stepKey;
+            renderValidationStepActions(state.validationSummary);
+          }
+        };
+        document.getElementById('validationStepActions')?.addEventListener('click', validationActionClick);
+        document.getElementById('validationStepDetail')?.addEventListener('click', validationActionClick);
+        document.getElementById('validationTimeline')?.addEventListener('click', (event) => {
+          const runBtn = event.target.closest('.validation-run-select');
+          if (!runBtn?.dataset.runAt) return;
+          state.validationSelectedRunAt = runBtn.dataset.runAt;
+          renderValidationTimeline(state.validationSummary);
+          renderSelectedRunOutput(state.validationSummary);
+        });
+        document.getElementById('validationScriptSelect')?.addEventListener('change', updateValidationScriptState);
+        document.getElementById('validationAllowMutating')?.addEventListener('change', updateValidationScriptState);
+        document.getElementById('validationConfirmationInput')?.addEventListener('input', updateValidationScriptState);
+        document.getElementById('validationScriptArgs')?.addEventListener('input', updateValidationScriptState);
+        document.getElementById('policyProfile')?.addEventListener('change', (e) => {
+          applyPolicyProfile(e.target.value);
+          saveGovernanceProfilePreference(e.target.value);
+        });
+        ['name','targetDir','targetType','remoteHost','remoteUser','remoteBaseDir','platform','gitRemoteUrl','gitInit','gitPush','createRemoteRepo','licenseId','confidentiality','headerMode','copyrightOwner','organization','policyProfile'].forEach((id) => {
           const el = document.getElementById(id);
           if (!el) return;
           el.addEventListener(el.tagName === 'INPUT' && el.type === 'text' ? 'input' : 'change', updateCreateStageStatuses);
@@ -4552,6 +5791,7 @@
 
               if (event.step === 'done') {
                 state.lastCreatedTargetType = event.target_type || f.target_type || 'local';
+                state.lastCreatedRemote = event.remote || null;
                 state.lastCreatedPath = event.project_path || '';
                 if (state.lastCreatedPath) {
                   localStorage.setItem('pi-last-created-path', state.lastCreatedPath);

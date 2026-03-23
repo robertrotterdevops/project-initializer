@@ -358,31 +358,35 @@ class AddonLoader:
         description: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, str]:
-        """
-        Run multiple addons and merge their generated files.
+        """Run multiple addons and merge their generated files."""
+        return self.run_addons_with_trace(specs, project_name, description, context)["files"]
 
-        Args:
-            specs: List of AddonSpec objects to run
-            project_name: Project name
-            description: Project description
-            context: Additional context dict
-
-        Returns:
-            Merged dict of {filepath: content} for all generated files
-        """
+    def run_addons_with_trace(
+        self,
+        specs: List[AddonSpec],
+        project_name: str,
+        description: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Run multiple addons and return files plus provenance information."""
         all_files: Dict[str, str] = {}
+        file_sources: Dict[str, Dict[str, Any]] = {}
 
         for spec in specs:
             logger.info(f"Running addon: {spec.name}")
             files = self.run_addon(spec, project_name, description, context)
 
-            # Merge files, later addons can override earlier ones
             for filepath, content in files.items():
                 if filepath in all_files:
                     logger.debug(f"Addon {spec.name} overriding {filepath}")
                 all_files[filepath] = content
+                file_sources[filepath] = {
+                    "source_type": "addon",
+                    "source_name": spec.name,
+                    "priority": spec.priority,
+                }
 
-        return all_files
+        return {"files": all_files, "file_sources": file_sources}
 
 
 # ------------------------------------------------------------------
@@ -411,6 +415,19 @@ def run_matched_addons(
     loader = AddonLoader()
     matched = loader.match_addons(analysis, context, interactive_mode)
     return loader.run_addons(matched, project_name, description, context)
+
+
+def run_matched_addons_with_trace(
+    analysis: Dict[str, Any],
+    project_name: str,
+    description: str,
+    context: Optional[Dict[str, Any]] = None,
+    interactive_mode: bool = False,
+) -> Dict[str, Any]:
+    """Run all matching addons and return generated files plus provenance."""
+    loader = AddonLoader()
+    matched = loader.match_addons(analysis, context, interactive_mode)
+    return loader.run_addons_with_trace(matched, project_name, description, context)
 
 
 if __name__ == "__main__":

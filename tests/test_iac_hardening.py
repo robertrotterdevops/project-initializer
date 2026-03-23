@@ -980,6 +980,35 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("replicas: 2", fleet_server)
             self.assertIn('"node-role.kubernetes.io/system": "true"', fleet_server)
 
+    def test_scaffold_falls_back_from_missing_infra_tier_to_master_for_kibana_and_fleet(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-rke2-tier-fallback-") as td:
+            out_dir = Path(td) / "rke2-tier-fallback"
+            initialize_project(
+                project_name="rke2-tier-fallback",
+                description="Elasticsearch on RKE2 with hot and cold tiers",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "master_nodes": {"count": 3, "memory": "4Gi", "cpu": "2"},
+                    "data_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                    "cold_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                    "kibana": {"count": 1, "memory": "4Gi", "cpu": "2"},
+                    "fleet_server": {"count": 1, "memory": "4Gi", "cpu": "2"},
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            kibana = (out_dir / "kibana/kibana.yaml").read_text()
+            fleet_server = (out_dir / "agents/fleet-server.yaml").read_text()
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "master"', kibana)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "master"', fleet_server)
+            self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "infra"', kibana)
+            self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "infra"', fleet_server)
+            self.assertIn('cpu: "2"', fleet_server)
+            self.assertNotIn('requests:\n                memory: "4Gi"\n                cpu: "2"\n              limits:\n                memory: "4Gi"\n                cpu: "1"', fleet_server)
+
     def test_observability_skips_metrics_server_for_proxmox_rke2_delivery(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pi-otel-proxmox-") as td:
             out_dir = Path(td) / "otel-proxmox"

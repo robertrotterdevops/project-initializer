@@ -65,7 +65,8 @@ class ECKDeploymentGenerator:
         # Multi-tier nodes (from sizing report)
         self.cold_nodes = self.sizing.get("cold_nodes")
         self.frozen_nodes = self.sizing.get("frozen_nodes")
-        self.node_selectors = self.sizing.get("node_selectors") or {}
+        self.explicit_node_selectors = self.sizing.get("node_selectors") or {}
+        self.node_selectors = dict(self.explicit_node_selectors)
         if not self.node_selectors:
             self.node_selectors = {
                 "master": {"elasticsearch.k8s.elastic.co/tier": "master"},
@@ -178,12 +179,80 @@ class ECKDeploymentGenerator:
         gi = int(m.group(1))
         return f"{max(gi, minimum_gi)}Gi"
 
+    @staticmethod
+    def _count_for_selector_candidate(value: Any) -> int:
+        if not isinstance(value, dict):
+            return 0
+        try:
+            return int(value.get("count", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _cpu_to_cores(value: Any) -> Optional[float]:
+        raw = str(value or "").strip().lower()
+        if not raw:
+            return None
+        try:
+            if raw.endswith("m"):
+                return float(raw[:-1]) / 1000.0
+            return float(raw)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _format_cpu_quantity(cores: float) -> str:
+        if cores <= 0:
+            return "500m"
+        if cores < 1:
+            milli = int(round(cores * 1000))
+            return f"{max(milli, 1)}m"
+        if float(cores).is_integer():
+            return str(int(cores))
+        return str(round(cores, 3)).rstrip("0").rstrip(".")
+
+    def _available_selector_tiers(self) -> list[str]:
+        available: list[str] = []
+        candidates = [
+            ("master", self.master_nodes),
+            ("hot", self.data_nodes),
+            ("cold", self.cold_nodes),
+            ("frozen", self.frozen_nodes),
+        ]
+        for tier_name, tier_cfg in candidates:
+            if self._count_for_selector_candidate(tier_cfg) > 0 and tier_name not in available:
+                available.append(tier_name)
+        for tier_name in ("master", "hot", "cold", "frozen", "infra"):
+            selector = self.explicit_node_selectors.get(tier_name)
+            if isinstance(selector, dict) and selector and tier_name not in available:
+                available.append(tier_name)
+        return available
+
+    def _resolve_component_tier(self, preferred_tier: str, tier_config: Optional[Dict[str, Any]] = None) -> str:
+        if isinstance(tier_config, dict) and (tier_config.get("node_selector") or tier_config.get("nodeSelector")):
+            return preferred_tier
+        available = self._available_selector_tiers()
+        fallback_order = [preferred_tier, "master", "hot", "cold", "frozen", "infra"]
+        for candidate in fallback_order:
+            if candidate in available and isinstance(self.node_selectors.get(candidate), dict):
+                return candidate
+        return preferred_tier
+
+    def _fleet_cpu_values(self) -> tuple[str, str]:
+        request = str(self.fleet_config.get("cpu", "500m") or "500m").strip()
+        request_cores = self._cpu_to_cores(request)
+        if request_cores is None:
+            return request, "1"
+        limit_cores = request_cores if request_cores >= 1 else 1.0
+        return request, self._format_cpu_quantity(limit_cores)
+
     def _render_node_selector(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
         selector: Any = None
         if isinstance(tier_config, dict):
             selector = tier_config.get("node_selector") or tier_config.get("nodeSelector")
+        resolved_tier = self._resolve_component_tier(tier, tier_config)
         if not selector and isinstance(self.node_selectors, dict):
-            selector = self.node_selectors.get(tier)
+            selector = self.node_selectors.get(resolved_tier)
         if not isinstance(selector, dict) or not selector:
             return ""
 
@@ -215,12 +284,30 @@ class ECKDeploymentGenerator:
         return "\n".join(commented)
 
     def _render_pod_node_selector_block(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
-        """Render nodeSelector under podTemplate.spec for Kibana/Agent-style manifests."""
+        """Render nodeSelector under podTemplate.spec for Kibana-style manifests."""
         raw = self._render_node_selector(tier, tier_config)
         if not raw:
             return ""
         raw = raw.replace("\n          nodeSelector:", "\n      nodeSelector:")
         raw = raw.replace("\n            ", "\n        ")
+        if self.is_multi_tier:
+            return raw
+        lines = raw.split("\n")
+        commented = []
+        for line in lines:
+            if line.strip():
+                commented.append("  # " + line.lstrip())
+            else:
+                commented.append(line)
+        return "\n".join(commented)
+
+    def _render_deployment_pod_node_selector_block(self, tier: str, tier_config: Optional[Dict[str, Any]]) -> str:
+        """Render nodeSelector under deployment.podTemplate.spec for Fleet-style manifests."""
+        raw = self._render_node_selector(tier, tier_config)
+        if not raw:
+            return ""
+        raw = raw.replace("\n          nodeSelector:", "\n        nodeSelector:")
+        raw = raw.replace("\n            ", "\n          ")
         if self.is_multi_tier:
             return raw
         lines = raw.split("\n")
@@ -887,7 +974,7 @@ spec:
         # Parse memory for limits (same as requests for Kibana)
         memory_limit = memory
         cpu_limit = str(int(cpu) * 2) if str(cpu).isdigit() else cpu
-        node_selector = self._render_pod_node_selector_block("infra", None)
+        node_selector = self._render_pod_node_selector_block("infra", self.kibana_config)
 
         return f"""apiVersion: kibana.k8s.elastic.co/v1
 kind: Kibana
@@ -951,7 +1038,7 @@ spec:
             limits:
               memory: "{memory_limit}"
               cpu: "{cpu_limit}"{node_selector}
-"""
+""".replace(f'cpu: "{cpu_limit}"{node_selector}', f'cpu: "{cpu_limit}"') + node_selector + "\n"
 
     def _uses_inline_kibana_ingress(self) -> bool:
         """Return True when Kibana exposure should be generated in the kibana/ overlay."""
@@ -1006,8 +1093,8 @@ spec:
         """Generate Fleet Server deployment."""
         count = self.fleet_config.get("count", 1)
         memory = self.fleet_config.get("memory", "1Gi")
-        cpu = self.fleet_config.get("cpu", "500m")
-        node_selector = self._render_pod_node_selector_block("infra", self.fleet_config)
+        cpu, cpu_limit = self._fleet_cpu_values()
+        node_selector = self._render_deployment_pod_node_selector_block("infra", self.fleet_config)
 
         return f"""apiVersion: agent.k8s.elastic.co/v1alpha1
 kind: Agent
@@ -1047,7 +1134,8 @@ spec:
                 cpu: "{cpu}"
               limits:
                 memory: "{memory}"
-                cpu: "1"{node_selector}
+                cpu: "{cpu_limit}"
+{node_selector}
 """
 
     def _is_eck_3x(self) -> bool:

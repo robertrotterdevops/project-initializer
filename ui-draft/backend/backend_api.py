@@ -8,9 +8,11 @@ import json
 import os
 import base64
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
+from urllib.parse import quote
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,6 +23,11 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import asyncio
+
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover
+    yaml = None
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +47,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 GIT_REGISTRY_PATH = DATA_DIR / "git_registry.json"
 PREFERENCES_PATH = DATA_DIR / "preferences.json"
 DEPLOYMENT_HISTORY_PATH = DATA_DIR / "deployment_history.json"
+OPERATION_RUN_HISTORY_PATH = DATA_DIR / "operation_run_history.json"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -51,6 +59,197 @@ from addon_loader import AddonLoader  # type: ignore  # noqa: E402
 
 USER_HOME = Path.home()
 SSH_DIR = USER_HOME / ".ssh"
+PLATFORM_PRESETS = {
+    "openshift": {
+        "label": "OpenShift",
+        "platform": "openshift",
+        "gitops": "flux",
+        "target_type": "local",
+        "description": "Enterprise-ready OpenShift automation with GitOps hand-offs and Terraform add-ons.",
+    },
+    "proxmox": {
+        "label": "Proxmox + RKE2",
+        "platform": "proxmox",
+        "gitops": "flux",
+        "target_type": "local",
+        "description": "Hardened VM automation that layers RKE2 clusters on Proxmox nodes.",
+    },
+    "rke2": {
+        "label": "RKE2 + Rancher",
+        "platform": "rke2",
+        "gitops": "argo",
+        "target_type": "local",
+        "description": "Opinionated RKE2 stacks governed with Rancher policy catalogs and fleet GitOps.",
+    },
+    "aks": {
+        "label": "Azure AKS",
+        "platform": "aks",
+        "gitops": "argo",
+        "target_type": "local",
+        "description": "Opinionated AKS cluster deployment with Azure-native integrations and GitOps.",
+    },
+}
+POLICY_PROFILES = {
+    "internal-default": {
+        "label": "Internal default",
+        "license_id": "UNLICENSED",
+        "confidentiality": "internal",
+        "header_mode": "minimal",
+        "organization_required": False,
+        "description": "Internal delivery with lightweight managed headers.",
+    },
+    "restricted-managed": {
+        "label": "Restricted managed",
+        "license_id": "Proprietary",
+        "confidentiality": "restricted",
+        "header_mode": "full",
+        "organization_required": True,
+        "description": "Restricted delivery with full managed headers and ownership metadata.",
+    },
+    "apache-public": {
+        "label": "Apache public",
+        "license_id": "Apache-2.0",
+        "confidentiality": "public",
+        "header_mode": "full",
+        "organization_required": True,
+        "description": "Public-facing project with Apache-2.0 and explicit provenance.",
+    },
+    "mit-public": {
+        "label": "MIT public",
+        "license_id": "MIT",
+        "confidentiality": "public",
+        "header_mode": "minimal",
+        "organization_required": False,
+        "description": "Open project with MIT licensing and minimal managed headers.",
+    },
+}
+SCRIPT_OPERATION_REGISTRY = {
+    "preflight-check": {
+        "path": "scripts/preflight-check.sh",
+        "title": "Preflight Check",
+        "description": "Runs generated preflight checks before deployment actions.",
+        "safe": True,
+        "category": "validation",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash"],
+        "recommended_order": 10,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "validate-config": {
+        "path": "scripts/validate-config.sh",
+        "title": "Validate Config",
+        "description": "Runs generated configuration validation checks.",
+        "safe": True,
+        "category": "validation",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash"],
+        "recommended_order": 20,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "verify-deployment": {
+        "path": "scripts/verify-deployment.sh",
+        "title": "Verify Deployment",
+        "description": "Runs generated post-deployment verification checks.",
+        "safe": True,
+        "category": "validation",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 50,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "cluster-healthcheck": {
+        "path": "scripts/cluster-healthcheck.sh",
+        "title": "Cluster Healthcheck",
+        "description": "Runs generated cluster and Kibana health checks and can bootstrap kubeconfig for RKE2-based projects.",
+        "safe": True,
+        "dangerous": False,
+        "category": "validation",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl"],
+        "recommended_order": 40,
+        "arguments": [{"name": "kubeconfig_path", "label": "Kubeconfig Path", "required": False, "placeholder": "~/.kube/config", "description": "Optional kubeconfig override exposed as PI_ARG_KUBECONFIG_PATH."}],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "post-terraform-deploy": {
+        "path": "scripts/post-terraform-deploy.sh",
+        "title": "Post Terraform Deploy",
+        "description": "Runs the generated post-terraform deployment helper.",
+        "safe": False,
+        "dangerous": True,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "terraform", "kubectl", "kubeconfig"],
+        "recommended_order": 30,
+        "arguments": [{"name": "tfvars_file", "label": "Tfvars File", "required": False, "placeholder": "terraform.tfvars", "description": "Optional tfvars filename exposed as PI_ARG_TFVARS_FILE."}],
+        "confirmation_required": True,
+        "confirmation_mode": "project_name",
+        "confirmation_phrase": "",
+    },
+    "import-dashboards": {
+        "path": "scripts/import-dashboards.sh",
+        "title": "Import Dashboards",
+        "description": "Imports generated observability dashboards into Kibana.",
+        "safe": True,
+        "dangerous": False,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "curl", "kibana_endpoint"],
+        "recommended_order": 60,
+        "arguments": [{"name": "kibana_url", "label": "Kibana URL", "required": False, "placeholder": "https://kibana.example.internal", "description": "Optional Kibana URL exposed as PI_ARG_KIBANA_URL."}],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "mirror-secrets": {
+        "path": "scripts/mirror-secrets.sh",
+        "title": "Mirror Secrets",
+        "description": "Propagates generated secrets across required namespaces.",
+        "safe": True,
+        "dangerous": False,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 70,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "rollback": {
+        "path": "scripts/rollback.sh",
+        "title": "Rollback",
+        "description": "Runs the generated rollback helper for the scaffolded deployment.",
+        "safe": True,
+        "dangerous": False,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 90,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+}
 SYSTEM_DIRECTORIES = {
     "/",
     "/root",
@@ -381,6 +580,35 @@ class AuditLogStore(JsonRecordStore):
 AUDIT_LOG = AuditLogStore(AUDIT_LOG_PATH)
 
 
+class OperationRunHistoryStore(JsonRecordStore):
+    def __init__(self, path: Path):
+        super().__init__(path, "entries")
+
+    def list(self, deployment_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.lock:
+            entries = self._read_root().get("entries") or []
+            if not isinstance(entries, list):
+                return []
+            if deployment_id:
+                entries = [entry for entry in entries if entry.get("deployment_id") == deployment_id]
+            return list(entries)
+
+    def add(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self.lock:
+            root = self._read_root()
+            entries = root.get("entries") or []
+            if not isinstance(entries, list):
+                entries = []
+            record = {"id": str(uuid4()), "created_at": _utcnow(), **payload}
+            entries.insert(0, record)
+            root["entries"] = entries[:300]
+            self._write_root(root)
+            return record
+
+
+OPERATION_RUN_HISTORY = OperationRunHistoryStore(OPERATION_RUN_HISTORY_PATH)
+
+
 def _detect_runtime_environment() -> Dict[str, Any]:
     platform = sys.platform
     display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
@@ -703,9 +931,521 @@ def _run_ssh_command(host: str, port: str, user: str, remote_cmd: str, ssh_key_p
     return _run_shell_command(ssh, Path.cwd())
 
 
+def _find_deployment_entry(deployment_id: str) -> Dict[str, Any]:
+    entries = DEPLOYMENT_HISTORY.list()
+    entry = next((e for e in entries if e.get("id") == deployment_id), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="deployment not found")
+    return entry
+
+
+def _project_root_from_entry(entry: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
+    target_type = (entry.get("target_type") or "local").strip()
+    remote_cfg = entry.get("remote") if target_type == "remote" else None
+    if target_type == "remote" and isinstance(remote_cfg, dict):
+        return str(remote_cfg.get("project_dir") or ""), remote_cfg
+    return str(entry.get("project_path") or ""), None
+
+
+def _project_file_exists(entry: Dict[str, Any], relative_path: str) -> tuple[bool, str]:
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    if not project_root:
+        return False, ""
+    if remote_cfg:
+        full_path = str(PurePosixPath(project_root) / relative_path)
+        cmd = f"test -f {shlex.quote(full_path)} && echo present || echo missing"
+        result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+        return result.get("stdout", "").strip() == "present", full_path
+    full_path = str((Path(project_root) / relative_path).resolve())
+    return Path(full_path).exists(), full_path
+
+
+def _read_project_json(entry: Dict[str, Any], relative_path: str) -> Optional[Dict[str, Any]]:
+    exists, resolved_path = _project_file_exists(entry, relative_path)
+    if not exists or not resolved_path:
+        return None
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    if remote_cfg:
+        result = _run_ssh_command(
+            remote_cfg.get("host", ""),
+            str(remote_cfg.get("port", "22")),
+            remote_cfg.get("user", ""),
+            f"cat {shlex.quote(resolved_path)}",
+            remote_cfg.get("ssh_key_path", ""),
+        )
+        if not result.get("ok"):
+            return None
+        try:
+            return json.loads(result.get("stdout", "") or "{}")
+        except json.JSONDecodeError:
+            return None
+    try:
+        return json.loads(Path(project_root, relative_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _normalize_project_relative_path(relative_path: str) -> str:
+    cleaned = (relative_path or "").strip().replace("\\", "/")
+    pure = PurePosixPath(cleaned)
+    if not cleaned or pure.is_absolute() or any(part == ".." for part in pure.parts):
+        raise HTTPException(status_code=400, detail="invalid project-relative path")
+    return str(pure)
+
+
+def _read_project_text(entry: Dict[str, Any], relative_path: str, max_chars: int = 20000) -> Dict[str, Any]:
+    normalized = _normalize_project_relative_path(relative_path)
+    allowed_suffixes = {".md", ".txt", ".log", ".json", ".yaml", ".yml", ".tf", ".sh", ".csv", ".ini", ".cfg", ".conf", ".ndjson"}
+    suffix = PurePosixPath(normalized).suffix.lower()
+    if suffix not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail=f"preview not supported for {suffix or 'this file type'}")
+    exists, resolved_path = _project_file_exists(entry, normalized)
+    if not exists or not resolved_path:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    text = ""
+    if remote_cfg:
+        result = _run_ssh_command(
+            remote_cfg.get("host", ""),
+            str(remote_cfg.get("port", "22")),
+            remote_cfg.get("user", ""),
+            f"cat {shlex.quote(resolved_path)}",
+            remote_cfg.get("ssh_key_path", ""),
+        )
+        if not result.get("ok"):
+            raise HTTPException(status_code=400, detail=result.get("stderr") or "failed to read remote artifact")
+        text = result.get("stdout", "") or ""
+    else:
+        try:
+            text = Path(project_root, normalized).read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="artifact is not readable text") from exc
+        except OSError as exc:
+            raise HTTPException(status_code=400, detail=f"failed to read artifact: {exc}") from exc
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars]
+    return {
+        "path": normalized,
+        "resolved_path": resolved_path,
+        "content": text,
+        "truncated": truncated,
+        "target_type": (entry.get("target_type") or "local").strip() or "local",
+    }
+
+
+def _fallback_operations_manifest(platform: str = "") -> Dict[str, Any]:
+    operations = [
+        {"key": key, **meta}
+        for key, meta in SCRIPT_OPERATION_REGISTRY.items()
+    ]
+    runbook_steps = [
+        {
+            "key": item["key"],
+            "title": item.get("title", item["key"]),
+            "description": item.get("description", ""),
+            "docs": [],
+            "recommended_order": item.get("recommended_order", 999),
+        }
+        for item in sorted(operations, key=lambda value: (value.get("recommended_order", 999), value.get("title", value.get("key", ""))))
+    ]
+    return {
+        "schema_version": "fallback",
+        "operations": operations,
+        "runbooks": [{
+            "platform": platform or "generic",
+            "note": "Fallback runbook derived from the builtin script registry.",
+            "steps": runbook_steps,
+        }],
+    }
+
+
+def _operations_manifest_for_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _read_project_json(entry, "project-initializer-operations.json")
+    if isinstance(payload, dict):
+        if payload.get("runbooks"):
+            return payload
+        fallback = _fallback_operations_manifest(str(entry.get("platform") or payload.get("project", {}).get("platform") or ""))
+        payload = dict(payload)
+        payload.setdefault("operations", fallback["operations"])
+        payload["runbooks"] = fallback["runbooks"]
+        return payload
+    return _fallback_operations_manifest(str(entry.get("platform") or ""))
+
+
+def _hydrate_script_metadata(entry: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any]:
+    hydrated = dict(script)
+    if hydrated.get("confirmation_required") and hydrated.get("confirmation_mode") == "project_name" and not hydrated.get("confirmation_phrase"):
+        base_phrase = entry.get("name", "")
+        if (entry.get("target_type") or "local").strip() == "remote" and not hydrated.get("safe", True):
+            hydrated["confirmation_phrase"] = f"REMOTE {base_phrase}".strip()
+        else:
+            hydrated["confirmation_phrase"] = base_phrase
+    hydrated.setdefault("arguments", [])
+    hydrated.setdefault("recommended_order", 999)
+    hydrated.setdefault("execution_context", "project_root")
+    return hydrated
+
+
+def _project_scoped_kubeconfig_name(entry: Dict[str, Any]) -> str:
+    return str(entry.get("name") or "").strip()
+
+
+def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "") -> List[Path]:
+    candidates: List[Path] = []
+    if explicit_path.strip():
+        candidates.append(Path(explicit_path).expanduser())
+    kube_path = os.environ.get("KUBECONFIG")
+    if kube_path:
+        candidates.append(Path(kube_path).expanduser())
+    project_name = _project_scoped_kubeconfig_name(entry)
+    if project_name:
+        candidates.append(Path.home() / ".kube" / project_name)
+    candidates.append(Path.home() / ".kube" / "config")
+    if (entry.get("platform") or "") in {"rke2", "proxmox"}:
+        candidates.append(Path("/etc/rancher/rke2/rke2.yaml"))
+    deduped: List[Path] = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            deduped.append(candidate)
+            seen.add(key)
+    return deduped
+
+
+def _remote_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "") -> List[str]:
+    candidates: List[str] = []
+    if explicit_path.strip():
+        candidates.append(explicit_path.strip())
+    project_name = _project_scoped_kubeconfig_name(entry)
+    if project_name:
+        candidates.append(f"$HOME/.kube/{project_name}")
+    candidates.append("$HOME/.kube/config")
+    if (entry.get("platform") or "") in {"rke2", "proxmox"}:
+        candidates.append("/etc/rancher/rke2/rke2.yaml")
+    deduped: List[str] = []
+    seen = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            deduped.append(candidate)
+            seen.add(candidate)
+    return deduped
+
+
+def _extract_kubeconfig_path(detail: str) -> str:
+    text = str(detail or "").strip()
+    return text[len("Using "):].strip() if text.startswith("Using ") else text
+
+
+def _remote_kubectl_command(entry: Dict[str, Any], command: str) -> str:
+    kube = _check_remote_prerequisite(entry, "kubeconfig")
+    kube_path = _extract_kubeconfig_path(kube.get("detail", "")) if kube.get("ok") else ""
+    if kube_path:
+        return f"export KUBECONFIG={shlex.quote(kube_path)}; {command}"
+    return command
+
+
+def _classify_kubeconfig_source(detail: str, entry: Dict[str, Any], target_type: str) -> str:
+    project_name = _project_scoped_kubeconfig_name(entry)
+    if not detail:
+        return "missing"
+    if "/etc/rancher/rke2/rke2.yaml" in detail:
+        return "remote-rke2-source" if target_type == "remote" else "local-rke2-source"
+    if project_name and f".kube/{project_name}" in detail:
+        return "remote-project-home" if target_type == "remote" else "project-home"
+    if ".kube/config" in detail:
+        return "remote-home-default" if target_type == "remote" else "default-home"
+    return "explicit" if target_type == "local" else "remote-explicit"
+
+
+def _check_local_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict[str, Any]:
+    project_root, _ = _project_root_from_entry(entry)
+    lower = prerequisite.lower()
+    if lower == "bash":
+        ok = shutil.which("bash") is not None
+        return {"name": prerequisite, "ok": ok, "detail": "bash available" if ok else "bash not found"}
+    if lower in {"kubectl", "terraform", "curl", "kustomize", "oc"}:
+        ok = shutil.which(lower) is not None
+        return {"name": prerequisite, "ok": ok, "detail": f"{lower} available" if ok else f"{lower} not found in PATH"}
+    if lower == "kubeconfig":
+        match = next((path for path in _local_kubeconfig_candidates(entry) if path.exists()), None)
+        return {"name": prerequisite, "ok": bool(match), "detail": f"Using {match}" if match else "No kubeconfig detected"}
+    if lower == "kibana_endpoint":
+        readme = Path(project_root) / "kibana" / "ingress.yaml"
+        route = Path(project_root) / "platform" / "openshift" / "route.yaml"
+        ok = readme.exists() or route.exists()
+        return {"name": prerequisite, "ok": ok, "detail": "Kibana exposure manifest found" if ok else "No Kibana endpoint manifest found"}
+    return {"name": prerequisite, "ok": True, "detail": "No explicit check implemented"}
+
+
+def _check_remote_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict[str, Any]:
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    if not remote_cfg:
+        return {"name": prerequisite, "ok": False, "detail": "Remote configuration missing"}
+    lower = prerequisite.lower()
+    if lower == "ssh":
+        result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), "echo connected", remote_cfg.get("ssh_key_path", ""))
+        return {"name": prerequisite, "ok": result.get("ok", False), "detail": result.get("stdout", "") or result.get("stderr", "")}
+    if lower == "bash":
+        cmd = "command -v bash >/dev/null 2>&1 && echo present || echo missing"
+    elif lower in {"kubectl", "terraform", "curl", "kustomize", "oc"}:
+        cmd = f"command -v {shlex.quote(lower)} >/dev/null 2>&1 && echo present || echo missing"
+    elif lower == "kubeconfig":
+        checks = [f"test -f {shlex.quote(candidate)} && echo {shlex.quote(candidate)}" for candidate in _remote_kubeconfig_candidates(entry)]
+        cmd = " || ".join(checks + ["echo missing"])
+    elif lower == "kibana_endpoint":
+        ingress = shlex.quote(str(PurePosixPath(project_root) / "kibana" / "ingress.yaml"))
+        route = shlex.quote(str(PurePosixPath(project_root) / "platform" / "openshift" / "route.yaml"))
+        cmd = f"test -f {ingress} && echo present || test -f {route} && echo present || echo missing"
+    else:
+        return {"name": prerequisite, "ok": True, "detail": "No explicit check implemented"}
+    result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+    stdout = result.get("stdout", "").strip()
+    ok = (stdout not in {"", "missing"}) or (lower == "ssh" and result.get("ok", False))
+    detail = stdout or result.get("stderr", "") or (f"{lower} available" if ok else f"{lower} not available")
+    if lower == "kubeconfig" and ok and stdout not in {"present", "connected"}:
+        detail = f"Using {stdout}"
+    return {"name": prerequisite, "ok": ok, "detail": detail}
+
+
+def _evaluate_script_prerequisites(entry: Dict[str, Any], script: Dict[str, Any]) -> List[Dict[str, Any]]:
+    target_type = (entry.get("target_type") or "local").strip()
+    checks: List[Dict[str, Any]] = []
+    if target_type == "remote":
+        checks.append(_check_remote_prerequisite(entry, "ssh"))
+    for prerequisite in script.get("prerequisites") or []:
+        checks.append(_check_remote_prerequisite(entry, prerequisite) if target_type == "remote" else _check_local_prerequisite(entry, prerequisite))
+    return checks
+
+
+def _classification_from_severity(severity: str) -> str:
+    return "blocking" if severity == "error" else ("warning" if severity == "warning" else "pass")
+
+
+def _diagnostic_tool_item(name: str, ok: bool, detail: str, scope: str = "toolchain", severity: Optional[str] = None) -> Dict[str, Any]:
+    actual_severity = severity or ("info" if ok else "warning")
+    return {
+        "scope": scope,
+        "name": name,
+        "ok": ok,
+        "severity": actual_severity,
+        "classification": _classification_from_severity(actual_severity),
+        "detail": detail,
+    }
+
+
+def _collect_project_diagnostics(entry: Dict[str, Any]) -> Dict[str, Any]:
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    platform = (entry.get("platform") or "").strip().lower()
+    items: List[Dict[str, Any]] = []
+    next_actions: List[str] = []
+
+    project_path_obj = Path(project_root).expanduser() if project_root else None
+    if target_type == "local":
+        path_ok = bool(project_path_obj and project_path_obj.exists())
+        items.append(_diagnostic_tool_item("project_root", path_ok, f"Local project root {'found' if path_ok else 'missing'}: {project_root}", scope="project", severity="info" if path_ok else "error"))
+        for tool in ["bash", "python3", "ssh", "curl", "kubectl", "terraform", "kustomize", "oc"]:
+            binary = tool if tool != "python3" else "python3"
+            location = shutil.which(binary)
+            items.append(_diagnostic_tool_item(tool, location is not None, location or f"{tool} not found in PATH"))
+        kubeconfig = _check_local_prerequisite(entry, "kubeconfig")
+        items.append(_diagnostic_tool_item("kubeconfig", kubeconfig.get("ok", False), kubeconfig.get("detail", ""), scope="auth", severity="info" if kubeconfig.get("ok") else "warning"))
+        if shutil.which("kubectl") and kubeconfig.get("ok"):
+            context = _run_shell_command(["kubectl", "config", "current-context"], project_path_obj or Path.cwd())
+            items.append(_diagnostic_tool_item("kubectl_context", context.get("ok", False), context.get("stdout") or context.get("stderr") or "kubectl context unavailable", scope="auth", severity="info" if context.get("ok") else "warning"))
+        else:
+            items.append(_diagnostic_tool_item("kubectl_context", False, "kubectl context check skipped", scope="auth", severity="warning"))
+        if platform == "openshift":
+            if shutil.which("oc"):
+                whoami = _run_shell_command(["oc", "whoami"], project_path_obj or Path.cwd())
+                items.append(_diagnostic_tool_item("openshift_auth", whoami.get("ok", False), whoami.get("stdout") or whoami.get("stderr") or "oc whoami failed", scope="auth", severity="info" if whoami.get("ok") else "warning"))
+            else:
+                items.append(_diagnostic_tool_item("openshift_auth", False, "oc not available; OpenShift auth check skipped", scope="auth", severity="warning"))
+        if shutil.which("kubectl") and kubeconfig.get("ok"):
+            cluster_info = _run_shell_command(["kubectl", "cluster-info"], project_path_obj or Path.cwd())
+            items.append(_diagnostic_tool_item("cluster_api", cluster_info.get("ok", False), "Cluster API reachable" if cluster_info.get("ok") else (cluster_info.get("stderr") or cluster_info.get("stdout") or "kubectl cluster-info failed"), scope="cluster", severity="info" if cluster_info.get("ok") else "warning"))
+            nodes = _run_shell_command(["kubectl", "get", "nodes", "--no-headers"], project_path_obj or Path.cwd())
+            node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
+            ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
+            items.append(_diagnostic_tool_item("nodes_ready", bool(node_lines), f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported"), scope="cluster", severity="info" if node_lines else "warning"))
+    else:
+        remote_cfg = remote_cfg or {}
+        ssh_check = _check_remote_prerequisite(entry, "ssh")
+        items.append(_diagnostic_tool_item("ssh", ssh_check.get("ok", False), ssh_check.get("detail", ""), scope="connectivity", severity="info" if ssh_check.get("ok") else "error"))
+        remote_path_ok = False
+        if ssh_check.get("ok") and project_root:
+            probe = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), f"test -d {shlex.quote(project_root)} && echo present || echo missing", remote_cfg.get("ssh_key_path", ""))
+            remote_path_ok = probe.get("stdout", "").strip() == "present"
+            items.append(_diagnostic_tool_item("project_root", remote_path_ok, f"Remote project root {'found' if remote_path_ok else 'missing'}: {project_root}", scope="project", severity="info" if remote_path_ok else "error"))
+        else:
+            items.append(_diagnostic_tool_item("project_root", False, f"Remote project root not checked: {project_root}", scope="project", severity="error"))
+        for tool in ["bash", "python3", "curl", "kubectl", "terraform", "kustomize", "oc"]:
+            detail = _check_remote_prerequisite(entry, tool)
+            items.append(_diagnostic_tool_item(tool, detail.get("ok", False), detail.get("detail", ""), scope="toolchain", severity="info" if detail.get("ok") else "warning"))
+        kubeconfig = _check_remote_prerequisite(entry, "kubeconfig")
+        items.append(_diagnostic_tool_item("kubeconfig", kubeconfig.get("ok", False), kubeconfig.get("detail", ""), scope="auth", severity="info" if kubeconfig.get("ok") else "warning"))
+        if ssh_check.get("ok") and _check_remote_prerequisite(entry, "kubectl").get("ok") and kubeconfig.get("ok"):
+            context = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl config current-context"), remote_cfg.get("ssh_key_path", ""))
+            items.append(_diagnostic_tool_item("kubectl_context", context.get("ok", False), context.get("stdout") or context.get("stderr") or "kubectl context unavailable", scope="auth", severity="info" if context.get("ok") else "warning"))
+        else:
+            items.append(_diagnostic_tool_item("kubectl_context", False, "kubectl context check skipped on remote host", scope="auth", severity="warning"))
+        if platform == "openshift":
+            oc_check = _check_remote_prerequisite(entry, "oc")
+            if oc_check.get("ok"):
+                whoami = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), "oc whoami", remote_cfg.get("ssh_key_path", ""))
+                items.append(_diagnostic_tool_item("openshift_auth", whoami.get("ok", False), whoami.get("stdout") or whoami.get("stderr") or "oc whoami failed", scope="auth", severity="info" if whoami.get("ok") else "warning"))
+            else:
+                items.append(_diagnostic_tool_item("openshift_auth", False, "oc not available on remote host", scope="auth", severity="warning"))
+        if ssh_check.get("ok") and _check_remote_prerequisite(entry, "kubectl").get("ok"):
+            cluster_info = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl cluster-info"), remote_cfg.get("ssh_key_path", ""))
+            items.append(_diagnostic_tool_item("cluster_api", cluster_info.get("ok", False), "Cluster API reachable" if cluster_info.get("ok") else (cluster_info.get("stderr") or cluster_info.get("stdout") or "kubectl cluster-info failed"), scope="cluster", severity="info" if cluster_info.get("ok") else "warning"))
+            nodes = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl get nodes --no-headers"), remote_cfg.get("ssh_key_path", ""))
+            node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
+            ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
+            items.append(_diagnostic_tool_item("nodes_ready", bool(node_lines), f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported"), scope="cluster", severity="info" if node_lines else "warning"))
+
+    missing_names = {item["name"] for item in items if not item.get("ok")}
+    if "project_root" in missing_names:
+        next_actions.append("Fix the linked project path before running validation or scripts.")
+    if target_type == "remote" and "ssh" in missing_names:
+        next_actions.append("Verify SSH host, user, port, and key path for the remote target.")
+    if "kubeconfig" in missing_names:
+        next_actions.append("Provide a working kubeconfig or run cluster-healthcheck to bootstrap kubeconfig before cluster checks.")
+    if "cluster_api" in missing_names or "nodes_ready" in missing_names:
+        next_actions.append("Check cluster reachability and node readiness before continuing with deployment actions.")
+    if platform == "openshift" and ("oc" in missing_names or "openshift_auth" in missing_names):
+        next_actions.append("Install and authenticate the OpenShift CLI (oc) for OpenShift-specific checks.")
+    if "terraform" in missing_names:
+        next_actions.append("Install Terraform if this project uses Terraform validation or deployment steps.")
+    if "kubectl" in missing_names:
+        next_actions.append("Install kubectl before running cluster verification or kustomize-based checks.")
+    if "kustomize" in missing_names:
+        next_actions.append("Install kustomize for native manifest build checks, or rely on kubectl kustomize.")
+    if not next_actions:
+        next_actions.append("Environment looks ready for validation and safe generated-script execution.")
+
+    blocking = sum(1 for item in items if item["classification"] == "blocking")
+    warnings = sum(1 for item in items if item["classification"] == "warning")
+    passed = sum(1 for item in items if item["classification"] == "pass")
+    return {
+        "ok": blocking == 0,
+        "target_type": target_type,
+        "project_root": project_root,
+        "platform": platform or "unknown",
+        "remote": remote_cfg,
+        "items": items,
+        "counts": {"pass": passed, "warning": warnings, "blocking": blocking},
+        "next_actions": next_actions,
+    }
+
+
+def _remote_script_gate(entry: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any]:
+    if (entry.get("target_type") or "local").strip() != "remote":
+        return {"ok": True, "blocked_reasons": [], "required_checks": []}
+    diagnostics = _collect_project_diagnostics(entry)
+    diag_map = {item.get("name"): item for item in diagnostics.get("items") or []}
+    required_checks = ["ssh", "project_root"]
+    if not script.get("safe", True):
+        for check in script.get("prerequisite_checks") or []:
+            name = str(check.get("name") or "")
+            if name and name not in required_checks:
+                required_checks.append(name)
+        for name in ["kubeconfig", "kubectl_context", "openshift_auth"]:
+            if name in diag_map and name not in required_checks:
+                required_checks.append(name)
+    blocked_reasons = []
+    for name in required_checks:
+        item = diag_map.get(name)
+        if item and not item.get("ok"):
+            blocked_reasons.append(f"{name}: {item.get('detail', 'not ready')}")
+    if not script.get("safe", True) and diagnostics.get("counts", {}).get("blocking", 0) > 0:
+        blocked_reasons.append("remote diagnostics still contain blocking findings")
+    return {"ok": not blocked_reasons, "blocked_reasons": blocked_reasons, "required_checks": required_checks}
+
+
+def _operation_scripts_for_entry(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+    manifest = _operations_manifest_for_entry(entry)
+    scripts = []
+    for item in manifest.get("operations") or []:
+        key = item.get("key", "")
+        path = item.get("path") or SCRIPT_OPERATION_REGISTRY.get(key, {}).get("path", "")
+        exists, resolved = _project_file_exists(entry, path)
+        script = _hydrate_script_metadata(entry, {
+            "key": key,
+            **{k: v for k, v in item.items() if k != "key"},
+            "exists": exists,
+            "resolved_path": resolved,
+        })
+        checks = _evaluate_script_prerequisites(entry, script)
+        script["prerequisite_checks"] = checks
+        remote_gate = _remote_script_gate(entry, script)
+        script["remote_gate"] = remote_gate
+        script["blocked_reasons"] = list(remote_gate.get("blocked_reasons") or [])
+        script["ready"] = exists
+        scripts.append(script)
+    return sorted(scripts, key=lambda item: (item.get("recommended_order", 999), item.get("title", item.get("key", ""))))
+
+
+def _entry_generated_paths(entry: Dict[str, Any]) -> List[str]:
+    return [str(path) for path in (entry.get("files_created") or []) if path]
+
+
+def _derive_kustomization_names_for_entry(entry: Dict[str, Any]) -> List[str]:
+    pn = str(entry.get("name") or "").strip()
+    if not pn:
+        return []
+    names = [pn, f"{pn}-infra", f"{pn}-apps"]
+    generated_paths = _entry_generated_paths(entry)
+    generated_set = set(generated_paths)
+    has_agents = any(path.startswith("agents/") or path.endswith("kustomization-agents.yaml") for path in generated_set)
+    has_observability = any(path.startswith("observability/") or path.endswith("kustomization-observability.yaml") for path in generated_set)
+    if not generated_set:
+        project_root, remote_cfg = _project_root_from_entry(entry)
+        if project_root or remote_cfg:
+            has_agents = _project_file_exists(entry, "agents/kustomization.yaml")[0]
+            has_observability = _project_file_exists(entry, "observability/kustomization.yaml")[0]
+        else:
+            has_agents = True
+            has_observability = False
+    if has_agents:
+        names.append(f"{pn}-agents")
+    if has_observability:
+        names.append(f"{pn}-observability")
+    return names
+
+
 def _derive_kustomization_names(project_name: str) -> List[str]:
     pn = project_name.strip()
     return [pn, f"{pn}-infra", f"{pn}-apps", f"{pn}-agents"]
+
+
+def _classify_kustomization_state(ready: str, reason: str) -> str:
+    ready_lower = (ready or "").strip().lower()
+    reason_lower = (reason or "").strip().lower()
+    if ready_lower == "true":
+        return "ready"
+    if ready_lower == "false" and any(token in reason_lower for token in ["progress", "reconcil", "inprogress"]):
+        return "reconciling"
+    if ready_lower == "false":
+        return "failed"
+    return "unknown"
+
+
+def _summarize_kustomizations(kustomizations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    counts = {"ready": 0, "reconciling": 0, "failed": 0, "unknown": 0, "total": len(kustomizations or [])}
+    for item in kustomizations or []:
+        counts[_classify_kustomization_state(item.get("ready", ""), item.get("reason", ""))] += 1
+    overall = "unknown"
+    if counts["total"]:
+        if counts["failed"]:
+            overall = "failed"
+        elif counts["reconciling"]:
+            overall = "reconciling"
+        elif counts["ready"] == counts["total"]:
+            overall = "ready"
+    return {"counts": counts, "overall": overall}
 
 
 def _parse_ks_kubectl_output(stdout: str) -> tuple:
@@ -715,6 +1455,66 @@ def _parse_ks_kubectl_output(stdout: str) -> tuple:
     reason = parts[1].strip() if len(parts) > 1 else ""
     message = parts[2].strip() if len(parts) > 2 else ""
     return ready, reason, message
+
+
+def _build_flux_access_summary(entry: Dict[str, Any], kubeconfig: str = "") -> Dict[str, Any]:
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    access: Dict[str, Any] = {
+        "target_type": target_type,
+        "mode": "remote-host" if target_type == "remote" else "local-workstation",
+        "kubeconfig": {"ok": False, "detail": "unknown", "source": "unknown"},
+        "kubectl_context": {"ok": False, "detail": "not checked"},
+        "cluster_api": {"ok": False, "detail": "not checked"},
+        "nodes_ready": {"ok": False, "detail": "not checked"},
+    }
+    if target_type == "remote":
+        _, remote_cfg = _project_root_from_entry(entry)
+        remote_cfg = remote_cfg or {}
+        access["remote"] = {
+            "host": remote_cfg.get("host", ""),
+            "user": remote_cfg.get("user", ""),
+            "port": str(remote_cfg.get("port", "22")),
+            "project_dir": remote_cfg.get("project_dir", ""),
+        }
+        kube = _check_remote_prerequisite(entry, "kubeconfig")
+        kube_detail = str(kube.get("detail") or "")
+        access["kubeconfig"] = {
+            "ok": kube.get("ok", False),
+            "detail": kube_detail or ("kubeconfig detected" if kube.get("ok") else "No kubeconfig detected"),
+            "source": _classify_kubeconfig_source(kube_detail, entry, "remote") if kube.get("ok") else "missing",
+        }
+        if _check_remote_prerequisite(entry, "kubectl").get("ok") and kube.get("ok"):
+            ctx = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl config current-context"), remote_cfg.get("ssh_key_path", ""))
+            access["kubectl_context"] = {"ok": ctx.get("ok", False), "detail": (ctx.get("stdout") or ctx.get("stderr") or "kubectl context unavailable").strip()}
+            cluster = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl cluster-info"), remote_cfg.get("ssh_key_path", ""))
+            access["cluster_api"] = {"ok": cluster.get("ok", False), "detail": ("Cluster API reachable" if cluster.get("ok") else (cluster.get("stderr") or cluster.get("stdout") or "kubectl cluster-info failed")).strip()}
+            nodes = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), _remote_kubectl_command(entry, "kubectl get nodes --no-headers"), remote_cfg.get("ssh_key_path", ""))
+            node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
+            ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
+            access["nodes_ready"] = {"ok": bool(node_lines), "detail": f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported")}
+        return access
+
+    kube_env = os.environ.copy()
+    kube_source = "default"
+    if kubeconfig.strip():
+        path = Path(kubeconfig).expanduser()
+        kube = {"name": "kubeconfig", "ok": path.exists(), "detail": f"Using {path}" if path.exists() else f"Missing explicit kubeconfig: {path}"}
+        kube_source = "explicit"
+        kube_env["KUBECONFIG"] = str(path)
+    else:
+        kube = _check_local_prerequisite(entry, "kubeconfig")
+        kube_source = _classify_kubeconfig_source(str(kube.get("detail") or ""), entry, "local") if kube.get("ok") else "missing"
+    access["kubeconfig"] = {"ok": kube.get("ok", False), "detail": str(kube.get("detail") or ""), "source": kube_source}
+    if shutil.which("kubectl") and kube.get("ok"):
+        ctx = _run_shell_command(["kubectl", "config", "current-context"], Path.cwd(), env=kube_env)
+        access["kubectl_context"] = {"ok": ctx.get("ok", False), "detail": (ctx.get("stdout") or ctx.get("stderr") or "kubectl context unavailable").strip()}
+        cluster = _run_shell_command(["kubectl", "cluster-info"], Path.cwd(), env=kube_env)
+        access["cluster_api"] = {"ok": cluster.get("ok", False), "detail": ("Cluster API reachable" if cluster.get("ok") else (cluster.get("stderr") or cluster.get("stdout") or "kubectl cluster-info failed")).strip()}
+        nodes = _run_shell_command(["kubectl", "get", "nodes", "--no-headers"], Path.cwd(), env=kube_env)
+        node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
+        ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
+        access["nodes_ready"] = {"ok": bool(node_lines), "detail": f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported")}
+    return access
 
 
 def _run_rsync_to_remote(local_src: Path, host: str, port: str, user: str, remote_target: str, ssh_key_path: str = "") -> Dict[str, Any]:
@@ -1019,7 +1819,7 @@ def _classify_output_family(path: str) -> str:
 
 
 def _build_output_summary(result: Dict[str, Any]) -> Dict[str, Any]:
-    files = list(result.get("files_created") or [])
+    files = list(result.get("files_created") or result.get("generated_files") or [])
     families: Dict[str, Dict[str, Any]] = {}
     for path in files:
         family = _classify_output_family(str(path))
@@ -1036,6 +1836,103 @@ def _build_output_summary(result: Dict[str, Any]) -> Dict[str, Any]:
         "families": ordered,
         "addons_triggered": list(result.get("addons_triggered") or []),
     }
+
+
+def _resolve_policy_profile(policy_profile: str, license_id: str, confidentiality: str, header_mode: str) -> tuple[str, str, str, str]:
+    profile_key = (policy_profile or "").strip()
+    profile = POLICY_PROFILES.get(profile_key)
+    if not profile:
+        return "", license_id, confidentiality, header_mode
+    return (
+        profile_key,
+        (license_id or profile.get("license_id") or "UNLICENSED").strip() or profile.get("license_id") or "UNLICENSED",
+        (confidentiality or profile.get("confidentiality") or "internal").strip() or profile.get("confidentiality") or "internal",
+        (header_mode or profile.get("header_mode") or "none").strip() or profile.get("header_mode") or "none",
+    )
+
+
+def _build_governance_preview(
+    *,
+    license_id: str = "UNLICENSED",
+    confidentiality: str = "internal",
+    header_mode: str = "none",
+    copyright_owner: str = "",
+    organization: str = "",
+    policy_profile: str = "",
+) -> Dict[str, Any]:
+    profile_key, license_id, confidentiality, header_mode = _resolve_policy_profile(
+        policy_profile,
+        license_id,
+        confidentiality,
+        header_mode,
+    )
+    license_id = (license_id or "UNLICENSED").strip() or "UNLICENSED"
+    confidentiality = (confidentiality or "internal").strip() or "internal"
+    header_mode = (header_mode or "none").strip() or "none"
+    copyright_owner = (copyright_owner or "").strip()
+    organization = (organization or "").strip()
+
+    items: List[Dict[str, str]] = []
+
+    def add(code: str, severity: str, message: str) -> None:
+        items.append({"scope": "governance", "code": code, "severity": severity, "message": message})
+
+    if confidentiality == "public" and license_id == "UNLICENSED":
+        add("public_unlicensed", "warning", "Public output should define an explicit license.")
+    if header_mode in {"minimal", "full"} and not (copyright_owner or organization):
+        add("missing_owner_metadata", "warning", "Header mode is enabled but copyright owner or organization is empty.")
+    if confidentiality == "restricted" and header_mode == "none":
+        add("restricted_without_headers", "info", "Restricted output is easier to audit with a managed header mode.")
+    profile = POLICY_PROFILES.get(profile_key)
+    if profile and profile.get("organization_required") and not organization:
+        add("organization_required", "warning", f"Policy profile '{profile_key}' expects an organization value.")
+
+    return {
+        "policy_profile": profile_key,
+        "license_policy": {
+            "license_id": license_id,
+            "mode": "user_selectable",
+            "copyright_owner": copyright_owner,
+            "organization": organization,
+            "confidentiality": confidentiality,
+        },
+        "header_policy": {
+            "mode": header_mode,
+            "managed_header": header_mode != "none",
+            "apply_to": [".py", ".sh", ".tf", ".yaml", ".yml", ".md"],
+        },
+        "validation": {
+            "ok": not any(item["severity"] == "warning" for item in items),
+            "items": items,
+        },
+    }
+
+
+def _load_generation_validation_report(result: Dict[str, Any]) -> Dict[str, Any]:
+    report_path = result.get("generation_validation_report")
+    if not report_path:
+        return {"ok": True, "items": [], "summary": {}}
+    try:
+        payload = json.loads(Path(report_path).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("validation report must be an object")
+        payload.setdefault("ok", True)
+        payload.setdefault("items", [])
+        payload.setdefault("summary", {})
+        return payload
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {
+            "ok": False,
+            "items": [
+                {
+                    "scope": "generation",
+                    "code": "validation_report_unreadable",
+                    "severity": "error",
+                    "message": f"Could not read generation validation report: {report_path}",
+                }
+            ],
+            "summary": {},
+        }
 
 
 async def _parse_uploaded_sizing_file(upload: Optional[UploadFile]) -> tuple[Optional[Dict[str, Any]], Optional[str], Dict[str, Any]]:
@@ -1098,16 +1995,23 @@ def _build_open_command(tool: str, target_path: Path) -> List[str]:
     )
 
 
-def _build_open_remote_command(tool: str, host: str, user: str, remote_path: str) -> List[str]:
+def _build_open_remote_command(tool: str, host: str, user: str, remote_path: str, port: str = "22") -> List[str]:
+    normalized_port = (port or "22").strip() or "22"
+    encoded_path = quote(remote_path, safe="/~._-")
+    authority = f"{user}@{host}"
+    if normalized_port != "22":
+        authority = f"{authority}:{normalized_port}"
+
     if tool == "zed":
         if shutil.which("zed") is None:
             raise HTTPException(status_code=400, detail="zed is not installed or not in PATH")
-        return ["zed", f"ssh://{user}@{host}{remote_path}"]
+        return ["zed", f"ssh://{authority}{encoded_path}"]
 
     if tool == "vscode":
         if shutil.which("code") is None:
             raise HTTPException(status_code=400, detail="vscode CLI 'code' is not installed or not in PATH")
-        uri = f"vscode-remote://ssh-remote+{host}{remote_path}"
+        vscode_host = host if normalized_port == "22" else f"{host}:{normalized_port}"
+        uri = f"vscode-remote://ssh-remote+{vscode_host}{encoded_path}"
         return ["code", "--folder-uri", uri]
 
     raise HTTPException(status_code=400, detail="Remote open supports zed or vscode")
@@ -1203,6 +2107,14 @@ def meta() -> Dict[str, Any]:
         "platforms": ["", "rke2", "openshift", "aks", "proxmox"],
         "gitops_tools": ["", "flux", "argo", "none"],
         "chains": sorted(list(analyzer.priority_chains.keys())),
+    }
+
+
+@app.get("/api/presets")
+def get_presets() -> Dict[str, Any]:
+    return {
+        "platform_presets": PLATFORM_PRESETS,
+        "policy_profiles": POLICY_PROFILES,
     }
 
 
@@ -1353,6 +2265,12 @@ async def preview_sizing_file(
     description: str = Form(""),
     enable_otel_collector: bool = Form(False),
     use_terraform_iac: bool = Form(False),
+    license_id: str = Form("UNLICENSED"),
+    confidentiality: str = Form("internal"),
+    header_mode: str = Form("none"),
+    copyright_owner: str = Form(""),
+    organization: str = Form(""),
+    policy_profile: str = Form(""),
 ) -> Dict[str, Any]:
     sizing_context, _detected_platform, preview = await _parse_uploaded_sizing_file(sizing_file)
     preview = _enrich_sizing_preview(
@@ -1372,6 +2290,14 @@ async def preview_sizing_file(
         use_terraform_iac=use_terraform_iac,
         enable_otel_collector=enable_otel_collector,
         sizing_context=sizing_context,
+    )
+    preview["governance_preview"] = _build_governance_preview(
+        license_id=license_id,
+        confidentiality=confidentiality,
+        header_mode=header_mode,
+        copyright_owner=copyright_owner,
+        organization=organization,
+        policy_profile=policy_profile,
     )
     return preview
 
@@ -1408,6 +2334,12 @@ async def create_project(
     remote_auth_mode: str = Form("ssh_key"),
     remote_ssh_key_path: str = Form(""),
     remote_base_dir: str = Form(""),
+    license_id: str = Form("UNLICENSED"),
+    confidentiality: str = Form("internal"),
+    header_mode: str = Form("none"),
+    copyright_owner: str = Form(""),
+    organization: str = Form(""),
+    policy_profile: str = Form(""),
     continue_without_sizing: bool = Form(False),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> Dict[str, Any]:
@@ -1497,6 +2429,14 @@ async def create_project(
         enable_otel_collector=enable_otel_collector,
         sizing_context=sizing_context,
     )
+    governance_preview = _build_governance_preview(
+        license_id=license_id,
+        confidentiality=confidentiality,
+        header_mode=header_mode,
+        copyright_owner=copyright_owner,
+        organization=organization,
+        policy_profile=policy_profile,
+    )
 
     if sizing_preview.get("fatal_error") and not continue_without_sizing:
         raise HTTPException(
@@ -1576,6 +2516,8 @@ async def create_project(
         sizing_context=sizing_context,
         enable_metrics_server=enable_metrics_server,
         enable_otel_collector=enable_otel_collector,
+        license_policy=governance_preview["license_policy"],
+        header_policy=governance_preview["header_policy"],
     )
 
     git_log: List[Dict[str, Any]] = []
@@ -1613,6 +2555,7 @@ async def create_project(
             "host": remote_cfg["host"],
             "user": remote_cfg["user"],
             "port": remote_cfg["port"],
+            "ssh_key_path": remote_cfg.get("ssh_key_path", ""),
             "project_dir": remote_cfg["project_dir"],
             "base_dir": remote_cfg["base_dir"],
         }
@@ -1637,6 +2580,16 @@ async def create_project(
     result["target_type"] = effective_target_type
     result["remote"] = remote_result
     result["sizing_preview"] = sizing_preview
+    result["governance_preview"] = governance_preview
+    generation_validation = _load_generation_validation_report(result)
+    result["validation_report"] = {
+        "ok": governance_preview["validation"]["ok"] and not sizing_preview.get("fatal_error") and generation_validation.get("ok", True),
+        "items": list(governance_preview["validation"]["items"]) + [
+            {"scope": "sizing", "code": item.get("code", "warning"), "severity": item.get("severity", "warning"), "message": item.get("message", "")}
+            for item in (sizing_preview.get("warnings") or [])
+        ] + list(generation_validation.get("items") or []),
+        "generation": generation_validation,
+    }
     result["sizing_parse_warnings"] = sizing_preview.get("warnings", [])
     result["sizing_parse_error"] = sizing_preview.get("fatal_error")
     result["sizing_context_applied"] = sizing_preview.get("sizing_context_applied", False)
@@ -1702,6 +2655,15 @@ async def create_project(
             "git_remote_url": effective_remote_url,
             "git_branch": git_branch,
             "remote": remote_result if effective_target_type == "remote" else None,
+            "license_id": governance_preview["license_policy"]["license_id"],
+            "confidentiality": governance_preview["license_policy"]["confidentiality"],
+            "header_mode": governance_preview["header_policy"]["mode"],
+            "policy_profile": governance_preview.get("policy_profile", ""),
+            "generation_manifest": result.get("generation_manifest", ""),
+            "generation_validation_report": result.get("generation_validation_report", ""),
+            "output_summary": result.get("output_summary", {}),
+            "validation_report": result.get("validation_report", {}),
+            "files_created": result.get("generated_files", result.get("files_created", [])),
         }
     )
 
@@ -1739,6 +2701,12 @@ async def _create_stream_generator(
     remote_auth_mode: str,
     remote_ssh_key_path: str,
     remote_base_dir: str,
+    license_id: str,
+    confidentiality: str,
+    header_mode: str,
+    copyright_owner: str,
+    organization: str,
+    policy_profile: str,
     continue_without_sizing: bool,
     sizing_bytes: Optional[bytes],
     sizing_filename: Optional[str],
@@ -1836,6 +2804,14 @@ async def _create_stream_generator(
             enable_otel_collector=enable_otel_collector,
             sizing_context=sizing_context,
         )
+        governance_preview = _build_governance_preview(
+            license_id=license_id,
+            confidentiality=confidentiality,
+            header_mode=header_mode,
+            copyright_owner=copyright_owner,
+            organization=organization,
+            policy_profile=policy_profile,
+        )
         if sizing_preview.get("warnings"):
             yield _sse("warning", "Sizing input parsed with warnings", warnings=sizing_preview["warnings"])
         if sizing_preview.get("caveats"):
@@ -1843,6 +2819,8 @@ async def _create_stream_generator(
         addon_preview = sizing_preview.get("addon_preview") or {}
         if addon_preview.get("addons"):
             yield _sse("addons", "Addon plan computed", addon_preview=addon_preview)
+        if governance_preview["validation"].get("items"):
+            yield _sse("warning", "Governance validation detected", governance_preview=governance_preview)
         if sizing_preview.get("fatal_error") and not continue_without_sizing:
             yield _sse("error", sizing_preview["fatal_error"]["message"], sizing_preview=sizing_preview)
             return
@@ -1899,6 +2877,8 @@ async def _create_stream_generator(
             sizing_context=sizing_context,
             enable_metrics_server=enable_metrics_server,
             enable_otel_collector=enable_otel_collector,
+            license_policy=governance_preview["license_policy"],
+            header_policy=governance_preview["header_policy"],
         ))
 
         addons_triggered = result.get("addons_triggered", [])
@@ -1939,6 +2919,7 @@ async def _create_stream_generator(
                 "host": remote_cfg["host"],
                 "user": remote_cfg["user"],
                 "port": remote_cfg["port"],
+                "ssh_key_path": remote_cfg.get("ssh_key_path", ""),
                 "project_dir": remote_cfg["project_dir"],
                 "base_dir": remote_cfg["base_dir"],
             }
@@ -1959,6 +2940,16 @@ async def _create_stream_generator(
         result["target_type"] = effective_target_type
         result["remote"] = remote_result
         result["sizing_preview"] = sizing_preview
+        result["governance_preview"] = governance_preview
+        generation_validation = _load_generation_validation_report(result)
+        result["validation_report"] = {
+            "ok": governance_preview["validation"]["ok"] and not sizing_preview.get("fatal_error") and generation_validation.get("ok", True),
+            "items": list(governance_preview["validation"]["items"]) + [
+                {"scope": "sizing", "code": item.get("code", "warning"), "severity": item.get("severity", "warning"), "message": item.get("message", "")}
+                for item in (sizing_preview.get("warnings") or [])
+            ] + list(generation_validation.get("items") or []),
+            "generation": generation_validation,
+        }
         result["sizing_parse_warnings"] = sizing_preview.get("warnings", [])
         result["sizing_parse_error"] = sizing_preview.get("fatal_error")
         result["sizing_context_applied"] = sizing_preview.get("sizing_context_applied", False)
@@ -1998,6 +2989,15 @@ async def _create_stream_generator(
             "git_remote_url": effective_remote_url,
             "git_branch": git_branch,
             "remote": remote_result if effective_target_type == "remote" else None,
+            "license_id": governance_preview["license_policy"]["license_id"],
+            "confidentiality": governance_preview["license_policy"]["confidentiality"],
+            "header_mode": governance_preview["header_policy"]["mode"],
+            "policy_profile": governance_preview.get("policy_profile", ""),
+            "generation_manifest": result.get("generation_manifest", ""),
+            "generation_validation_report": result.get("generation_validation_report", ""),
+            "output_summary": result.get("output_summary", {}),
+            "validation_report": result.get("validation_report", {}),
+            "files_created": result.get("generated_files", result.get("files_created", [])),
         })
 
         AUDIT_LOG.append("scaffold", f"Created {safe_name} at {result.get('project_path', '')}")
@@ -2012,7 +3012,10 @@ async def _create_stream_generator(
             platform=final_platform or "auto",
             name=safe_name,
             target_type=effective_target_type,
+            remote=result.get("remote") if effective_target_type == "remote" else None,
             sizing_preview=sizing_preview,
+            governance_preview=governance_preview,
+            validation_report=result.get("validation_report", {}),
             sizing_parse_warnings=sizing_preview.get("warnings", []),
             sizing_parse_error=sizing_preview.get("fatal_error"),
             sizing_context_applied=sizing_preview.get("sizing_context_applied", False),
@@ -2054,6 +3057,12 @@ async def create_project_stream(
     remote_auth_mode: str = Form("ssh_key"),
     remote_ssh_key_path: str = Form(""),
     remote_base_dir: str = Form(""),
+    license_id: str = Form("UNLICENSED"),
+    confidentiality: str = Form("internal"),
+    header_mode: str = Form("none"),
+    copyright_owner: str = Form(""),
+    organization: str = Form(""),
+    policy_profile: str = Form(""),
     continue_without_sizing: bool = Form(False),
     sizing_file: Optional[UploadFile] = File(default=None),
 ) -> StreamingResponse:
@@ -2092,6 +3101,12 @@ async def create_project_stream(
             remote_auth_mode=remote_auth_mode,
             remote_ssh_key_path=remote_ssh_key_path,
             remote_base_dir=remote_base_dir,
+            license_id=license_id,
+            confidentiality=confidentiality,
+            header_mode=header_mode,
+            copyright_owner=copyright_owner,
+            organization=organization,
+            policy_profile=policy_profile,
             continue_without_sizing=continue_without_sizing,
             sizing_bytes=sizing_bytes,
             sizing_filename=sizing_filename,
@@ -2284,7 +3299,7 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
 
     target_type = (entry.get("target_type") or "local").strip()
     project_name = entry.get("name", "")
-    ks_names = _derive_kustomization_names(project_name)
+    ks_names = _derive_kustomization_names_for_entry(entry)
     polled_at = _utcnow()
     kustomizations = []
 
@@ -2301,19 +3316,18 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         user = remote_cfg.get("user", "")
         ssh_key_path = remote_cfg.get("ssh_key_path", "")
         for ks in ks_names:
-            cmd = (
-                f"kubectl get kustomization {ks} -n flux-system "
-                f"-o jsonpath='{jsonpath}' 2>/dev/null || echo 'Unknown||'"
+            cmd = _remote_kubectl_command(
+                entry,
+                f"kubectl get kustomization {ks} -n flux-system -o jsonpath='{jsonpath}' 2>/dev/null || echo 'Unknown||'"
             )
             r = _run_ssh_command(host, port, user, cmd, ssh_key_path)
             ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
             kustomizations.append({"name": ks, "namespace": "flux-system",
                                    "ready": ready, "reason": reason,
                                    "message": message, "polled_at": polled_at})
-        es_cmd = (
-            f"kubectl get statefulset -n {project_name} "
-            f"-o jsonpath='{{.items[*].status.readyReplicas}}/{{.items[*].status.replicas}}' "
-            f"2>/dev/null || echo '0/0'"
+        es_cmd = _remote_kubectl_command(
+            entry,
+            f"kubectl get statefulset -n {project_name} -o jsonpath='{{.items[*].status.readyReplicas}}/{{.items[*].status.replicas}}' 2>/dev/null || echo '0/0'"
         )
         es_r = _run_ssh_command(host, port, user, es_cmd, ssh_key_path)
     else:
@@ -2343,14 +3357,720 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         "total": es_parts[1].strip() if len(es_parts) > 1 else "0",
     }
 
+    kustomization_summary = _summarize_kustomizations(kustomizations)
+    cluster_status = "unknown"
+    if kustomization_summary["overall"] == "failed":
+        cluster_status = "degraded"
+    elif kustomization_summary["overall"] == "reconciling":
+        cluster_status = "reconciling"
+    elif kustomization_summary["overall"] == "ready" and es_pods.get("total") not in {"", "0"} and es_pods.get("running") == es_pods.get("total"):
+        cluster_status = "ready"
+    elif kustomization_summary["overall"] == "ready":
+        cluster_status = "partially_ready"
+
+    access_summary = _build_flux_access_summary(entry, kubeconfig)
     AUDIT_LOG.append("flux-poll", f"Polled {deployment_id}")
     return {"deployment_id": deployment_id, "kustomizations": kustomizations,
+            "kustomization_summary": kustomization_summary,
+            "cluster_summary": {"status": cluster_status, "es_pods": es_pods},
+            "access_summary": access_summary,
             "es_pods": es_pods, "polled_at": polled_at}
+
+
+def _resolve_runbook_docs(entry: Dict[str, Any], docs: List[str]) -> List[Dict[str, Any]]:
+    resolved_docs = []
+    for relative_path in docs or []:
+        exists, resolved_path = _project_file_exists(entry, relative_path)
+        resolved_docs.append({
+            "path": relative_path,
+            "exists": exists,
+            "resolved_path": resolved_path,
+        })
+    return resolved_docs
+
+
+def _suggested_step_command(entry: Dict[str, Any], script: Dict[str, Any]) -> str:
+    path = str(script.get("path") or "").strip()
+    if not path:
+        return ""
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    if target_type == "remote":
+        remote_cfg = entry.get("remote") or {}
+        host = remote_cfg.get("host", "remote-host")
+        user = remote_cfg.get("user", "user")
+        port = str(remote_cfg.get("port", "22"))
+        project_dir = remote_cfg.get("project_dir", "<project_dir>")
+        return f"ssh -p {port} {user}@{host} 'cd {project_dir} && bash {path}'"
+    return f"cd {entry.get('project_path', '<project_path>')} && bash {path}"
+
+
+def _step_remediation_guidance(platform: str, step_key: str, *, blocked_by: List[str], script_ready: bool, last_run_ok: Optional[bool]) -> List[str]:
+    guidance: List[str] = []
+    if blocked_by:
+        guidance.append(f"Finish earlier runbook steps first: {', '.join(blocked_by)}.")
+    if not script_ready:
+        guidance.append("Resolve missing script prerequisites before running this step.")
+    platform = (platform or "generic").strip().lower()
+    step_hints = {
+        "preflight-check": {
+            "default": "Review generated docs and confirm host tooling, kubeconfig, and remote linkage.",
+            "openshift": "Confirm oc login and route prerequisites before continuing.",
+            "aks": "Confirm Azure auth, Terraform variables, and ingress prerequisites.",
+            "proxmox": "Confirm Proxmox access, Terraform variables, and RKE2 bootstrap connectivity.",
+            "rke2": "Confirm RKE2 bootstrap access and kubeconfig availability before proceeding.",
+        },
+        "validate-config": {
+            "default": "Run validation until YAML/Terraform issues are cleared.",
+        },
+        "post-terraform-deploy": {
+            "default": "Apply infrastructure first, then rerun this helper with the correct tfvars and kubeconfig context.",
+        },
+        "cluster-healthcheck": {
+            "default": "Verify cluster context and Kibana exposure before retrying health checks.",
+            "openshift": "Check Route exposure and oc-authenticated cluster access before retrying.",
+        },
+        "verify-deployment": {
+            "default": "Inspect workload rollout state and reconcile errors before retrying verification.",
+        },
+        "import-dashboards": {
+            "default": "Wait for Kibana readiness and confirm endpoint reachability before importing dashboards.",
+        },
+        "mirror-secrets": {
+            "default": "Confirm namespace targets and secret source values before mirroring.",
+        },
+        "rollback": {
+            "default": "Use rollback only after capturing failure evidence and validating rollback scope.",
+        },
+    }
+    hints = step_hints.get(step_key, {})
+    platform_hint = hints.get(platform) or hints.get("default")
+    if platform_hint:
+        guidance.append(platform_hint)
+    if last_run_ok is False:
+        guidance.append("Inspect the last failed run output before retrying this step.")
+    return guidance
+
+
+def _build_runbook_progress(entry: Dict[str, Any], summary: Dict[str, Any]) -> Dict[str, Any]:
+    scripts = summary.get("scripts") or []
+    manifest = summary.get("operations_manifest") or {}
+    recent_runs = summary.get("recent_runs") or []
+    successful_keys = []
+    latest_run_by_key: Dict[str, Dict[str, Any]] = {}
+    for record in recent_runs:
+        key = record.get("script_key")
+        if key and key not in latest_run_by_key:
+            latest_run_by_key[key] = record
+        if record.get("ok") and key and key not in successful_keys:
+            successful_keys.append(key)
+    successful_set = set(successful_keys)
+    runbook = ((manifest.get("runbooks") or [{}])[:1] or [{}])[0]
+    platform = runbook.get("platform") or (entry.get("platform") or "generic")
+    steps = []
+    next_step = None
+    previous_incomplete = []
+    script_map = {item.get("key"): item for item in scripts}
+    for raw_step in runbook.get("steps") or []:
+        key = raw_step.get("key")
+        script = script_map.get(key, {})
+        completed = key in successful_set
+        blocked_by = [item for item in previous_incomplete if item]
+        status = "completed" if completed else ("pending" if blocked_by else "ready")
+        last_run = latest_run_by_key.get(key)
+        prerequisite_checks = list(script.get("prerequisite_checks") or [])
+        step = {
+            **raw_step,
+            "status": status,
+            "completed": completed,
+            "blocked_by": blocked_by,
+            "script_ready": bool(script.get("ready", False)),
+            "script_exists": bool(script.get("exists", False)),
+            "prerequisite_checks": prerequisite_checks,
+            "failed_prerequisites": [item for item in prerequisite_checks if not item.get("ok")],
+            "docs_resolved": _resolve_runbook_docs(entry, list(raw_step.get("docs") or [])),
+            "suggested_command": _suggested_step_command(entry, script),
+            "last_run": last_run or {},
+        }
+        step["remediation"] = _step_remediation_guidance(
+            str(platform),
+            str(key or ""),
+            blocked_by=blocked_by,
+            script_ready=bool(step.get("script_ready")),
+            last_run_ok=last_run.get("ok") if isinstance(last_run, dict) else None,
+        )
+        steps.append(step)
+        if not completed and next_step is None:
+            next_step = step
+        if not completed:
+            previous_incomplete.append(key)
+    guidance = []
+    next_command = ""
+    if next_step:
+        guidance.append(f"Next recommended action: {next_step.get('title') or next_step.get('key')}")
+        if next_step.get("blocked_by"):
+            guidance.append(f"Complete earlier steps first: {', '.join(next_step['blocked_by'])}")
+        elif not next_step.get("script_ready"):
+            guidance.append(f"Resolve script readiness before running {next_step.get('key')}")
+        next_command = str(next_step.get("suggested_command") or "")
+        if next_command:
+            guidance.append(f"Suggested command: {next_command}")
+    else:
+        guidance.append("All recommended runbook steps have successful executions recorded.")
+    if recent_runs:
+        last = recent_runs[0]
+        if last.get("ok"):
+            guidance.append(f"Last successful action: {last.get('script_key')}")
+        else:
+            guidance.append(f"Last action failed: {last.get('script_key')}; inspect logs before continuing.")
+    return {
+        "platform": platform,
+        "note": runbook.get("note", ""),
+        "steps": steps,
+        "completed_keys": successful_keys,
+        "next_recommended": next_step,
+        "next_command": next_command,
+        "guidance": guidance,
+    }
+
+
+def _classify_execution_failure(target_type: str, stderr: str, stdout: str = "") -> str:
+    text = f"{stderr}\n{stdout}".lower()
+    if target_type == "remote":
+        if any(token in text for token in ["permission denied", "connection refused", "no route to host", "could not resolve hostname", "operation timed out", "ssh:"]):
+            return "connectivity"
+        if any(token in text for token in ["unauthorized", "forbidden", "you must be logged in", "context deadline exceeded", "kubeconfig", "oc whoami"]):
+            return "auth"
+        if any(token in text for token in ["command not found", "not found in path", "missing"]):
+            return "missing_tools"
+    else:
+        if any(token in text for token in ["command not found", "not found in path", "missing"]):
+            return "missing_tools"
+        if any(token in text for token in ["unauthorized", "forbidden", "you must be logged in", "kubeconfig"]):
+            return "auth"
+    return "script_failure"
+
+
+def _remote_execution_context(entry: Dict[str, Any]) -> Dict[str, Any]:
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    if not remote_cfg:
+        return {}
+    return {
+        "host": remote_cfg.get("host", ""),
+        "port": str(remote_cfg.get("port", "22")),
+        "user": remote_cfg.get("user", ""),
+        "project_dir": project_root,
+        "ssh_key_path": remote_cfg.get("ssh_key_path", ""),
+    }
+
+
+def _build_history_timeline(entry: Dict[str, Any], recent_runs: List[Dict[str, Any]], scripts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    script_map = {item.get("key"): item for item in scripts}
+    timeline: List[Dict[str, Any]] = []
+    remote_context = _remote_execution_context(entry)
+    for record in recent_runs:
+        key = str(record.get("script_key") or "")
+        script = script_map.get(key, {})
+        kind = str(record.get("kind") or ("validation" if key == "project-validate" else "script"))
+        ok = bool(record.get("ok"))
+        target_type = str(record.get("target_type") or (entry.get("target_type") or "local"))
+        stderr = str(record.get("stderr") or "")
+        stdout = str(record.get("stdout") or "")
+        timeline.append({
+            "created_at": record.get("created_at", ""),
+            "kind": kind,
+            "script_key": key,
+            "title": record.get("title") or script.get("title") or ("Project Validation" if kind == "validation" else key),
+            "ok": ok,
+            "status": "ok" if ok else "failed",
+            "failure_classification": "" if ok else _classify_execution_failure(target_type, stderr, stdout),
+            "safe": True if kind == "validation" else bool(script.get("safe", True)),
+            "target_type": target_type,
+            "remote_context": remote_context if target_type == "remote" else {},
+            "out_of_order": bool(record.get("out_of_order")),
+            "summary": record.get("summary") or (stderr or stdout),
+            "stdout": stdout,
+            "stderr": stderr,
+            "script_arguments": record.get("script_arguments", {}),
+            "confirmation_required": bool(record.get("confirmation_required", False)),
+        })
+    return timeline
+
+
+def _project_operations_summary(entry: Dict[str, Any]) -> Dict[str, Any]:
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    scripts = _operation_scripts_for_entry(entry)
+    artifacts = []
+    for relative_path in [
+        "project-initializer-manifest.json",
+        "project-initializer-operations.json",
+        "project-initializer-validation-report.json",
+        "LICENSE",
+        "NOTICE",
+        "GENERATED_BY.md",
+        "README.md",
+    ]:
+        exists, resolved = _project_file_exists(entry, relative_path)
+        artifacts.append({"path": relative_path, "exists": exists, "resolved_path": resolved})
+    recent_runs = OPERATION_RUN_HISTORY.list(entry.get("id"))[:20]
+    summary = {
+        "deployment": entry,
+        "project_root": project_root,
+        "target_type": (entry.get("target_type") or "local").strip() or "local",
+        "remote": remote_cfg,
+        "artifacts": artifacts,
+        "operations_manifest": _operations_manifest_for_entry(entry),
+        "scripts": scripts,
+        "output_summary": entry.get("output_summary", {}),
+        "validation_report": entry.get("validation_report", {}),
+        "environment_diagnostics": _collect_project_diagnostics(entry),
+        "recent_runs": recent_runs,
+    }
+    summary["runbook_progress"] = _build_runbook_progress(entry, summary)
+    summary["history_timeline"] = _build_history_timeline(entry, recent_runs, scripts)
+    return summary
+
+
+def _run_project_validation(entry: Dict[str, Any]) -> Dict[str, Any]:
+    summary = _project_operations_summary(entry)
+    items: List[Dict[str, Any]] = []
+    logs: List[Dict[str, Any]] = []
+    target_type = summary["target_type"]
+    project_root = summary["project_root"]
+    remote_cfg = summary.get("remote") or {}
+    platform = (entry.get("platform") or summary.get("operations_manifest", {}).get("project", {}).get("platform") or "").strip().lower()
+
+    def add_item(scope: str, code: str, severity: str, message: str) -> None:
+        classification = _classification_from_severity(severity)
+        items.append({
+            "scope": scope,
+            "code": code,
+            "severity": severity,
+            "classification": classification,
+            "message": message,
+        })
+
+    for artifact in summary["artifacts"]:
+        add_item(
+            "artifacts",
+            "artifact_present" if artifact["exists"] else "artifact_missing",
+            "info" if artifact["exists"] else "warning",
+            f"{artifact['path']}: {'present' if artifact['exists'] else 'missing'}",
+        )
+
+    for script in summary["scripts"]:
+        for check in script.get("prerequisite_checks") or []:
+            add_item(
+                "prerequisites",
+                "prerequisite_ok" if check.get("ok") else "prerequisite_missing",
+                "info" if check.get("ok") else "warning",
+                f"{script['key']}: {check.get('name')} — {check.get('detail')}",
+            )
+        if not script.get("exists"):
+            continue
+        if target_type == "remote":
+            cmd = f"bash -n {shlex.quote(script['resolved_path'])}"
+            log = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+        else:
+            log = _run_shell_command(["bash", "-n", script["resolved_path"]], Path(project_root))
+        logs.append({"check": f"shell:{script['key']}", **log})
+        add_item(
+            "scripts",
+            "script_syntax_ok" if log.get("ok") else "script_syntax_failed",
+            "info" if log.get("ok") else "error",
+            f"Shell syntax {'passed' if log.get('ok') else 'failed'} for {script['path']}",
+        )
+
+    terraform_exists, terraform_resolved = _project_file_exists(entry, "terraform/main.tf")
+    if terraform_exists:
+        terraform_dir = terraform_resolved.rsplit('/main.tf', 1)[0] if target_type == 'remote' else str(Path(terraform_resolved).parent)
+        if target_type == "remote":
+            validate_cmd = f"command -v terraform >/dev/null 2>&1 && cd {shlex.quote(terraform_dir)} && terraform validate"
+            log = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), validate_cmd, remote_cfg.get("ssh_key_path", ""))
+            skipped = False
+            fmt_cmd = f"command -v terraform >/dev/null 2>&1 && cd {shlex.quote(terraform_dir)} && terraform fmt -check -recursive"
+            fmt_log = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), fmt_cmd, remote_cfg.get("ssh_key_path", ""))
+            fmt_skipped = False
+        elif shutil.which("terraform") is None:
+            log = {"ok": True, "command": "terraform validate", "stdout": "", "stderr": "terraform not installed locally; skipped"}
+            fmt_log = {"ok": True, "command": "terraform fmt -check -recursive", "stdout": "", "stderr": "terraform not installed locally; skipped"}
+            skipped = True
+            fmt_skipped = True
+        else:
+            log = _run_shell_command(["terraform", "validate"], Path(terraform_resolved).parent)
+            fmt_log = _run_shell_command(["terraform", "fmt", "-check", "-recursive"], Path(terraform_resolved).parent)
+            skipped = False
+            fmt_skipped = False
+        logs.append({"check": "terraform_validate", **log})
+        add_item(
+            "terraform",
+            "terraform_validate_skipped" if skipped else ("terraform_validate_ok" if log.get("ok") else "terraform_validate_failed"),
+            "info" if skipped or log.get("ok") else "warning",
+            log.get("stderr") or ("terraform validate passed" if log.get("ok") else "terraform validate failed"),
+        )
+        logs.append({"check": "terraform_fmt_check", **fmt_log})
+        add_item(
+            "terraform",
+            "terraform_fmt_skipped" if fmt_skipped else ("terraform_fmt_ok" if fmt_log.get("ok") else "terraform_fmt_failed"),
+            "info" if fmt_skipped or fmt_log.get("ok") else "warning",
+            fmt_log.get("stderr") or ("terraform fmt -check passed" if fmt_log.get("ok") else "terraform fmt -check failed"),
+        )
+
+    yaml_targets = [
+        item for item in (summary.get("artifacts") or []) if item.get("path", "").endswith((".yaml", ".yml"))
+    ]
+    yaml_scan_paths = ["elasticsearch", "kibana", "agents", "platform", "infrastructure", "observability", "base", "overlays", "clusters", "flux-system"]
+    if yaml is None:
+        add_item("yaml", "yaml_validation_skipped", "warning", "PyYAML is not available; YAML parsing skipped")
+    else:
+        def validate_yaml_text(text: str, rel_path: str) -> None:
+            try:
+                list(yaml.safe_load_all(text))
+                add_item("yaml", "yaml_parse_ok", "info", f"YAML parse passed for {rel_path}")
+            except Exception as exc:
+                add_item("yaml", "yaml_parse_failed", "error", f"YAML parse failed for {rel_path}: {exc}")
+        if target_type == "remote":
+            for rel in yaml_scan_paths:
+                full = str(PurePosixPath(project_root) / rel)
+                cmd = f"if [ -d {shlex.quote(full)} ]; then find {shlex.quote(full)} -type f \\( -name '*.yaml' -o -name '*.yml' \\) -print; fi"
+                result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+                for candidate in [line.strip() for line in (result.get("stdout", "") or "").splitlines() if line.strip()]:
+                    cat = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), f"cat {shlex.quote(candidate)}", remote_cfg.get("ssh_key_path", ""))
+                    logs.append({"check": f"yaml:{candidate}", **cat})
+                    validate_yaml_text(cat.get("stdout", "") or "", candidate.replace(f"{project_root}/", ""))
+        else:
+            root_path = Path(project_root)
+            for rel in yaml_scan_paths:
+                base = root_path / rel
+                if not base.exists():
+                    continue
+                for candidate in base.rglob("*.y*ml"):
+                    text = candidate.read_text(encoding="utf-8")
+                    validate_yaml_text(text, str(candidate.relative_to(root_path)))
+
+    kustomization_targets = []
+    if target_type == "remote":
+        for rel in ["base", "overlays/dev", "overlays/staging", "overlays/production", "platform/eck-operator", "elasticsearch", "kibana", "agents", "observability"]:
+            kustomize_file = str(PurePosixPath(project_root) / rel / "kustomization.yaml")
+            exists_cmd = f"test -f {shlex.quote(kustomize_file)} && echo present || echo missing"
+            probe = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), exists_cmd, remote_cfg.get("ssh_key_path", ""))
+            if probe.get("stdout", "").strip() == "present":
+                kustomization_targets.append(rel)
+    else:
+        root_path = Path(project_root)
+        for candidate in root_path.rglob("kustomization.yaml"):
+            kustomization_targets.append(str(candidate.parent.relative_to(root_path)))
+
+    kustomize_bin = "kubectl kustomize" if target_type == "remote" else ("kustomize" if shutil.which("kustomize") else ("kubectl" if shutil.which("kubectl") else ""))
+    if not kustomize_bin:
+        add_item("kustomize", "kustomize_skipped", "warning", "Neither kustomize nor kubectl is available; kustomize build checks skipped")
+    else:
+        seen = set()
+        for rel in kustomization_targets:
+            if rel in seen:
+                continue
+            seen.add(rel)
+            if target_type == "remote":
+                cmd = f"command -v kubectl >/dev/null 2>&1 && cd {shlex.quote(str(PurePosixPath(project_root) / rel))} && kubectl kustomize . >/dev/null"
+                log = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+            else:
+                cwd = Path(project_root) / rel
+                if shutil.which("kustomize"):
+                    log = _run_shell_command(["kustomize", "build", "."], cwd)
+                else:
+                    log = _run_shell_command(["kubectl", "kustomize", "."], cwd)
+            logs.append({"check": f"kustomize:{rel}", **log})
+            add_item("kustomize", "kustomize_build_ok" if log.get("ok") else "kustomize_build_failed", "info" if log.get("ok") else "warning", f"Kustomize build {'passed' if log.get('ok') else 'failed'} for {rel}")
+
+    if platform in {"rke2", "proxmox"}:
+        cluster_cfg_exists, _ = _project_file_exists(entry, "platform/rke2/cluster-config.yaml")
+        add_item("platform", "rke2_cluster_config_present" if cluster_cfg_exists else "rke2_cluster_config_missing", "info" if cluster_cfg_exists else "warning", f"RKE2 cluster config {'present' if cluster_cfg_exists else 'missing'}")
+        bootstrap_exists, _ = _project_file_exists(entry, "scripts/bootstrap-rke2.sh")
+        add_item("platform", "rke2_bootstrap_present" if bootstrap_exists else "rke2_bootstrap_missing", "info" if bootstrap_exists else "warning", f"RKE2 bootstrap script {'present' if bootstrap_exists else 'missing'}")
+    elif platform == "openshift":
+        route_exists, _ = _project_file_exists(entry, "platform/openshift/route.yaml")
+        add_item("platform", "openshift_route_present" if route_exists else "openshift_route_missing", "info" if route_exists else "warning", f"OpenShift route {'present' if route_exists else 'missing'}")
+        if summary["target_type"] == "remote":
+            add_item("platform", "openshift_remote_note", "warning", "OpenShift remote validation assumes cluster CLI tools are available on the remote host")
+    elif platform == "aks":
+        ingress_exists, _ = _project_file_exists(entry, "platform/aks/ingress.yaml")
+        add_item("platform", "aks_ingress_present" if ingress_exists else "aks_ingress_missing", "info" if ingress_exists else "warning", f"AKS ingress manifest {'present' if ingress_exists else 'missing'}")
+        tf_exists, _ = _project_file_exists(entry, "terraform/modules/aks/main.tf")
+        add_item("platform", "aks_module_present" if tf_exists else "aks_module_missing", "info" if tf_exists else "warning", f"AKS Terraform module {'present' if tf_exists else 'missing'}")
+
+    blocking = sum(1 for item in items if item["classification"] == "blocking")
+    warnings = sum(1 for item in items if item["classification"] == "warning")
+    passed = sum(1 for item in items if item["classification"] == "pass")
+    ok = blocking == 0
+    return {"ok": ok, "items": items, "logs": logs, "summary": summary, "counts": {"pass": passed, "warning": warnings, "blocking": blocking}}
+
+
+def _extract_post_deploy_substeps(log: Dict[str, Any]) -> List[Dict[str, Any]]:
+    stdout = str(log.get("stdout") or "")
+    stderr = str(log.get("stderr") or "")
+    text = stdout + "\n" + stderr
+    step_defs = [
+        ("cluster-healthcheck", "Cluster Healthcheck"),
+        ("mirror-secrets", "Mirror Secrets"),
+        ("fleet-output", "Fleet Output"),
+        ("import-dashboards", "Import Dashboards"),
+    ]
+    marker_hits: Dict[str, str] = {}
+    for line in text.splitlines():
+        if line.startswith("::pi-substep "):
+            parts = line.split()
+            if len(parts) >= 3:
+                marker_hits[parts[1].strip()] = parts[2].strip().lower()
+    substeps: List[Dict[str, Any]] = []
+    for key, title in step_defs:
+        status = marker_hits.get(key, "")
+        detail = ""
+        if not status:
+            lowered = text.lower()
+            if key == "cluster-healthcheck":
+                if "cluster-healthcheck.sh not found; skipping." in text:
+                    status = "skipped"
+                    detail = "Generated healthcheck script is missing."
+                elif "cluster healthcheck reported warnings" in lowered:
+                    status = "warning"
+                    detail = "Healthcheck ran with warnings."
+                elif "checking cluster status and ensuring kubeconfig is in place" in lowered:
+                    status = "ok"
+                    detail = "Healthcheck stage ran."
+            elif key == "mirror-secrets":
+                if "mirror-secrets.sh not found; skipping." in text:
+                    status = "skipped"
+                    detail = "Generated secret mirroring script is missing."
+                elif "secret mirroring failed" in lowered:
+                    status = "warning"
+                    detail = "Secret mirroring reported warnings."
+                elif "mirroring secrets after cluster stabilizes" in lowered:
+                    status = "ok"
+                    detail = "Secret mirroring stage ran."
+            elif key == "fleet-output":
+                if "fleet output configuration failed" in lowered:
+                    status = "warning"
+                    detail = "Fleet output step reported warnings."
+                elif "fleet-output" in lowered or "agent auto-enrollment" in lowered:
+                    status = "ok"
+                    detail = "Fleet output stage ran."
+            elif key == "import-dashboards":
+                if "dashboard import failed" in lowered:
+                    status = "warning"
+                    detail = "Dashboard import reported warnings."
+                elif "import-dashboards" in lowered:
+                    status = "ok"
+                    detail = "Dashboard import stage ran."
+        if status:
+            if not detail:
+                detail = {
+                    "ok": "Completed",
+                    "warning": "Completed with warnings",
+                    "skipped": "Skipped",
+                    "start": "Started",
+                }.get(status, status.capitalize())
+            substeps.append({"key": key, "title": title, "status": status, "detail": detail})
+    return substeps
+
+
+def _execute_project_script(
+    entry: Dict[str, Any],
+    script_key: str,
+    allow_mutating: bool = False,
+    script_arguments: Optional[Dict[str, Any]] = None,
+    confirmation_text: str = "",
+) -> Dict[str, Any]:
+    manifest = _operations_manifest_for_entry(entry)
+    script = next((item for item in manifest.get("operations") or [] if item.get("key") == script_key), None)
+    if not script:
+        meta = SCRIPT_OPERATION_REGISTRY.get(script_key)
+        script = {"key": script_key, **meta} if meta else None
+    if not script:
+        raise HTTPException(status_code=404, detail="unknown script key")
+    exists, resolved = _project_file_exists(entry, script.get("path", ""))
+    script = _hydrate_script_metadata(entry, {**script, "exists": exists, "resolved_path": resolved})
+    script["prerequisite_checks"] = _evaluate_script_prerequisites(entry, script)
+    script["remote_gate"] = _remote_script_gate(entry, script)
+    script["blocked_reasons"] = list(script["remote_gate"].get("blocked_reasons") or [])
+    script["ready"] = exists
+    runbook = _build_runbook_progress(entry, {
+        "scripts": [script],
+        "operations_manifest": manifest,
+        "recent_runs": OPERATION_RUN_HISTORY.list(entry.get("id"))[:20],
+    })
+    supplied_arguments = {str(k): "" if v is None else str(v) for k, v in (script_arguments or {}).items()}
+    missing_arguments = [
+        arg.get("name") for arg in script.get("arguments") or []
+        if arg.get("required") and not supplied_arguments.get(arg.get("name", "")).strip()
+    ]
+    if missing_arguments:
+        raise HTTPException(status_code=400, detail=f"required script arguments missing: {', '.join(missing_arguments)}")
+    dangerous = bool(script.get("dangerous", False))
+    if dangerous and not allow_mutating:
+        raise HTTPException(status_code=400, detail="script is marked as dangerous; set allow_mutating=true to run it")
+    if dangerous and script.get("confirmation_required"):
+        expected = str(script.get("confirmation_phrase") or "").strip()
+        if not expected or confirmation_text.strip() != expected:
+            raise HTTPException(status_code=400, detail=f"confirmation mismatch; type '{expected}' to continue")
+    if not script.get("exists"):
+        raise HTTPException(status_code=404, detail=f"script not found: {script.get('path', '')}")
+    failed_checks = [check for check in script.get("prerequisite_checks") or [] if not check.get("ok")]
+    if dangerous and not script.get("remote_gate", {}).get("ok", True):
+        raise HTTPException(status_code=400, detail=f"remote readiness gate failed: {'; '.join(script.get('blocked_reasons') or ['remote diagnostics not ready'])}")
+    script_env = {f"PI_ARG_{key.upper()}": value for key, value in supplied_arguments.items() if value.strip()}
+    project_root, remote_cfg = _project_root_from_entry(entry)
+    if remote_cfg:
+        env_prefix = " ".join(f"{key}={shlex.quote(value)}" for key, value in script_env.items())
+        remote_script = f"bash {shlex.quote(script['path'])}"
+        cmd = f"cd {shlex.quote(project_root)} && {env_prefix + ' ' if env_prefix else ''}{remote_script}"
+        log = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
+    else:
+        env = os.environ.copy()
+        env.update(script_env)
+        log = _run_shell_command(["bash", str(Path(project_root) / script["path"])], Path(project_root), env=env)
+    execution_context = {
+        "arguments": supplied_arguments,
+        "environment_overrides": sorted(script_env.keys()),
+        "confirmation_text": confirmation_text.strip(),
+        "target_type": (entry.get("target_type") or "local").strip() or "local",
+        "remote": _remote_execution_context(entry),
+        "prerequisite_summary": [
+            {
+                "name": item.get("name", ""),
+                "ok": bool(item.get("ok")),
+                "detail": item.get("detail", ""),
+            }
+            for item in (script.get("prerequisite_checks") or [])
+        ],
+        "prerequisite_warnings": [
+            f"{item.get('name')}: {item.get('detail', '')}"
+            for item in failed_checks
+        ],
+        "remote_gate_warnings": list(script.get("blocked_reasons") or []),
+    }
+    out_of_order = False
+    sequencing_warning = ""
+    next_recommended = runbook.get("next_recommended") or {}
+    if next_recommended and next_recommended.get("key") and next_recommended.get("key") != script_key and script_key not in (runbook.get("completed_keys") or []):
+        out_of_order = True
+        sequencing_warning = f"Recommended next action is {next_recommended.get('key')} before {script_key}."
+    current_step = next((item for item in (runbook.get("steps") or []) if item.get("key") == script_key), {})
+    post_run_guidance = list(runbook.get("guidance") or [])
+    if log.get("ok"):
+        post_run_guidance.insert(0, f"Re-load project summary to update runbook completion after {script_key}.")
+    else:
+        post_run_guidance.insert(0, f"Investigate {script_key} output before continuing to the next runbook step.")
+        post_run_guidance.extend(current_step.get("remediation") or [])
+    substeps = _extract_post_deploy_substeps(log) if script_key == "post-terraform-deploy" else []
+    return {
+        "script": script,
+        "log": log,
+        "substeps": substeps,
+        "execution_context": execution_context,
+        "sequencing": {
+            "out_of_order": out_of_order,
+            "warning": sequencing_warning,
+            "next_recommended": next_recommended,
+            "next_command": runbook.get("next_command", ""),
+            "current_step": current_step,
+            "post_run_guidance": post_run_guidance,
+            "failure_classification": "" if log.get("ok") else _classify_execution_failure((entry.get("target_type") or "local").strip() or "local", str(log.get("stderr") or ""), str(log.get("stdout") or "")),
+        },
+    }
 
 
 @app.get("/api/audit")
 def audit_log_list() -> Dict[str, Any]:
     return {"entries": AUDIT_LOG.list()}
+
+
+@app.get("/api/project/operations")
+def project_operations(deployment_id: str) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    return _project_operations_summary(entry)
+
+
+@app.get("/api/project/diagnostics")
+def project_diagnostics(deployment_id: str) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    return _collect_project_diagnostics(entry)
+
+
+@app.get("/api/project/artifact-preview")
+def project_artifact_preview(deployment_id: str, path: str) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    return _read_project_text(entry, path)
+
+
+@app.post("/api/project/validate")
+def project_validate(deployment_id: str = Form(...)) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    result = _run_project_validation(entry)
+    run_record = OPERATION_RUN_HISTORY.add({
+        "deployment_id": deployment_id,
+        "project_name": entry.get("name", ""),
+        "script_key": "project-validate",
+        "title": "Project Validation",
+        "kind": "validation",
+        "target_type": (entry.get("target_type") or "local").strip() or "local",
+        "ok": result.get("ok", False),
+        "summary": f"pass={result.get('counts', {}).get('pass', 0)} warning={result.get('counts', {}).get('warning', 0)} blocking={result.get('counts', {}).get('blocking', 0)}",
+        "stdout": "",
+        "stderr": "" if result.get("ok", False) else "validation reported blocking findings",
+    })
+    AUDIT_LOG.append("project-validate", f"Validated {deployment_id}")
+    return {**result, "run_record": run_record}
+
+
+@app.get("/api/project/run-history")
+def project_run_history(deployment_id: str) -> Dict[str, Any]:
+    _find_deployment_entry(deployment_id)
+    return {"entries": OPERATION_RUN_HISTORY.list(deployment_id)}
+
+
+@app.post("/api/project/run-script")
+def project_run_script(
+    deployment_id: str = Form(...),
+    script_key: str = Form(...),
+    allow_mutating: bool = Form(False),
+    script_arguments: str = Form(""),
+    confirmation_text: str = Form(""),
+) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    try:
+        parsed_arguments = json.loads(script_arguments) if script_arguments.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid script_arguments payload: {exc}") from exc
+    if parsed_arguments and not isinstance(parsed_arguments, dict):
+        raise HTTPException(status_code=400, detail="script_arguments must decode to an object")
+    result = _execute_project_script(
+        entry,
+        script_key,
+        allow_mutating=allow_mutating,
+        script_arguments=parsed_arguments,
+        confirmation_text=confirmation_text,
+    )
+    run_record = OPERATION_RUN_HISTORY.add({
+        "deployment_id": deployment_id,
+        "project_name": entry.get("name", ""),
+        "script_key": script_key,
+        "title": result.get("script", {}).get("title", script_key),
+        "kind": "script",
+        "target_type": (entry.get("target_type") or "local").strip() or "local",
+        "allow_mutating": allow_mutating,
+        "script_arguments": result.get("execution_context", {}).get("arguments", {}),
+        "confirmation_required": result.get("script", {}).get("confirmation_required", False),
+        "confirmation_text": result.get("execution_context", {}).get("confirmation_text", ""),
+        "out_of_order": result.get("sequencing", {}).get("out_of_order", False),
+        "sequencing_warning": result.get("sequencing", {}).get("warning", ""),
+        "ok": result.get("log", {}).get("ok", False),
+        "summary": result.get("log", {}).get("stderr") or result.get("log", {}).get("stdout", ""),
+        "command": result.get("log", {}).get("command", ""),
+        "stdout": result.get("log", {}).get("stdout", ""),
+        "stderr": result.get("log", {}).get("stderr", ""),
+        "substeps": result.get("substeps", []),
+    })
+    AUDIT_LOG.append("project-script", f"Ran {script_key} for {deployment_id}")
+    return {**result, "run_record": run_record}
 
 
 @app.post("/api/sync")
@@ -2398,23 +4118,25 @@ def open_remote_path(
     host: str = Form(...),
     user: str = Form(...),
     remote_path: str = Form(...),
+    port: str = Form("22"),
     tool: str = Form("zed"),
 ) -> Dict[str, Any]:
     h = host.strip()
     u = user.strip()
     rp = (remote_path or "").strip()
+    normalized_port = (port or "22").strip() or "22"
     if not h or not u or not rp:
-        raise HTTPException(status_code=400, detail="host, user and remote_path are required")
+        raise HTTPException(status_code=400, detail="host, user, and remote_path are required")
     if not rp.startswith("/"):
         raise HTTPException(status_code=400, detail="remote_path must be an absolute POSIX path")
 
-    cmd = _build_open_remote_command(tool, h, u, rp)
+    cmd = _build_open_remote_command(tool, h, u, rp, normalized_port)
     try:
         subprocess.Popen(cmd)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"Failed to open remote path: {exc}") from exc
 
-    return {"ok": True, "tool": tool, "host": h, "user": u, "remote_path": rp, "command": " ".join(cmd)}
+    return {"ok": True, "tool": tool, "host": h, "user": u, "port": normalized_port, "remote_path": rp, "command": " ".join(cmd)}
 
 @app.post("/api/open")
 def open_path(

@@ -62,51 +62,20 @@ def _flux_tail(project_name: str, eck_version: str = "3.0.0") -> str:
         eck_major = int(eck_version.split(".")[0])
     except (ValueError, IndexError):
         pass
-
-    if eck_major >= 3:
-        enrollment_step = f"""echo "[9/9] Waiting for agent auto-enrollment (ECK 3.x)..."
-kubectl wait agent/${{PROJECT_NAME}}-agent -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=10m 2>/dev/null || {{
-  echo "  Agent not healthy yet. ECK 3.x auto-enrollment may still be in progress."
-  echo "  Check: kubectl get agents -n ${{PROJECT_NAME}}"
-}}"""
-    else:
-        enrollment_step = f"""echo "[9/9] Fetching Fleet enrollment token and patching agent..."
-# Wait for Fleet Server to be ready and enrollment tokens to be generated
-kubectl wait agent/${{PROJECT_NAME}}-fleet-server -n ${{PROJECT_NAME}} --for=jsonpath='{{.status.health}}'=green --timeout=5m 2>/dev/null || true
-
-if [ -n "$KB_POD" ]; then
-  ENROLLMENT_TOKEN=$(kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
-    "https://localhost:5601/api/fleet/enrollment_api_keys" \\
-    -H 'kbn-xsrf: true' 2>/dev/null | \\
-    python3 -c "import sys,json; keys=json.load(sys.stdin).get('items',[]); print(next((k['api_key'] for k in keys if k.get('policy_id')=='elastic-agent-policy' and k.get('active')), ''))" 2>/dev/null || true)
-
-  if [ -n "$ENROLLMENT_TOKEN" ]; then
-    kubectl set env daemonset/${{PROJECT_NAME}}-agent-agent \\
-      -n ${{PROJECT_NAME}} \\
-      FLEET_ENROLLMENT_TOKEN="$ENROLLMENT_TOKEN" 2>/dev/null && \\
-      echo "  Agent enrollment token set. Agents will restart and enroll." || \\
-      echo "  Failed to patch agent DaemonSet with enrollment token."
-  else
-    echo "  WARNING: Could not retrieve enrollment token from Fleet API."
-    echo "  Agents may fail to enroll. Check Fleet Server status and re-run if needed."
-  fi
-else
-  echo "  No Kibana pod available to fetch enrollment token."
-fi"""
-
+    agent_note = "echo \"  Waiting for agent auto-enrollment (ECK 3.x)...\"\n" if eck_major >= 3 else ""
     return f"""if command -v flux >/dev/null 2>&1; then
-  echo "[4/7] Bootstrapping Flux..."
+  echo "[4/9] Bootstrapping Flux..."
   if [ -x "$ROOT_DIR/scripts/bootstrap-flux.sh" ]; then
     "$ROOT_DIR/scripts/bootstrap-flux.sh"
   else
     echo "bootstrap-flux.sh not found; skipping."
   fi
 
-  echo "[5/7] Waiting for Flux source and root kustomization..."
+  echo "[5/9] Waiting for Flux source and root kustomization..."
   kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m || echo "  GitRepository not ready yet (will reconcile in background)."
   kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m || echo "  Root kustomization not ready yet (will reconcile in background)."
 
-  echo "[5/7] Triggering Flux reconcile..."
+  echo "[6/9] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
@@ -114,67 +83,63 @@ fi"""
   if flux get kustomizations "$PROJECT_NAME-agents" -n flux-system >/dev/null 2>&1; then
     flux reconcile kustomization "$PROJECT_NAME-agents" -n flux-system || true
   fi
+  if flux get kustomizations "$PROJECT_NAME-observability" -n flux-system >/dev/null 2>&1; then
+    flux reconcile kustomization "$PROJECT_NAME-observability" -n flux-system || true
+  fi
 else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[6/9] Mirroring ECK elastic-user secret to observability namespace..."
-echo "  Waiting for Elasticsearch to be ready (this may take several minutes on first deploy)..."
-kubectl wait elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=15m 2>/dev/null || {{
-  echo "  Elasticsearch not ready yet. Steps 6-9 require ECK resources."
-  echo "  Re-run this script or manually execute steps 6-9 once ES is green."
-  echo "Deployment trigger finished (steps 6-9 deferred)."
-  exit 0
-}}
-
-kubectl create namespace observability 2>/dev/null || true
-kubectl create secret generic otel-es-credentials \\
-  --from-literal=username=elastic \\
-  --from-literal=password="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
-    -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
-  -n observability --dry-run=client -o yaml | kubectl apply -f -
-
-echo "[7/9] Configuring Fleet default output and agent enrollment..."
-kubectl wait kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} --for=condition=Ready --timeout=5m 2>/dev/null || true
-
-ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} -o go-template='{{{{.data.elastic | base64decode}}}}')"
-CA_FP=$(kubectl get secret ${{PROJECT_NAME}}-es-http-certs-public -n ${{PROJECT_NAME}} -o jsonpath='{{.data.ca\\.crt}}' | \\
-  base64 -d | openssl x509 -fingerprint -sha256 -noout 2>/dev/null | sed 's/.*=//;s/://g')
-
-# Use Kibana pod with localhost to avoid network policy issues (ES → Kibana may be blocked)
-KB_POD=$(kubectl get pod -n ${{PROJECT_NAME}} -l "common.k8s.elastic.co/type=kibana" \\
-  --field-selector=status.phase=Running -o jsonpath='{{.items[0].metadata.name}}' 2>/dev/null || true)
-
-if [ -n "$KB_POD" ]; then
-  kubectl exec -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
-    -X PUT "https://localhost:5601/api/fleet/outputs/fleet-default-output" \\
-    -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \\
-    -d "{{
-      \\"name\\": \\"default\\",
-      \\"type\\": \\"elasticsearch\\",
-      \\"hosts\\": [\\"https://${{PROJECT_NAME}}-es-http.${{PROJECT_NAME}}.svc:9200\\"],
-      \\"is_default\\": true,
-      \\"is_default_monitoring\\": true,
-      \\"ca_trusted_fingerprint\\": \\"${{CA_FP}}\\",
-      \\"config_yaml\\": \\"ssl.verification_mode: none\\"
-    }}" >/dev/null 2>&1 && echo "  Fleet output configured." || echo "  Fleet output config failed (may need manual setup)."
-
-  echo "[8/9] Importing OTEL Infrastructure dashboard..."
-  DASHBOARD_FILE="$ROOT_DIR/observability/otel-dashboards/otel-infrastructure-overview.ndjson"
-  if [ -f "$DASHBOARD_FILE" ]; then
-    kubectl exec -i -n ${{PROJECT_NAME}} "$KB_POD" -- curl -sk -u "elastic:${{ES_PASS}}" \\
-      -X POST "https://localhost:5601/api/saved_objects/_import?overwrite=true" \\
-      -H 'kbn-xsrf: true' \\
-      --form file=@/dev/stdin < "$DASHBOARD_FILE" >/dev/null 2>&1 && \\
-      echo "  OTEL dashboard imported." || echo "  Dashboard import failed (can be imported manually)."
+echo "[7/9] Checking cluster status and ensuring kubeconfig is in place..."
+echo "::pi-substep cluster-healthcheck start"
+if [ -x "$ROOT_DIR/scripts/cluster-healthcheck.sh" ]; then
+  if "$ROOT_DIR/scripts/cluster-healthcheck.sh"; then
+    echo "::pi-substep cluster-healthcheck ok"
   else
-    echo "  Dashboard ndjson not found at $DASHBOARD_FILE; skipping."
+    echo "::pi-substep cluster-healthcheck warning"
+    echo "  Cluster healthcheck reported warnings; continuing with follow-up scripts."
   fi
 else
-  echo "  No running Kibana pod found; Fleet output must be configured manually."
+  echo "::pi-substep cluster-healthcheck skipped"
+  echo "  cluster-healthcheck.sh not found; skipping."
 fi
 
-{enrollment_step}
+echo "[8/9] Mirroring secrets after cluster stabilizes..."
+echo "::pi-substep mirror-secrets start"
+if [ -x "$ROOT_DIR/scripts/mirror-secrets.sh" ]; then
+  if "$ROOT_DIR/scripts/mirror-secrets.sh"; then
+    echo "::pi-substep mirror-secrets ok"
+  else
+    echo "::pi-substep mirror-secrets warning"
+    echo "  Secret mirroring failed; inspect scripts/mirror-secrets.sh output."
+  fi
+else
+  echo "::pi-substep mirror-secrets skipped"
+  echo "  mirror-secrets.sh not found; skipping."
+fi
+
+{agent_note}echo "::pi-substep fleet-output start"
+if [ -x "$ROOT_DIR/scripts/fleet-output.sh" ]; then
+  if "$ROOT_DIR/scripts/fleet-output.sh"; then
+    echo "::pi-substep fleet-output ok"
+  else
+    echo "::pi-substep fleet-output warning"
+    echo "  Fleet output configuration failed; inspect scripts/fleet-output.sh output."
+  fi
+else
+  echo "::pi-substep fleet-output skipped"
+fi
+echo "::pi-substep import-dashboards start"
+if [ -x "$ROOT_DIR/scripts/import-dashboards.sh" ]; then
+  if "$ROOT_DIR/scripts/import-dashboards.sh"; then
+    echo "::pi-substep import-dashboards ok"
+  else
+    echo "::pi-substep import-dashboards warning"
+    echo "  Dashboard import failed; inspect scripts/import-dashboards.sh output."
+  fi
+else
+  echo "::pi-substep import-dashboards skipped"
+fi
 
 echo "Deployment trigger finished."
 """
@@ -196,20 +161,40 @@ echo "[5/5] Deployment trigger finished."
 def _cluster_healthcheck_script(project_name: str, platform: str = "") -> str:
     platform = (platform or "").lower()
     kubeconfig_bootstrap = """
-if [[ -f "$KUBECONFIG_FILE" ]]; then
+if [[ -n "${PI_ARG_KUBECONFIG_PATH:-}" && -f "${PI_ARG_KUBECONFIG_PATH}" ]]; then
+  export KUBECONFIG="${PI_ARG_KUBECONFIG_PATH}"
+  echo ">>> Using PI_ARG_KUBECONFIG_PATH at $KUBECONFIG"
+elif [[ -n "${KUBECONFIG:-}" && -f "${KUBECONFIG}" ]]; then
+  echo ">>> Using exported KUBECONFIG at $KUBECONFIG"
+elif [[ -f "$KUBECONFIG_FILE" ]]; then
   export KUBECONFIG="$KUBECONFIG_FILE"
   echo ">>> Using existing KUBECONFIG at $KUBECONFIG_FILE"
 """
     if platform in {"rke2", "proxmox"}:
-        kubeconfig_bootstrap += """elif [[ -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
+        kubeconfig_bootstrap += """elif [[ -f "$INVENTORY_FILE" ]]; then
   SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/' || true)
   SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/' || true)
   SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/' || true)
-  if [[ -n "$SERVER_IP" && -n "$SSH_USER" && -n "$SSH_PASS" ]]; then
+  SSH_KEY="${PI_ARG_SSH_KEY_PATH:-${SSH_KEY_PATH:-}}"
+  if [[ -n "$SERVER_IP" ]]; then
     mkdir -p "$(dirname "$KUBECONFIG_FILE")"
     TMPKUBE=$(mktemp)
-    echo ">>> Fetching kubeconfig from $SSH_USER@$SERVER_IP"
-    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
+    echo ">>> Fetching kubeconfig from ${SSH_USER:-ubuntu}@$SERVER_IP"
+    SSH_BASE=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+    [[ -n "$SSH_KEY" ]] && SSH_BASE+=( -i "$SSH_KEY" )
+    SSH_TARGET="${SSH_USER:-ubuntu}@$SERVER_IP"
+    FETCH_OK=0
+    if [[ -n "$SSH_PASS" && "$(command -v sshpass || true)" != "" ]]; then
+      if sshpass -p "$SSH_PASS" "${SSH_BASE[@]}" "$SSH_TARGET" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
+        FETCH_OK=1
+      fi
+    fi
+    if [[ $FETCH_OK -eq 0 ]]; then
+      if "${SSH_BASE[@]}" "$SSH_TARGET" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
+        FETCH_OK=1
+      fi
+    fi
+    if [[ $FETCH_OK -eq 1 ]]; then
       sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$TMPKUBE"
       mv "$TMPKUBE" "$KUBECONFIG_FILE"
       chmod 600 "$KUBECONFIG_FILE"
@@ -236,6 +221,7 @@ ES_NAME="{project_name}"
 KIBANA_INGRESS="{project_name}-kibana"
 INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
 KUBECONFIG_FILE="$HOME/.kube/{project_name}"
+[[ -n "${{PI_ARG_KUBECONFIG_PATH:-}}" ]] && KUBECONFIG_FILE="${{PI_ARG_KUBECONFIG_PATH}}"
 
 {kubeconfig_bootstrap}
 
