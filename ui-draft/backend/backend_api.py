@@ -939,6 +939,14 @@ def _find_deployment_entry(deployment_id: str) -> Dict[str, Any]:
     return entry
 
 
+def _entry_runtime_cache(entry: Dict[str, Any]) -> Dict[str, Any]:
+    cache = entry.get("_runtime_cache")
+    if not isinstance(cache, dict):
+        cache = {}
+        entry["_runtime_cache"] = cache
+    return cache
+
+
 def _project_root_from_entry(entry: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
     target_type = (entry.get("target_type") or "local").strip()
     remote_cfg = entry.get("remote") if target_type == "remote" else None
@@ -951,13 +959,21 @@ def _project_file_exists(entry: Dict[str, Any], relative_path: str) -> tuple[boo
     project_root, remote_cfg = _project_root_from_entry(entry)
     if not project_root:
         return False, ""
+    cache = _entry_runtime_cache(entry).setdefault("project_file_exists", {})
+    cache_key = f"{project_root}::{relative_path}"
+    if cache_key in cache:
+        return cache[cache_key]
     if remote_cfg:
         full_path = str(PurePosixPath(project_root) / relative_path)
         cmd = f"test -f {shlex.quote(full_path)} && echo present || echo missing"
         result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), cmd, remote_cfg.get("ssh_key_path", ""))
-        return result.get("stdout", "").strip() == "present", full_path
+        resolved = (result.get("stdout", "").strip() == "present", full_path)
+        cache[cache_key] = resolved
+        return resolved
     full_path = str((Path(project_root) / relative_path).resolve())
-    return Path(full_path).exists(), full_path
+    resolved = (Path(full_path).exists(), full_path)
+    cache[cache_key] = resolved
+    return resolved
 
 
 def _read_project_json(entry: Dict[str, Any], relative_path: str) -> Optional[Dict[str, Any]]:
@@ -1091,7 +1107,7 @@ def _project_scoped_kubeconfig_name(entry: Dict[str, Any]) -> str:
     return str(entry.get("name") or "").strip()
 
 
-def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "") -> List[Path]:
+def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "", include_bootstrap_source: bool = False) -> List[Path]:
     candidates: List[Path] = []
     if explicit_path.strip():
         candidates.append(Path(explicit_path).expanduser())
@@ -1102,7 +1118,7 @@ def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "")
     if project_name:
         candidates.append(Path.home() / ".kube" / project_name)
     candidates.append(Path.home() / ".kube" / "config")
-    if (entry.get("platform") or "") in {"rke2", "proxmox"}:
+    if include_bootstrap_source and (entry.get("platform") or "") in {"rke2", "proxmox"}:
         candidates.append(Path("/etc/rancher/rke2/rke2.yaml"))
     deduped: List[Path] = []
     seen = set()
@@ -1114,7 +1130,7 @@ def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "")
     return deduped
 
 
-def _remote_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "") -> List[str]:
+def _remote_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "", include_bootstrap_source: bool = False) -> List[str]:
     candidates: List[str] = []
     if explicit_path.strip():
         candidates.append(explicit_path.strip())
@@ -1122,7 +1138,7 @@ def _remote_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = ""
     if project_name:
         candidates.append(f"$HOME/.kube/{project_name}")
     candidates.append("$HOME/.kube/config")
-    if (entry.get("platform") or "") in {"rke2", "proxmox"}:
+    if include_bootstrap_source and (entry.get("platform") or "") in {"rke2", "proxmox"}:
         candidates.append("/etc/rancher/rke2/rke2.yaml")
     deduped: List[str] = []
     seen = set()
@@ -1151,7 +1167,7 @@ def _classify_kubeconfig_source(detail: str, entry: Dict[str, Any], target_type:
     if not detail:
         return "missing"
     if "/etc/rancher/rke2/rke2.yaml" in detail:
-        return "remote-rke2-source" if target_type == "remote" else "local-rke2-source"
+        return "bootstrap-source"
     if project_name and f".kube/{project_name}" in detail:
         return "remote-project-home" if target_type == "remote" else "project-home"
     if ".kube/config" in detail:
@@ -1162,21 +1178,34 @@ def _classify_kubeconfig_source(detail: str, entry: Dict[str, Any], target_type:
 def _check_local_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict[str, Any]:
     project_root, _ = _project_root_from_entry(entry)
     lower = prerequisite.lower()
+    cache = _entry_runtime_cache(entry).setdefault("local_prerequisites", {})
+    if lower in cache:
+        return cache[lower]
     if lower == "bash":
         ok = shutil.which("bash") is not None
-        return {"name": prerequisite, "ok": ok, "detail": "bash available" if ok else "bash not found"}
+        result = {"name": prerequisite, "ok": ok, "detail": "bash available" if ok else "bash not found"}
+        cache[lower] = result
+        return result
     if lower in {"kubectl", "terraform", "curl", "kustomize", "oc"}:
         ok = shutil.which(lower) is not None
-        return {"name": prerequisite, "ok": ok, "detail": f"{lower} available" if ok else f"{lower} not found in PATH"}
+        result = {"name": prerequisite, "ok": ok, "detail": f"{lower} available" if ok else f"{lower} not found in PATH"}
+        cache[lower] = result
+        return result
     if lower == "kubeconfig":
-        match = next((path for path in _local_kubeconfig_candidates(entry) if path.exists()), None)
-        return {"name": prerequisite, "ok": bool(match), "detail": f"Using {match}" if match else "No kubeconfig detected"}
+        match = next((path for path in _local_kubeconfig_candidates(entry, include_bootstrap_source=False) if path.exists()), None)
+        result = {"name": prerequisite, "ok": bool(match), "detail": f"Using {match}" if match else "No kubeconfig detected"}
+        cache[lower] = result
+        return result
     if lower == "kibana_endpoint":
         readme = Path(project_root) / "kibana" / "ingress.yaml"
         route = Path(project_root) / "platform" / "openshift" / "route.yaml"
         ok = readme.exists() or route.exists()
-        return {"name": prerequisite, "ok": ok, "detail": "Kibana exposure manifest found" if ok else "No Kibana endpoint manifest found"}
-    return {"name": prerequisite, "ok": True, "detail": "No explicit check implemented"}
+        result = {"name": prerequisite, "ok": ok, "detail": "Kibana exposure manifest found" if ok else "No Kibana endpoint manifest found"}
+        cache[lower] = result
+        return result
+    result = {"name": prerequisite, "ok": True, "detail": "No explicit check implemented"}
+    cache[lower] = result
+    return result
 
 
 def _check_remote_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict[str, Any]:
@@ -1184,16 +1213,25 @@ def _check_remote_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict
     if not remote_cfg:
         return {"name": prerequisite, "ok": False, "detail": "Remote configuration missing"}
     lower = prerequisite.lower()
+    cache = _entry_runtime_cache(entry).setdefault("remote_prerequisites", {})
+    if lower in cache:
+        return cache[lower]
     if lower == "ssh":
         result = _run_ssh_command(remote_cfg.get("host", ""), str(remote_cfg.get("port", "22")), remote_cfg.get("user", ""), "echo connected", remote_cfg.get("ssh_key_path", ""))
-        return {"name": prerequisite, "ok": result.get("ok", False), "detail": result.get("stdout", "") or result.get("stderr", "")}
+        resolved = {"name": prerequisite, "ok": result.get("ok", False), "detail": result.get("stdout", "") or result.get("stderr", "")}
+        cache[lower] = resolved
+        return resolved
     if lower == "bash":
         cmd = "command -v bash >/dev/null 2>&1 && echo present || echo missing"
     elif lower in {"kubectl", "terraform", "curl", "kustomize", "oc"}:
         cmd = f"command -v {shlex.quote(lower)} >/dev/null 2>&1 && echo present || echo missing"
     elif lower == "kubeconfig":
-        checks = [f"test -f {shlex.quote(candidate)} && echo {shlex.quote(candidate)}" for candidate in _remote_kubeconfig_candidates(entry)]
-        cmd = " || ".join(checks + ["echo missing"])
+        candidates = _remote_kubeconfig_candidates(entry, include_bootstrap_source=False)
+        clauses = []
+        for index, candidate in enumerate(candidates):
+            prefix = "if" if index == 0 else "elif"
+            clauses.append(f"{prefix} test -f {candidate}; then echo {candidate};")
+        cmd = " ".join(clauses + ["else echo missing;", "fi"])
     elif lower == "kibana_endpoint":
         ingress = shlex.quote(str(PurePosixPath(project_root) / "kibana" / "ingress.yaml"))
         route = shlex.quote(str(PurePosixPath(project_root) / "platform" / "openshift" / "route.yaml"))
@@ -1206,7 +1244,9 @@ def _check_remote_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict
     detail = stdout or result.get("stderr", "") or (f"{lower} available" if ok else f"{lower} not available")
     if lower == "kubeconfig" and ok and stdout not in {"present", "connected"}:
         detail = f"Using {stdout}"
-    return {"name": prerequisite, "ok": ok, "detail": detail}
+    resolved = {"name": prerequisite, "ok": ok, "detail": detail}
+    cache[lower] = resolved
+    return resolved
 
 
 def _evaluate_script_prerequisites(entry: Dict[str, Any], script: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1341,10 +1381,10 @@ def _collect_project_diagnostics(entry: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _remote_script_gate(entry: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any]:
+def _remote_script_gate(entry: Dict[str, Any], script: Dict[str, Any], diagnostics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if (entry.get("target_type") or "local").strip() != "remote":
         return {"ok": True, "blocked_reasons": [], "required_checks": []}
-    diagnostics = _collect_project_diagnostics(entry)
+    diagnostics = diagnostics or _collect_project_diagnostics(entry)
     diag_map = {item.get("name"): item for item in diagnostics.get("items") or []}
     required_checks = ["ssh", "project_root"]
     if not script.get("safe", True):
@@ -1365,7 +1405,7 @@ def _remote_script_gate(entry: Dict[str, Any], script: Dict[str, Any]) -> Dict[s
     return {"ok": not blocked_reasons, "blocked_reasons": blocked_reasons, "required_checks": required_checks}
 
 
-def _operation_scripts_for_entry(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _operation_scripts_for_entry(entry: Dict[str, Any], diagnostics: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     manifest = _operations_manifest_for_entry(entry)
     scripts = []
     for item in manifest.get("operations") or []:
@@ -1380,7 +1420,7 @@ def _operation_scripts_for_entry(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         })
         checks = _evaluate_script_prerequisites(entry, script)
         script["prerequisite_checks"] = checks
-        remote_gate = _remote_script_gate(entry, script)
+        remote_gate = _remote_script_gate(entry, script, diagnostics=diagnostics)
         script["remote_gate"] = remote_gate
         script["blocked_reasons"] = list(remote_gate.get("blocked_reasons") or [])
         script["ready"] = exists
@@ -3290,6 +3330,73 @@ def deployment_history_delete(entry_id: str) -> Dict[str, Any]:
     return {"ok": True}
 
 
+def _safe_json_load(text: str) -> Dict[str, Any]:
+    try:
+        data = json.loads(text or "{}")
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _pod_ready_value(pod: Dict[str, Any]) -> str:
+    statuses = pod.get("status", {}).get("containerStatuses") or []
+    if not isinstance(statuses, list) or not statuses:
+        return "0/0"
+    ready = sum(1 for item in statuses if isinstance(item, dict) and item.get("ready"))
+    return f"{ready}/{len(statuses)}"
+
+
+def _pod_rows(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for pod in items:
+        meta = pod.get("metadata") or {}
+        spec = pod.get("spec") or {}
+        status = pod.get("status") or {}
+        rows.append({
+            "name": str(meta.get("name") or ""),
+            "ready": _pod_ready_value(pod),
+            "status": str(status.get("phase") or "Unknown"),
+            "node": str(spec.get("nodeName") or ""),
+        })
+    return rows
+
+
+def _ingress_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in data.get("items") or []:
+        meta = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        status = item.get("status") or {}
+        host = ""
+        rules = spec.get("rules") or []
+        if isinstance(rules, list) and rules:
+            host = str((rules[0] or {}).get("host") or "")
+        lb = status.get("loadBalancer") or {}
+        ingress = lb.get("ingress") or []
+        addr = ""
+        if isinstance(ingress, list) and ingress:
+            first = ingress[0] or {}
+            addr = str(first.get("ip") or first.get("hostname") or "")
+        rows.append({"name": str(meta.get("name") or ""), "host": host, "address": addr})
+    return rows
+
+
+def _route_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in data.get("items") or []:
+        meta = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        status = item.get("status") or {}
+        host = str(spec.get("host") or "")
+        address = ""
+        ingress = status.get("ingress") or []
+        if isinstance(ingress, list) and ingress:
+            first = ingress[0] or {}
+            address = str(first.get("routerCanonicalHostname") or first.get("host") or "")
+        rows.append({"name": str(meta.get("name") or ""), "host": host, "address": address})
+    return rows
+
+
 @app.get("/api/flux-status")
 def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
     entries = DEPLOYMENT_HISTORY.list()
@@ -3308,6 +3415,10 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         "|{.status.conditions[?(@.type=='Ready')].reason}"
         "|{.status.conditions[?(@.type=='Ready')].message}"
     )
+
+    pods_json: Dict[str, Any] = {}
+    ingress_json: Dict[str, Any] = {}
+    route_json: Dict[str, Any] = {}
 
     if target_type == "remote":
         remote_cfg = entry.get("remote") or {}
@@ -3330,6 +3441,12 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
             f"kubectl get statefulset -n {project_name} -o jsonpath='{{.items[*].status.readyReplicas}}/{{.items[*].status.replicas}}' 2>/dev/null || echo '0/0'"
         )
         es_r = _run_ssh_command(host, port, user, es_cmd, ssh_key_path)
+        pods_r = _run_ssh_command(host, port, user, _remote_kubectl_command(entry, f"kubectl get pods -n {project_name} -o json 2>/dev/null || echo '{{}}'"), ssh_key_path)
+        ingress_r = _run_ssh_command(host, port, user, _remote_kubectl_command(entry, f"kubectl get ingress -n {project_name} -o json 2>/dev/null || echo '{{}}'"), ssh_key_path)
+        route_r = _run_ssh_command(host, port, user, _remote_kubectl_command(entry, f"kubectl get route -n {project_name} -o json 2>/dev/null || echo '{{}}'"), ssh_key_path)
+        pods_json = _safe_json_load(pods_r.get("stdout", ""))
+        ingress_json = _safe_json_load(ingress_r.get("stdout", ""))
+        route_json = _safe_json_load(route_r.get("stdout", ""))
     else:
         kube_env = os.environ.copy()
         if kubeconfig.strip():
@@ -3349,6 +3466,12 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
              "-o", "jsonpath={.items[*].status.readyReplicas}/{.items[*].status.replicas}"],
             Path.cwd(), env=kube_env
         )
+        pods_r = _run_shell_command(["kubectl", "get", "pods", "-n", project_name, "-o", "json"], Path.cwd(), env=kube_env)
+        ingress_r = _run_shell_command(["kubectl", "get", "ingress", "-n", project_name, "-o", "json"], Path.cwd(), env=kube_env)
+        route_r = _run_shell_command(["kubectl", "get", "route", "-n", project_name, "-o", "json"], Path.cwd(), env=kube_env)
+        pods_json = _safe_json_load(pods_r.get("stdout", ""))
+        ingress_json = _safe_json_load(ingress_r.get("stdout", ""))
+        route_json = _safe_json_load(route_r.get("stdout", ""))
 
     es_stdout = (es_r.get("stdout") or "0/0")
     es_parts = es_stdout.split("/", 1)
@@ -3368,13 +3491,47 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
     elif kustomization_summary["overall"] == "ready":
         cluster_status = "partially_ready"
 
+    pod_items = pods_json.get("items") if isinstance(pods_json, dict) else []
+    pod_items = pod_items if isinstance(pod_items, list) else []
+
+    def _name(item: Dict[str, Any]) -> str:
+        return str((item.get("metadata") or {}).get("name") or "")
+
+    def _labels(item: Dict[str, Any]) -> Dict[str, Any]:
+        labels = (item.get("metadata") or {}).get("labels") or {}
+        return labels if isinstance(labels, dict) else {}
+
+    def _agent_name(item: Dict[str, Any]) -> str:
+        labels = _labels(item)
+        return str(labels.get("agent.k8s.elastic.co/name") or "")
+
+    es_items = [item for item in pod_items if _name(item).startswith(f"{project_name}-es-")]
+    fleet_items = [
+        item for item in pod_items
+        if "fleet-server" in _name(item) or "fleet-server" in _agent_name(item)
+    ]
+    agent_items = [
+        item for item in pod_items
+        if _agent_name(item)
+        and "fleet-server" not in _agent_name(item)
+        and "fleet-server" not in _name(item)
+    ]
+
+    status_details = {
+        "elasticsearch_pods": _pod_rows(es_items),
+        "fleet_server_pods": _pod_rows(fleet_items),
+        "agent_pods": _pod_rows(agent_items),
+        "ingress": _ingress_rows(ingress_json),
+        "routes": _route_rows(route_json),
+    }
+
     access_summary = _build_flux_access_summary(entry, kubeconfig)
     AUDIT_LOG.append("flux-poll", f"Polled {deployment_id}")
     return {"deployment_id": deployment_id, "kustomizations": kustomizations,
             "kustomization_summary": kustomization_summary,
             "cluster_summary": {"status": cluster_status, "es_pods": es_pods},
             "access_summary": access_summary,
-            "es_pods": es_pods, "polled_at": polled_at}
+            "es_pods": es_pods, "status_details": status_details, "polled_at": polled_at}
 
 
 def _resolve_runbook_docs(entry: Dict[str, Any], docs: List[str]) -> List[Dict[str, Any]]:
@@ -3598,7 +3755,8 @@ def _build_history_timeline(entry: Dict[str, Any], recent_runs: List[Dict[str, A
 
 def _project_operations_summary(entry: Dict[str, Any]) -> Dict[str, Any]:
     project_root, remote_cfg = _project_root_from_entry(entry)
-    scripts = _operation_scripts_for_entry(entry)
+    diagnostics = _collect_project_diagnostics(entry)
+    scripts = _operation_scripts_for_entry(entry, diagnostics=diagnostics)
     artifacts = []
     for relative_path in [
         "project-initializer-manifest.json",
@@ -3622,7 +3780,7 @@ def _project_operations_summary(entry: Dict[str, Any]) -> Dict[str, Any]:
         "scripts": scripts,
         "output_summary": entry.get("output_summary", {}),
         "validation_report": entry.get("validation_report", {}),
-        "environment_diagnostics": _collect_project_diagnostics(entry),
+        "environment_diagnostics": diagnostics,
         "recent_runs": recent_runs,
     }
     summary["runbook_progress"] = _build_runbook_progress(entry, summary)

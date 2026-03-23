@@ -814,6 +814,66 @@
         transform: rotate(-90deg);
       }
 
+      .card-collapse-toggle {
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .card-collapse-toggle:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+      }
+
+      .collapsible-card .card-content {
+        display: block;
+      }
+
+      .collapsible-card.card-collapsed .card-content {
+        display: none;
+      }
+
+      .collapsible-card.card-collapsed .card-collapse-toggle {
+        transform: rotate(-90deg);
+      }
+
+      .card-collapse-toggle {
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .card-collapse-toggle:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+      }
+
+      .collapsible-card .card-content {
+        display: block;
+      }
+
+      .collapsible-card.card-collapsed .card-content {
+        display: none;
+      }
+
+      .collapsible-card.card-collapsed .card-collapse-toggle {
+        transform: rotate(-90deg);
+      }
+
       .review-strip {
         position: sticky;
         top: calc(var(--header-height) + 12px);
@@ -2677,12 +2737,14 @@
               <h1 class="section-title">Validate & Deploy</h1>
               <p class="section-subtitle">Run post-generation checks and selected generated scripts against local or remote projects.</p>
             </div>
-            <div class="card">
+            <div class="card collapsible-card" id="validationProjectCard">
               <div class="card-header">
                 <div>
                   <h2 class="card-title"><i data-lucide="folder-check"></i>Project Selection</h2>
                 </div>
+                <button class="card-collapse-toggle" type="button" data-card-target="validationProjectContent" aria-label="Toggle Project Selection"><i data-lucide="chevron-down"></i></button>
               </div>
+              <div class="card-content" id="validationProjectContent">
               <div class="form-grid">
                 <div class="form-field full-width">
                   <label class="form-label"><i data-lucide="history"></i>Generated Project</label>
@@ -2700,13 +2762,16 @@
                   </div>
                 </div>
               </div>
+              </div>
             </div>
-            <div class="card">
+            <div class="card collapsible-card" id="validationScriptsCard">
               <div class="card-header">
                 <div>
                   <h2 class="card-title"><i data-lucide="scroll-text"></i>Generated Scripts</h2>
                 </div>
+                <button class="card-collapse-toggle" type="button" data-card-target="validationScriptsContent" aria-label="Toggle Generated Scripts"><i data-lucide="chevron-down"></i></button>
               </div>
+              <div class="card-content" id="validationScriptsContent">
               <div class="form-grid">
                 <div class="form-field full-width">
                   <label class="form-label"><i data-lucide="terminal-square"></i>Script Action</label>
@@ -2732,17 +2797,23 @@
                   <button class="btn btn-secondary" type="button" id="validationRunScriptBtn"><i data-lucide="play"></i>Run Script</button>
                 </div>
               </div>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i>Environment Diagnostics</h2></div>
+            <div class="card collapsible-card" id="validationDiagnosticsCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i>Environment Diagnostics</h2><button class="card-collapse-toggle" type="button" data-card-target="validationDiagnosticsContent" aria-label="Toggle Environment Diagnostics"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationDiagnosticsContent">
               <pre id="validationDiagnosticsOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:140px;">Select a project to inspect local or remote execution readiness.</pre>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="package-search"></i>Project Summary</h2></div>
+            <div class="card collapsible-card" id="validationSummaryCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="package-search"></i>Project Summary</h2><button class="card-collapse-toggle" type="button" data-card-target="validationSummaryContent" aria-label="Toggle Project Summary"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationSummaryContent">
               <pre id="validationSummaryOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:120px;">Select a project to inspect generated artifacts and script bindings.</pre>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="list-tree"></i>Runbook Step Actions</h2></div>
+            <div class="card collapsible-card" id="validationStepsCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="list-tree"></i>Runbook Step Actions</h2><button class="card-collapse-toggle" type="button" data-card-target="validationStepsContent" aria-label="Toggle Runbook Step Actions"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationStepsContent">
               <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
                 <div class="form-field" style="min-width:220px; margin:0;">
                   <label class="form-label">Step filter</label>
@@ -2759,13 +2830,17 @@
                 </div>
               </div>
               <div id="validationStepActions" style="display:grid; gap:12px;">Select a project to inspect step actions.</div>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="panel-right-open"></i>Step Detail</h2></div>
+            <div class="card collapsible-card" id="validationStepDetailCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="panel-right-open"></i>Step Detail</h2><button class="card-collapse-toggle" type="button" data-card-target="validationStepDetailContent" aria-label="Toggle Step Detail"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationStepDetailContent">
               <div id="validationStepDetail" style="display:grid; gap:12px;">Select a runbook step to inspect docs, prerequisites, and suggested actions.</div>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="history"></i>Execution Timeline</h2></div>
+            <div class="card collapsible-card" id="validationTimelineCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="history"></i>Execution Timeline</h2><button class="card-collapse-toggle" type="button" data-card-target="validationTimelineContent" aria-label="Toggle Execution Timeline"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationTimelineContent">
               <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
                 <div class="form-field" style="min-width:240px; margin:0;">
                   <label class="form-label">Timeline filter</label>
@@ -2780,18 +2855,23 @@
                 </div>
               </div>
               <div id="validationTimeline" style="display:grid; gap:12px;">No validation or execution history yet.</div>
+              </div>
             </div>
-            <div class="card" id="postDeployResultCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="rocket"></i> Post Terraform Deploy Result</h2></div>
+            <div class="card collapsible-card" id="postDeployResultCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="rocket"></i> Post Terraform Deploy Result</h2><button class="card-collapse-toggle" type="button" data-card-target="postDeployResultContent" aria-label="Toggle Post Terraform Deploy Result"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="postDeployResultContent">
               <div id="postDeployResultBody" class="form-hint">No post-deploy run yet.</div>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="list-checks"></i>Validation / Execution Output</h2></div>
+            <div class="card collapsible-card" id="validationOutputCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="list-checks"></i>Validation / Execution Output</h2><button class="card-collapse-toggle" type="button" data-card-target="validationOutputContent" aria-label="Toggle Validation / Execution Output"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="validationOutputContent">
               <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
                 <button class="btn btn-secondary" type="button" id="validationCopyRunOutputBtn"><i data-lucide="copy"></i>Copy Output</button>
                 <button class="btn btn-secondary" type="button" id="validationExportRunBtn"><i data-lucide="download"></i>Export Selected Run</button>
               </div>
               <pre id="validationActionOutput" style="white-space:pre-wrap; margin:0; font-size:12px; line-height:1.5; min-height:180px;">No validation run yet.</pre>
+              </div>
             </div>
           </section>
 
@@ -2801,8 +2881,9 @@
               <p class="section-subtitle">Live reconciliation status from the cluster</p>
             </div>
 
-            <div class="card">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="layers"></i> Deployment</h2></div>
+            <div class="card collapsible-card" id="statusDeploymentCard">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="layers"></i> Deployment</h2><button class="card-collapse-toggle" type="button" data-card-target="statusDeploymentContent" aria-label="Toggle Deployment"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="statusDeploymentContent">
               <div class="form-field">
                 <label class="form-label">Select Deployment</label>
                 <select class="form-select" id="statusDeploymentSelect">
@@ -2818,30 +2899,37 @@
                 <button class="btn btn-secondary" id="statusRefreshBtn"><i data-lucide="refresh-cw"></i> Refresh Now</button>
                 <span class="form-hint" id="statusLastPolled"></span>
               </div>
+              </div>
             </div>
 
-            <div class="card" id="statusOverviewCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i> Cluster Overview</h2></div>
+            <div class="card collapsible-card" id="statusOverviewCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="activity"></i> Cluster Overview</h2><button class="card-collapse-toggle" type="button" data-card-target="statusOverviewContent" aria-label="Toggle Cluster Overview"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="statusOverviewContent">
               <div id="statusOverviewBody" class="form-hint">No status data yet.</div>
+              </div>
             </div>
 
-            <div class="card" id="statusAccessCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="key-round"></i> Access & Kubeconfig</h2></div>
+            <div class="card collapsible-card" id="statusAccessCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="key-round"></i> Access & Kubeconfig</h2><button class="card-collapse-toggle" type="button" data-card-target="statusAccessContent" aria-label="Toggle Access & Kubeconfig"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="statusAccessContent">
               <div id="statusAccessBody" class="form-hint">No access data yet.</div>
+              </div>
             </div>
 
-            <div class="card" id="statusKsCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> Kustomizations</h2></div>
+            <div class="card collapsible-card" id="statusKsCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> Kustomizations</h2><button class="card-collapse-toggle" type="button" data-card-target="statusKsContent" aria-label="Toggle Kustomizations"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="statusKsContent">
               <table class="ks-table">
                 <thead><tr><th>Name</th><th>Namespace</th><th>Ready</th><th>Message</th><th>Last Updated</th></tr></thead>
                 <tbody id="kustomizationRows"></tbody>
               </table>
+              </div>
             </div>
 
-            <div class="card" id="esPodHealthCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="database"></i> Elasticsearch Pods</h2></div>
-              <div style="font-size:0.9rem;color:var(--text-secondary);">
-                Running: <strong id="esPodsRunning">?</strong> / <strong id="esPodsTotal">?</strong>
+            <div class="card collapsible-card" id="esPodHealthCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="database"></i> Workloads & Endpoints</h2><button class="card-collapse-toggle" type="button" data-card-target="esPodHealthContent" aria-label="Toggle Workloads & Endpoints"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="esPodHealthContent">
+              <div id="statusWorkloadBody" class="form-hint">No workload data yet.</div>
               </div>
             </div>
 
@@ -5061,9 +5149,17 @@
 
       async function loadValidationSummary(options = {}) {
         const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
+        const out = document.getElementById('validationSummaryOutput');
+        const loadBtn = document.getElementById('validationLoadBtn');
+        const originalLabel = loadBtn?.innerHTML || '';
         if (!deploymentId) {
           if (!options.silent) showToast('Select a generated project first', 'warning');
           return null;
+        }
+        if (!options.silent && out) out.textContent = 'Loading project summary...';
+        if (loadBtn && !options.silent) {
+          loadBtn.disabled = true;
+          loadBtn.innerHTML = '<span class="spinner"></span> Loading...';
         }
         try {
           const res = await fetch(apiUrl(`/api/project/operations?deployment_id=${encodeURIComponent(deploymentId)}`));
@@ -5081,15 +5177,27 @@
         } catch (err) {
           if (!options.silent) showToast(`Failed to load validation summary: ${err}`, 'error');
           return null;
+        } finally {
+          if (loadBtn && !options.silent) {
+            loadBtn.innerHTML = originalLabel;
+            loadBtn.disabled = false;
+          }
         }
       }
 
       async function runProjectDiagnostics() {
         const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
         const output = document.getElementById('validationDiagnosticsOutput');
+        const btn = document.getElementById('validationDiagnosticsBtn');
+        const originalLabel = btn?.innerHTML || '';
         if (!deploymentId || !output) {
           showToast('Select a generated project first', 'warning');
           return;
+        }
+        output.textContent = 'Running diagnostics...';
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span> Running...';
         }
         try {
           const res = await fetch(apiUrl(`/api/project/diagnostics?deployment_id=${encodeURIComponent(deploymentId)}`));
@@ -5105,15 +5213,27 @@
           showToast(data.ok ? 'Diagnostics completed' : 'Diagnostics completed with issues', tone);
         } catch (err) {
           showToast(`Diagnostics failed: ${err}`, 'error');
+        } finally {
+          if (btn) {
+            btn.innerHTML = originalLabel;
+            btn.disabled = false;
+          }
         }
       }
 
       async function runProjectValidation() {
         const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
         const output = document.getElementById('validationActionOutput');
+        const btn = document.getElementById('validationRunBtn');
+        const originalLabel = btn?.innerHTML || '';
         if (!deploymentId || !output) {
           showToast('Select a generated project first', 'warning');
           return;
+        }
+        output.textContent = 'Running validation...';
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner"></span> Validating...';
         }
         try {
           const fd = new FormData();
@@ -5134,6 +5254,11 @@
           showToast(data.ok ? 'Validation completed' : 'Validation completed with issues', tone);
         } catch (err) {
           showToast(`Validation failed: ${err}`, 'error');
+        } finally {
+          if (btn) {
+            btn.innerHTML = originalLabel;
+            btn.disabled = false;
+          }
         }
       }
 
@@ -5203,6 +5328,79 @@
         return lines.join('\n');
       }
 
+      function summarizeClusterHealthcheckLog(log) {
+        const stdoutLines = String(log?.stdout || '').split('\n');
+        const stderrLines = String(log?.stderr || '').split('\n').filter(Boolean);
+        const lines = [];
+        if (log?.command) lines.push(`command=${log.command}`);
+        const kubeLine = stdoutLines.find(line => line.startsWith('>>> '));
+        if (kubeLine) lines.push(kubeLine);
+
+        const sections = {};
+        let current = '';
+        for (const line of stdoutLines) {
+          if (line.startsWith('=== ') && line.endsWith(' ===')) {
+            current = line.replace(/^===\s*/, '').replace(/\s*===$/, '').trim();
+            sections[current] = [];
+            continue;
+          }
+          if (current) sections[current].push(line);
+        }
+
+        const tableRows = (rows) => rows.filter(line => line.trim() && !/^(NAME|NAMESPACE)/.test(line.trim()));
+        const nodeRows = tableRows(sections['NODES'] || []);
+        if (nodeRows.length) {
+          lines.push('cluster_nodes:');
+          lines.push(...nodeRows.slice(0, 8).map(line => `  ${line.trim()}`));
+        }
+
+        const podRows = tableRows(sections['PODS'] || []);
+        const elasticPodRows = podRows.filter(line => /-es-/.test(line));
+        if (elasticPodRows.length) {
+          lines.push('elastic_nodes:');
+          lines.push(...elasticPodRows.slice(0, 8).map(line => `  ${line.trim()}`));
+        }
+
+        const esStatusRows = tableRows(sections['ELASTICSEARCH STATUS'] || []);
+        if (esStatusRows.length) {
+          lines.push('elasticsearch_status:');
+          lines.push(...esStatusRows.slice(0, 4).map(line => `  ${line.trim()}`));
+        }
+
+        const kibanaRows = tableRows(sections['KIBANA STATUS'] || []);
+        if (kibanaRows.length) {
+          lines.push('kibana_status:');
+          lines.push(...kibanaRows.slice(0, 3).map(line => `  ${line.trim()}`));
+        }
+
+        const clusterHealth = (sections['ELASTICSEARCH CLUSTER HEALTH'] || []).filter(line => line.trim());
+        const healthFields = clusterHealth.filter(line => /"(status|number_of_nodes|active_primary_shards|unassigned_shards)"/.test(line));
+        if (healthFields.length) {
+          lines.push('cluster_health:');
+          lines.push(...healthFields.map(line => `  ${line.trim()}`));
+        }
+
+        const routeSectionKey = Object.keys(sections).find(key => key.startsWith('INGRESS / ROUTES'));
+        const routeRows = tableRows(routeSectionKey ? (sections[routeSectionKey] || []) : []);
+        const routeAccessLines = (routeSectionKey ? (sections[routeSectionKey] || []) : []).filter(line => line.trim()).filter(line => /Kibana URL|LB address|No ingress|No OpenShift routes/.test(line));
+        const credentialLines = (sections['ELASTIC CREDENTIALS'] || []).filter(line => line.trim()).filter(line => /Username|Password|Login URL|Secret .* not found/.test(line));
+        const accessLines = [...routeAccessLines, ...credentialLines];
+        if (accessLines.length) {
+          lines.push('access:');
+          lines.push(...accessLines.slice(0, 10).map(line => `  ${line.trim()}`));
+        }
+        if (routeRows.length) {
+          lines.push('routes:');
+          lines.push(...routeRows.slice(0, 6).map(line => `  ${line.trim()}`));
+        }
+
+        if (stderrLines.length) {
+          lines.push('', 'stderr:');
+          lines.push(...stderrLines.slice(0, 6));
+        }
+        return lines.join('\n');
+      }
+
       async function runValidationScript() {
         const deploymentId = document.getElementById('validationDeploymentSelect')?.value;
         const scriptKey = document.getElementById('validationScriptSelect')?.value;
@@ -5233,6 +5431,7 @@
           const sequencing = data.sequencing || {};
           await loadValidationSummary({ preserveActionOutput: true, silent: true });
           const currentSummary = state.validationSummary?.runbook_progress || {};
+          const isPostDeploy = scriptKey === 'post-terraform-deploy';
           const rendered = [
             `script=${data.script?.title || scriptKey}`,
             `result=${data.log?.ok ? 'ok' : 'failed'}`,
@@ -5241,15 +5440,17 @@
             data.execution_context?.prerequisite_warnings?.length ? `warnings=${data.execution_context.prerequisite_warnings.join(' ; ')}` : '',
             data.execution_context?.remote_gate_warnings?.length ? `remote_checks=${data.execution_context.remote_gate_warnings.join(' ; ')}` : '',
             '',
-            summarizeCommandLog(data.log || {}),
-            '',
-            ...formatRunbookProgress({
-              platform: currentSummary.platform || '',
-              note: sequencing.warning || currentSummary.note || '',
-              next_command: sequencing.next_command || currentSummary.next_command || '',
-              steps: (currentSummary.steps || []).map(step => step.key === scriptKey && sequencing.current_step?.key === scriptKey ? { ...step, ...sequencing.current_step } : step),
-              guidance: sequencing.post_run_guidance || [],
-            }),
+            (scriptKey === 'cluster-healthcheck' ? summarizeClusterHealthcheckLog(data.log || {}) : summarizeCommandLog(data.log || {})),
+            ...(isPostDeploy ? [
+              '',
+              ...formatRunbookProgress({
+                platform: currentSummary.platform || '',
+                note: sequencing.warning || currentSummary.note || '',
+                next_command: sequencing.next_command || currentSummary.next_command || '',
+                steps: (currentSummary.steps || []).map(step => step.key === scriptKey && sequencing.current_step?.key === scriptKey ? { ...step, ...sequencing.current_step } : step),
+                guidance: sequencing.post_run_guidance || [],
+              }),
+            ] : []),
             '',
             'raw_details=Use View log in the Execution Timeline or Export Selected Run for full output.',
           ].filter(Boolean).join('\n');
@@ -5307,6 +5508,8 @@
       async function pollFluxStatus(deploymentId) {
         if (!deploymentId) return;
         const kubeconfig = document.getElementById('statusKubeconfig')?.value?.trim() || '';
+        const statusNode = document.getElementById('statusLastPolled');
+        if (statusNode) statusNode.textContent = 'Refreshing status...';
         try {
           const url = apiUrl('/api/flux-status')
             + '?deployment_id=' + encodeURIComponent(deploymentId)
@@ -5321,7 +5524,7 @@
           renderStatusOverview(data);
           renderStatusAccess(data);
           renderKustomizationTable(data.kustomizations || []);
-          renderEsPodHealth(data.es_pods);
+          renderEsPodHealth(data.es_pods, data.status_details || {});
           document.getElementById('statusLastPolled').textContent = `Last polled: ${new Date().toLocaleTimeString()}`;
           document.getElementById('statusKsCard').style.display = '';
         } catch (err) {
@@ -5398,16 +5601,90 @@
         card.style.display = '';
       }
 
-      function renderEsPodHealth(esPods) {
-        if (!esPods) return;
+      function renderEsPodHealth(esPods, details = {}) {
         const card = document.getElementById('esPodHealthCard');
-        const running = esPods.running || '0';
-        const total = esPods.total || '0';
-        if (running && total && total !== '0') {
-          document.getElementById('esPodsRunning').textContent = running;
-          document.getElementById('esPodsTotal').textContent = total;
+        const body = document.getElementById('statusWorkloadBody');
+        if (!card || !body) return;
+
+        const statusBadge = (status) => {
+          const value = String(status || 'Unknown');
+          const lower = value.toLowerCase();
+          let klass = 'unknown';
+          if (lower === 'running') klass = 'ready';
+          else if (lower.includes('pending')) klass = 'reconciling';
+          else if (lower.includes('fail') || lower.includes('error') || lower.includes('crash')) klass = 'failed';
+          return `<span class="status-badge ${klass}"><span class="dot"></span>${escapeHtml(value)}</span>`;
+        };
+
+        const renderRows = (rows, emptyText) => {
+          if (!Array.isArray(rows) || !rows.length) return `<div class="form-hint">${escapeHtml(emptyText)}</div>`;
+          return `
+            <table class="ks-table" style="margin-top:6px;">
+              <thead><tr><th>Name</th><th>Ready</th><th>Status</th><th>Node</th></tr></thead>
+              <tbody>
+                ${rows.map(row => `<tr>
+                  <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;">${escapeHtml(row.name || '')}</td>
+                  <td>${escapeHtml(row.ready || '')}</td>
+                  <td>${statusBadge(row.status || '')}</td>
+                  <td style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;">${escapeHtml(row.node || '')}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>`;
+        };
+
+        const renderEndpointRows = (rows, typeLabel) => {
+          if (!Array.isArray(rows) || !rows.length) return '';
+          return rows.map(row => `<tr>
+            <td>${escapeHtml(typeLabel)}</td>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;">${escapeHtml(row.name || '')}</td>
+            <td>${escapeHtml(row.host || '')}</td>
+            <td>${escapeHtml(row.address || '')}</td>
+          </tr>`).join('');
+        };
+
+        const running = esPods?.running || '0';
+        const total = esPods?.total || '0';
+        const esRows = details.elasticsearch_pods || [];
+        const fleetRows = details.fleet_server_pods || [];
+        const agentRows = details.agent_pods || [];
+        const ingressRows = details.ingress || [];
+        const routeRows = details.routes || [];
+        const allEndpoints = [...ingressRows, ...routeRows];
+        const kibanaEndpoint = allEndpoints.find(row => String(row.name || '').includes('kibana') || String(row.host || '').includes('kibana')) || allEndpoints[0] || null;
+
+        if ((total && total !== '0') || esRows.length || fleetRows.length || agentRows.length || ingressRows.length || routeRows.length) {
+          const endpointTable = renderEndpointRows(ingressRows, 'Ingress') + renderEndpointRows(routeRows, 'Route');
+          body.innerHTML = `
+            ${kibanaEndpoint ? `<div style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-tertiary); margin-bottom:12px;">
+              <div class="form-hint">Kibana Access</div>
+              <div style="font-weight:600; margin-top:2px;">https://${escapeHtml(kibanaEndpoint.host || '')}</div>
+              <div class="form-hint">host=${escapeHtml(kibanaEndpoint.host || 'n/a')} ${kibanaEndpoint.address ? `• address=${escapeHtml(kibanaEndpoint.address)}` : ''}</div>
+            </div>` : ''}
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:10px;">
+              <div><div class="form-hint">Elasticsearch Pods</div><div style="font-weight:600;">${escapeHtml(running)}/${escapeHtml(total)}</div></div>
+              <div><div class="form-hint">Fleet Server Pods</div><div style="font-weight:600;">${fleetRows.length}</div></div>
+              <div><div class="form-hint">Elastic Agent Pods</div><div style="font-weight:600;">${agentRows.length}</div></div>
+            </div>
+            <div style="margin-top:8px;">
+              <div class="form-hint" style="margin-bottom:4px;">Elasticsearch Pods</div>
+              ${renderRows(esRows, 'No Elasticsearch pods found.')}
+            </div>
+            <div style="margin-top:12px;">
+              <div class="form-hint" style="margin-bottom:4px;">Fleet Server Pods</div>
+              ${renderRows(fleetRows, 'No Fleet Server pods found.')}
+            </div>
+            <div style="margin-top:12px;">
+              <div class="form-hint" style="margin-bottom:4px;">Elastic Agent Pods</div>
+              ${renderRows(agentRows, 'No Elastic Agent pods found.')}
+            </div>
+            <div style="margin-top:12px;">
+              <div class="form-hint" style="margin-bottom:4px;">Ingress / Routes</div>
+              ${endpointTable ? `<table class="ks-table" style="margin-top:6px;"><thead><tr><th>Type</th><th>Name</th><th>Host</th><th>Address</th></tr></thead><tbody>${endpointTable}</tbody></table>` : '<div class="form-hint">No ingress or route resources found.</div>'}
+            </div>
+          `;
           card.style.display = '';
         } else {
+          body.innerHTML = '<div class="form-hint">No workload data yet.</div>';
           card.style.display = 'none';
         }
       }
@@ -5469,6 +5746,14 @@
         const card = content.closest('.card, .workspace-card, .result-card');
         if (!card) return;
         card.classList.toggle('stage-collapsed', !!collapsed);
+      }
+
+      function setCardCollapsed(contentId, collapsed) {
+        const content = document.getElementById(contentId);
+        if (!content) return;
+        const card = content.closest('.collapsible-card');
+        if (!card) return;
+        card.classList.toggle('card-collapsed', !!collapsed);
       }
 
       function setReviewPill(id, label, value, tone = '') {
@@ -5593,7 +5878,24 @@
             card.classList.toggle('stage-collapsed');
           });
         });
+        document.querySelectorAll('.card-collapse-toggle').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-card-target');
+            const target = targetId ? document.getElementById(targetId) : null;
+            if (!target) return;
+            const card = target.closest('.collapsible-card');
+            if (!card) return;
+            card.classList.toggle('card-collapsed');
+          });
+        });
         setStageCollapsed('stage3Content', true);
+        setCardCollapsed('validationDiagnosticsContent', true);
+        setCardCollapsed('validationSummaryContent', true);
+        setCardCollapsed('validationStepDetailContent', true);
+        setCardCollapsed('validationTimelineContent', true);
+        setCardCollapsed('statusAccessContent', true);
+        setCardCollapsed('statusKsContent', true);
+        setCardCollapsed('esPodHealthContent', true);
         loadPresetCatalog();
         updateCreateStageStatuses();
         renderGovernancePreview(null);

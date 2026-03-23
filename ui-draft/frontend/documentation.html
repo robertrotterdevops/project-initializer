@@ -1,227 +1,453 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Project Initializer Documentation</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <title>Project Initializer — Documentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
       :root {
-        --bg: #fbf7ef;
-        --panel: #fffdf8;
-        --ink: #1d252f;
-        --muted: #566474;
-        --brand: #0f766e;
-        --brand-strong: #115e59;
-        --line: #e6dfd0;
-        --warn: #9a3412;
+        --bg-primary: #0f1218;
+        --bg-secondary: #1e2530;
+        --bg-tertiary: #252b35;
+        --bg-input: #1a2028;
+        --bg-hover: #2d3640;
+        --accent-primary: #00d4aa;
+        --accent-primary-hover: #00e6b8;
+        --accent-secondary: #0ea5e9;
+        --accent-warning: #f59e0b;
+        --accent-error: #ef4444;
+        --accent-success: #22c55e;
+        --text-primary: #ffffff;
+        --text-secondary: #a1aeb8;
+        --text-muted: #6b7785;
+        --border-color: #2d3640;
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
       }
       * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
       body {
-        margin: 0;
-        font-family: "IBM Plex Sans", sans-serif;
-        color: var(--ink);
-        background: radial-gradient(circle at top right, #e6f4f1 0, transparent 44%), var(--bg);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.55;
+      }
+      .shell {
+        max-width: 1220px;
+        margin: 0 auto;
+        padding: 22px;
       }
       .hero {
-        padding: 42px 22px 20px;
-        border-bottom: 1px solid var(--line);
-      }
-      .hero-wrap {
-        max-width: 1080px;
-        margin: 0 auto;
+        background: linear-gradient(135deg, rgba(0, 212, 170, 0.12), rgba(14, 165, 233, 0.08));
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 22px;
+        box-shadow: var(--shadow-sm);
       }
       .eyebrow {
-        font-size: 12px;
-        letter-spacing: .08em;
         text-transform: uppercase;
-        color: var(--brand);
+        letter-spacing: 0.08em;
+        color: var(--accent-primary);
+        font-size: 0.74rem;
         font-weight: 600;
+        margin-bottom: 8px;
       }
       h1 {
-        font-family: "Space Grotesk", sans-serif;
-        margin: 10px 0 8px;
-        font-size: clamp(2rem, 3.6vw, 3rem);
+        margin: 0;
+        font-size: clamp(1.6rem, 3vw, 2.4rem);
       }
       .lead {
-        margin: 0;
-        color: var(--muted);
-        max-width: 760px;
+        margin: 10px 0 0;
+        color: var(--text-secondary);
+        max-width: 920px;
       }
+      .meta {
+        margin-top: 14px;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+      }
+      .actions {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 9px 14px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        text-decoration: none;
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      .btn:hover { background: var(--bg-hover); }
+      .btn.primary {
+        background: var(--accent-primary);
+        color: #0f1218;
+        border-color: transparent;
+        font-weight: 600;
+      }
+      .btn.primary:hover { background: var(--accent-primary-hover); }
       .layout {
-        max-width: 1080px;
-        margin: 0 auto;
-        padding: 28px 22px 60px;
+        margin-top: 16px;
         display: grid;
         grid-template-columns: minmax(0, 1fr) 280px;
-        gap: 22px;
+        gap: 16px;
       }
       .card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 20px;
-        margin-bottom: 14px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 12px;
       }
-      h2 {
-        margin: 0 0 12px;
-        font-family: "Space Grotesk", sans-serif;
-        font-size: 1.25rem;
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 1.1rem;
       }
-      h3 { margin: 16px 0 8px; font-size: 1rem; }
-      p, li { color: #22303d; line-height: 1.55; }
-      ul, ol { margin: 8px 0 0 20px; padding: 0; }
+      .card h3 {
+        margin: 14px 0 8px;
+        font-size: 0.95rem;
+      }
+      p, li { color: var(--text-secondary); }
+      ul, ol { margin: 8px 0 0 18px; padding: 0; }
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-size: 0.82rem;
+        color: #d3e4ff;
+      }
       pre {
         margin: 10px 0 0;
-        background: #101a24;
-        color: #d7e7ff;
-        border-radius: 10px;
         padding: 12px;
-        overflow-x: auto;
-        border: 1px solid #1f3347;
-      }
-      code {
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 0.9em;
+        overflow: auto;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        background: #101722;
+        color: #d5e6ff;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
       }
       .grid {
         display: grid;
-        gap: 12px;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       }
-      .pill {
-        background: #f0f7f6;
-        color: var(--brand-strong);
-        border: 1px solid #cfe5e2;
+      .stat {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+      }
+      .stat .k { color: var(--text-muted); font-size: 0.75rem; }
+      .stat .v { color: var(--text-primary); font-weight: 600; font-size: 0.92rem; margin-top: 2px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
         border-radius: 999px;
-        padding: 4px 10px;
-        font-size: 12px;
-        font-weight: 600;
-        display: inline-block;
-        margin-right: 6px;
-        margin-bottom: 6px;
+        font-size: 0.74rem;
+        padding: 4px 9px;
+        margin: 3px 4px 0 0;
+        background: rgba(0, 212, 170, 0.12);
+        color: var(--accent-primary);
+        border: 1px solid rgba(0, 212, 170, 0.28);
       }
-      .aside .card { position: sticky; top: 20px; }
+      .warn {
+        border-left: 3px solid var(--accent-warning);
+        background: rgba(245, 158, 11, 0.09);
+      }
+      .ok {
+        border-left: 3px solid var(--accent-success);
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .danger {
+        border-left: 3px solid var(--accent-error);
+        background: rgba(239, 68, 68, 0.09);
+      }
+      .toc {
+        position: sticky;
+        top: 14px;
+      }
       .toc a {
         display: block;
-        color: var(--muted);
+        color: var(--text-secondary);
         text-decoration: none;
-        padding: 5px 0;
+        padding: 6px 0;
+        font-size: 0.85rem;
       }
-      .toc a:hover { color: var(--brand-strong); }
-      .badge {
-        display: inline-block;
-        font-size: 12px;
-        padding: 4px 8px;
-        border-radius: 8px;
-        background: #fff2e8;
-        border: 1px solid #ffd7bd;
-        color: var(--warn);
+      .toc a:hover { color: var(--accent-primary); }
+      .footer {
+        margin-top: 10px;
+        color: var(--text-muted);
+        font-size: 0.78rem;
       }
-      @media (max-width: 900px) {
+      @media (max-width: 980px) {
         .layout { grid-template-columns: 1fr; }
-        .aside .card { position: static; }
+        .toc { position: static; }
+      }
+      @media print {
+        body { background: #fff; color: #111; }
+        .shell { max-width: 100%; padding: 0; }
+        .hero, .card { box-shadow: none; border-color: #ddd; background: #fff; }
+        .actions, .toc { display: none !important; }
+        p, li, .lead { color: #222 !important; }
       }
     </style>
   </head>
   <body>
-    <header class="hero">
-      <div class="hero-wrap">
-        <div class="eyebrow">Project Initializer</div>
-        <h1>Enterprise Documentation Portal</h1>
+    <main class="shell" id="docRoot">
+      <header class="hero">
+        <div class="eyebrow">Project Initializer • Documentation</div>
+        <h1>Deployment Platform Documentation (RKE2 / OpenShift / AKS + ECK)</h1>
         <p class="lead">
-          Production-grade guide for generating, validating, and operating GitOps-ready platform projects
-          with Flux/Argo, Terraform, ECK, and RKE2-oriented bootstrap workflows.
+          Current operating guide for project scaffolding, validation, status monitoring, and deployment actions.
+          This reflects the latest app behavior for local and remote workflows.
         </p>
-      </div>
-    </header>
-
-    <main class="layout">
-      <section>
-        <article class="card" id="overview">
-          <h2>1. Overview</h2>
-          <p>
-            Project Initializer creates repeatable infrastructure/project skeletons from a single form or API call,
-            including platform manifests, GitOps controllers, automation scripts, and operational runbooks.
-          </p>
-          <div class="grid">
-            <div><span class="pill">FluxCD</span><span class="pill">ArgoCD</span><span class="pill">Terraform</span></div>
-            <div><span class="pill">RKE2</span><span class="pill">Proxmox</span><span class="pill">AKS</span></div>
-            <div><span class="pill">ECK</span><span class="pill">Fleet/Agents</span><span class="pill">Healthchecks</span></div>
-          </div>
-        </article>
-
-        <article class="card" id="quickstart">
-          <h2>2. Quick Start</h2>
-          <ol>
-            <li>Open the UI front page at <code>http://localhost:8787</code>.</li>
-            <li>Create project with target platform + GitOps + IaC options.</li>
-            <li>Run generated deployment scripts in order (bootstrap, terraform, post-deploy).</li>
-            <li>Verify minimum cluster health with <code>scripts/cluster-healthcheck.sh</code>.</li>
-          </ol>
-          <pre><code>./start-ui.sh
-# then open http://localhost:8787</code></pre>
-        </article>
-
-        <article class="card" id="architecture">
-          <h2>3. Architecture</h2>
-          <h3>UI + API</h3>
-          <ul>
-            <li>Frontend: single-page UI in <code>ui-draft/frontend/index.html</code>.</li>
-            <li>Backend: FastAPI service in <code>ui-draft/backend/backend_api.py</code>.</li>
-            <li>Generated output: project folders with manifests/scripts/docs for deployment lifecycle.</li>
-          </ul>
-          <h3>Deployment Model</h3>
-          <ul>
-            <li>Root GitOps kustomization reconciles infra before apps.</li>
-            <li>Agents are isolated in dedicated Flux kustomization for independent status/reconcile.</li>
-            <li>Kibana ingress and ECK network policies are generated automatically.</li>
-          </ul>
-        </article>
-
-        <article class="card" id="operations">
-          <h2>4. Operations and Reliability</h2>
-          <ul>
-            <li>Use explicit Flux timeouts for heavy first syncs (ECK stack bootstrap).</li>
-            <li>Use healthcheck script to validate nodes, pods, ECK resources, ingress, credentials, Flux state.</li>
-            <li>For tier placement, provide <code>node_selector</code> per hot/cold/frozen nodeSet in sizing context.</li>
-          </ul>
-          <pre><code>{
-  "data_nodes": { "node_selector": { "node-role.kubernetes.io/hot": "true" } },
-  "cold_nodes": { "node_selector": { "node-role.kubernetes.io/cold": "true" } },
-  "frozen_nodes": { "node_selector": { "node-role.kubernetes.io/frozen": "true" } }
-}</code></pre>
-        </article>
-
-        <article class="card" id="license">
-          <h2>5. Open Source License</h2>
-          <p>
-            This application is distributed under the <strong>Apache License 2.0</strong> for enterprise-friendly open-source use.
-            The license provides broad usage rights with explicit patent grant and clear obligations.
-          </p>
-          <p><span class="badge">SPDX: Apache-2.0</span></p>
-          <ul>
-            <li>Commercial use, modification, distribution, private use allowed.</li>
-            <li>Patent grant included.</li>
-            <li>Preserve copyright and license notices.</li>
-          </ul>
-        </article>
-      </section>
-
-      <aside class="aside">
-        <div class="card">
-          <h2>Sections</h2>
-          <nav class="toc">
-            <a href="#overview">Overview</a>
-            <a href="#quickstart">Quick Start</a>
-            <a href="#architecture">Architecture</a>
-            <a href="#operations">Operations</a>
-            <a href="#license">License</a>
-          </nav>
+        <div class="meta">Version context: UI-Draft frontend/backend • Last updated: 2026-03-23</div>
+        <div class="actions">
+          <a class="btn" href="/" rel="noopener">Back to App</a>
+          <button class="btn primary" id="downloadHtmlBtn">Download HTML</button>
+          <button class="btn" id="downloadMdBtn">Download Markdown</button>
+          <button class="btn" id="printBtn">Download PDF (Print)</button>
         </div>
-      </aside>
+      </header>
+
+      <div class="layout">
+        <section>
+          <article class="card" id="overview">
+            <h2>1) Product Scope</h2>
+            <p>
+              Project Initializer generates deployment-ready repositories for Elasticsearch/ECK platform delivery,
+              with GitOps and infrastructure automation scaffolds for:
+            </p>
+            <div>
+              <span class="chip">Proxmox + RKE2</span>
+              <span class="chip">Rancher-governed RKE2</span>
+              <span class="chip">OpenShift delivery</span>
+              <span class="chip">Azure AKS</span>
+              <span class="chip">Flux / Argo</span>
+              <span class="chip">Terraform</span>
+              <span class="chip">Observability Addons</span>
+            </div>
+            <div class="grid" style="margin-top:12px;">
+              <div class="stat"><div class="k">Primary outcomes</div><div class="v">Scaffold + Validate + Deploy + Status</div></div>
+              <div class="stat"><div class="k">Sizing input</div><div class="v">JSON contracts preferred (.md legacy fallback)</div></div>
+              <div class="stat"><div class="k">Operation modes</div><div class="v">Local workspace or Remote host</div></div>
+            </div>
+          </article>
+
+          <article class="card" id="create-flow">
+            <h2>2) Create Project Workflow</h2>
+            <ol>
+              <li>Choose platform, target mode (local/remote), and destination path.</li>
+              <li>Load Elastic sizing input file (<code>.json</code> contract).</li>
+              <li>Review sizing preview and generated pools/components.</li>
+              <li>Configure Git options (optional).</li>
+              <li>Create project via streamed execution logs.</li>
+            </ol>
+            <p class="warn" style="padding:10px 12px; border-radius:8px;">
+              For node tier placement, if a requested selector is not available, generation must use technology-aware fallback values
+              (for example known node pools / supported labels), not invalid placeholder tiers.
+            </p>
+          </article>
+
+          <article class="card" id="validate-deploy">
+            <h2>3) Validate & Deploy Workflow</h2>
+            <p>
+              Use this page post-generation to run diagnostics and scripts in controlled order, with run history and export.
+            </p>
+            <h3>Key Actions</h3>
+            <ul>
+              <li><strong>Load Summary</strong>: inventory generated scripts and readiness checks.</li>
+              <li><strong>Run Diagnostics</strong>: non-mutating validation of project content and environment assumptions.</li>
+              <li><strong>Run Validation</strong>: classification-based pass/warning/blocking checks.</li>
+              <li><strong>Run Script</strong>: execute selected generated script (local or remote context).</li>
+            </ul>
+            <h3>Execution Notes</h3>
+            <ul>
+              <li>Mutating steps remain explicit and auditable.</li>
+              <li><code>post-terraform-deploy</code> is treated as high-risk and should require user confirmation.</li>
+              <li>Script output is summarized for readability; raw output remains exportable from timeline/history.</li>
+            </ul>
+          </article>
+
+          <article class="card" id="status-page">
+            <h2>4) Status Page (Live Cluster)</h2>
+            <p>
+              The Status tab is intended for live reconciliation and endpoint visibility, not only raw command output.
+            </p>
+            <h3>Current Status Sections</h3>
+            <ul>
+              <li><strong>Cluster Overview</strong>: high-level state and kustomization readiness.</li>
+              <li><strong>Access & Kubeconfig</strong>: context resolution and API/node reachability.</li>
+              <li><strong>Kustomizations</strong>: Flux object-level readiness and messages.</li>
+              <li><strong>Workloads & Endpoints</strong>: Elasticsearch pods, Fleet Server pods, Elastic Agent pods, ingress/routes.</li>
+            </ul>
+            <div class="ok" style="padding:10px 12px; border-radius:8px; margin-top:8px;">
+              Workloads should display real pod names and statuses with badges. Endpoint section should include host and ingress/route address details.
+            </div>
+          </article>
+
+          <article class="card" id="kubeconfig">
+            <h2>5) Kubeconfig Resolution Model</h2>
+            <p>
+              After first successful cluster health-check, kubeconfig is expected to be copied/generated into project-aware locations,
+              and app status checks should resolve from those paths before legacy defaults.
+            </p>
+            <pre><code>Expected resolution order (conceptual):
+1) Explicit override provided by user/script argument
+2) Project-local kubeconfig (for local/remote generated project context)
+3) User home fallback (~/.kube/&lt;project&gt;, ~/.kube/config)
+4) Platform defaults only when explicitly required</code></pre>
+            <p class="warn" style="padding:10px 12px; border-radius:8px;">
+              Local/Remote generation path is the workspace location where project files are created, not automatically the runtime cluster control-plane host.
+            </p>
+          </article>
+
+          <article class="card" id="platform-matrix">
+            <h2>6) Platform Coverage & Expansion</h2>
+            <div class="grid">
+              <div class="stat"><div class="k">Delivered focus</div><div class="v">RKE2 + Elasticsearch/ECK + Observability</div></div>
+              <div class="stat"><div class="k">Parallel support</div><div class="v">OpenShift, Rancher-governed RKE2, AKS</div></div>
+              <div class="stat"><div class="k">Generator parity goal</div><div class="v">Same sizing contract behavior across platforms</div></div>
+            </div>
+          </article>
+
+          <article class="card" id="ops-guidelines">
+            <h2>7) Operational Guidelines</h2>
+            <ul>
+              <li>Keep script execution states visible (running/spinner/progress/end).</li>
+              <li>Use foldable output blocks for long logs; emphasize actionable summary first.</li>
+              <li>Persist and expose run history for audit and rollback context.</li>
+              <li>Expose credential outputs only where appropriate; avoid leaking sensitive secrets in default views.</li>
+              <li>Keep remote commands fast and bounded by timeouts to avoid UI hangs.</li>
+            </ul>
+          </article>
+
+          <article class="card" id="license">
+            <h2>8) Licensing, Headers, and Generated Artifacts</h2>
+            <p>
+              License and header strategy should be deterministic for generated files and folders, based on user policy profile.
+            </p>
+            <ul>
+              <li>Recommended default SPDX identifier: <code>Apache-2.0</code> (if aligned with project policy).</li>
+              <li>Generated files should carry consistent copyright owner/year templates.</li>
+              <li>Policy profile should control whether headers are required, optional, or suppressed by file type.</li>
+            </ul>
+            <pre><code># Example header marker
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 &lt;Organization&gt;</code></pre>
+          </article>
+
+          <article class="card" id="troubleshooting">
+            <h2>9) Troubleshooting Checklist</h2>
+            <ul>
+              <li>Generation mismatch: verify sizing JSON contract schema and parsed preview.</li>
+              <li>Missing pools/tier values: inspect <code>terraform.tfvars.example</code> and <code>/sizing</code> output together.</li>
+              <li>Status shows stale kubeconfig path: validate latest run of cluster-healthcheck and resolved kubeconfig source.</li>
+              <li>Slow UI script actions: inspect remote command timeouts and streaming feedback behavior.</li>
+              <li>Endpoint missing: verify ingress/route resource exists in cluster namespace.</li>
+            </ul>
+          </article>
+
+          <article class="card" id="download">
+            <h2>10) Export / Download</h2>
+            <p>This document supports three download modes:</p>
+            <ul>
+              <li><strong>Download HTML</strong> — exact in-app documentation snapshot.</li>
+              <li><strong>Download Markdown</strong> — portable text format.</li>
+              <li><strong>Download PDF (Print)</strong> — print dialog for PDF export.</li>
+            </ul>
+          </article>
+
+          <div class="footer">Project Initializer Documentation • Prepared for end-user operational usage</div>
+        </section>
+
+        <aside class="toc card">
+          <h2 style="margin-top:0;">Contents</h2>
+          <a href="#overview">1) Product Scope</a>
+          <a href="#create-flow">2) Create Project Workflow</a>
+          <a href="#validate-deploy">3) Validate & Deploy Workflow</a>
+          <a href="#status-page">4) Status Page</a>
+          <a href="#kubeconfig">5) Kubeconfig Model</a>
+          <a href="#platform-matrix">6) Platform Coverage</a>
+          <a href="#ops-guidelines">7) Operational Guidelines</a>
+          <a href="#license">8) Licensing & Headers</a>
+          <a href="#troubleshooting">9) Troubleshooting</a>
+          <a href="#download">10) Export</a>
+        </aside>
+      </div>
     </main>
+
+    <script>
+      function downloadFile(name, content, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function toMarkdown() {
+        const lines = [];
+        lines.push('# Project Initializer — Documentation');
+        lines.push('Last updated: 2026-03-23');
+        lines.push('');
+        const articles = Array.from(document.querySelectorAll('article.card'));
+        for (const article of articles) {
+          const h2 = article.querySelector('h2');
+          if (h2) {
+            lines.push(`## ${h2.textContent.trim()}`);
+          }
+          const paragraphs = article.querySelectorAll('p, li, pre code');
+          for (const node of paragraphs) {
+            if (node.tagName.toLowerCase() === 'li') {
+              lines.push(`- ${node.textContent.trim()}`);
+            } else if (node.tagName.toLowerCase() === 'code' && node.parentElement?.tagName.toLowerCase() === 'pre') {
+              lines.push('```');
+              lines.push(node.textContent.trim());
+              lines.push('```');
+            } else {
+              const text = node.textContent.trim();
+              if (text) lines.push(text);
+            }
+          }
+          lines.push('');
+        }
+        return lines.join('\n');
+      }
+
+      document.getElementById('downloadHtmlBtn')?.addEventListener('click', () => {
+        downloadFile('project-initializer-documentation.html', document.documentElement.outerHTML, 'text/html;charset=utf-8');
+      });
+
+      document.getElementById('downloadMdBtn')?.addEventListener('click', () => {
+        downloadFile('project-initializer-documentation.md', toMarkdown(), 'text/markdown;charset=utf-8');
+      });
+
+      document.getElementById('printBtn')?.addEventListener('click', () => {
+        window.print();
+      });
+    </script>
   </body>
 </html>

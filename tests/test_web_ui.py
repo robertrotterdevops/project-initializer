@@ -572,8 +572,8 @@ class TestProjectOperationsApi(unittest.TestCase):
             data = resp.json()
             self.assertEqual(data['project_root'], '/opt/projects/remote-proj')
             self.assertTrue(mock_ssh.called)
-            first_remote_cmd = mock_ssh.call_args_list[0][0][3]
-            self.assertIn('/opt/projects/remote-proj', first_remote_cmd)
+            remote_cmds = [call[0][3] for call in mock_ssh.call_args_list]
+            self.assertTrue(any('/opt/projects/remote-proj' in cmd for cmd in remote_cmds))
             self.assertIn('history_timeline', data)
 
     def test_project_artifact_preview_local_reads_text(self):
@@ -918,7 +918,8 @@ class TestProjectOperationsApi(unittest.TestCase):
             result = backend_api._check_remote_prerequisite(entry, 'kubeconfig')
             self.assertTrue(result['ok'])
             self.assertIn('.kube/os-2', result['detail'])
-            self.assertIn('test -f $HOME/.kube/os-2', captured['cmd'])
+            self.assertIn('if test -f $HOME/.kube/os-2; then echo $HOME/.kube/os-2;', captured['cmd'])
+            self.assertIn('elif test -f $HOME/.kube/config; then echo $HOME/.kube/config;', captured['cmd'])
 
     def test_project_run_script_remote_uses_generated_remote_path(self):
         import backend_api
@@ -1123,6 +1124,58 @@ class TestFluxStatusEndpoint(unittest.TestCase):
             self.assertIn("es_pods", data)
             self.assertIn("running", data["es_pods"])
             self.assertIn("total", data["es_pods"])
+
+    def test_returns_status_details_with_agents_fleet_and_endpoints(self):
+        import backend_api
+        entry = self._make_deployment_entry("local")
+
+        pods_json = {
+            "items": [
+                {
+                    "metadata": {"name": "my-es-es-master-0", "labels": {}},
+                    "spec": {"nodeName": "node-a"},
+                    "status": {"phase": "Running", "containerStatuses": [{"ready": True}]},
+                },
+                {
+                    "metadata": {"name": "my-es-fleet-server-agent-abc", "labels": {"agent.k8s.elastic.co/name": "fleet-server-agent"}},
+                    "spec": {"nodeName": "node-b"},
+                    "status": {"phase": "Running", "containerStatuses": [{"ready": True}]},
+                },
+                {
+                    "metadata": {"name": "my-es-agent-xyz", "labels": {"agent.k8s.elastic.co/name": "elastic-agent"}},
+                    "spec": {"nodeName": "node-c"},
+                    "status": {"phase": "Running", "containerStatuses": [{"ready": True}]},
+                },
+            ]
+        }
+        ingress_json = {"items": [{"metadata": {"name": "my-es-kibana"}, "spec": {"rules": [{"host": "kibana.example.local"}]}, "status": {"loadBalancer": {"ingress": [{"ip": "10.0.0.10"}]}}}]}
+
+        def fake_cmd(args, cwd, env=None):
+            joined = " ".join(args)
+            if "jsonpath={.items[*].status.readyReplicas}/{.items[*].status.replicas}" in joined:
+                return {"ok": True, "stdout": "1/1", "stderr": ""}
+            if "get pods -n my-es -o json" in joined:
+                return {"ok": True, "stdout": json.dumps(pods_json), "stderr": ""}
+            if "get ingress -n my-es -o json" in joined:
+                return {"ok": True, "stdout": json.dumps(ingress_json), "stderr": ""}
+            if "get route -n my-es -o json" in joined:
+                return {"ok": True, "stdout": "{}", "stderr": ""}
+            return {"ok": True, "stdout": "True|ReconciliationSucceeded|OK", "stderr": ""}
+
+        with patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist, \
+             patch("backend_api._run_shell_command", side_effect=fake_cmd), \
+             patch("backend_api.AUDIT_LOG"):
+            mock_hist.list.return_value = [entry]
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.get("/api/flux-status", params={"deployment_id": "dep-001"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("status_details", data)
+            self.assertEqual(len(data["status_details"]["elasticsearch_pods"]), 1)
+            self.assertEqual(len(data["status_details"]["fleet_server_pods"]), 1)
+            self.assertEqual(len(data["status_details"]["agent_pods"]), 1)
+            self.assertEqual(data["status_details"]["ingress"][0]["host"], "kibana.example.local")
 
 
 if __name__ == "__main__":
