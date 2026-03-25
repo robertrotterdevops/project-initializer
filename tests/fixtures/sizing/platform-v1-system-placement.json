@@ -1,0 +1,65 @@
+{
+  "schema_version": "es-sizing-platform.v1",
+  "platform": "rke2",
+  "project": {"name": "OS-2"},
+  "calculation": {
+    "inputs": {
+      "ingest_gb_per_day": 1,
+      "total_retention_days": 365,
+      "workload_type": "mixed"
+    },
+    "summary": {
+      "cluster_health_score": 93,
+      "total_nodes": 3,
+      "total_data_nodes": 2,
+      "total_vcpu_selected": 32,
+      "total_ram_gb_selected": 128,
+      "total_local_disk_gb_selected": 200,
+      "total_snapshot_storage_gb": 200,
+      "total_master_nodes": 0
+    },
+    "tiers": [
+      {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+      {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100, "snapshot_repo_total_gb": 100},
+      {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0, "snapshot_repo_total_gb": 0}
+    ]
+  },
+  "platform_details": {
+    "pools": [
+      {
+        "name": "hot_pool",
+        "nodes": 1,
+        "vcpu_per_node": 8,
+        "ram_gb_per_node": 32,
+        "disk_gb_per_node": 100,
+        "composition": {}
+      },
+      {
+        "name": "cold_pool",
+        "nodes": 1,
+        "vcpu_per_node": 8,
+        "ram_gb_per_node": 32,
+        "disk_gb_per_node": 100,
+        "composition": {}
+      },
+      {
+        "name": "system_pool",
+        "nodes": 1,
+        "vcpu_per_node": 8,
+        "ram_gb_per_node": 32,
+        "disk_gb_per_node": null,
+        "composition": {
+          "total_requested_cpu": 6.83,
+          "total_requested_ram_gb": 13.67,
+          "master_nodes": 0,
+          "coordinator_nodes": 0,
+          "ml_nodes": 0,
+          "kibana_pods": 1,
+          "fleet_pods": 1,
+          "rke2_system_overhead_pods": 2
+        }
+      }
+    ],
+    "stack_components": {"vcpu": 4, "ram_gb": 8}
+  }
+}
