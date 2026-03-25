@@ -120,6 +120,38 @@ class TestECKDeploymentUnit(unittest.TestCase):
         self.assertEqual(kibana_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
         self.assertEqual(fleet_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
 
+    def test_kibana_and_fleet_honor_explicit_system_selector(self):
+        context = {
+            "platform": "rke2",
+            "sizing_context": {
+                "source": "sizing_report",
+                "kibana": {
+                    "count": 1,
+                    "memory": "4Gi",
+                    "cpu": "2",
+                    "node_selector": {"elasticsearch.k8s.elastic.co/tier": "system"},
+                },
+                "fleet_server": {
+                    "count": 1,
+                    "memory": "4Gi",
+                    "cpu": "2",
+                    "node_selector": {"elasticsearch.k8s.elastic.co/tier": "system"},
+                },
+                "eck_operator": {"version": "3.0.0"},
+            },
+        }
+        files = ECKDeploymentGenerator("proj", "ES on RKE2", context).generate()
+        kibana = yaml.safe_load(files["kibana/kibana.yaml"])
+        fleet = yaml.safe_load(files["agents/fleet-server.yaml"])
+        self.assertEqual(
+            kibana["spec"]["podTemplate"]["spec"]["nodeSelector"],
+            {"elasticsearch.k8s.elastic.co/tier": "system"},
+        )
+        self.assertEqual(
+            fleet["spec"]["deployment"]["podTemplate"]["spec"]["nodeSelector"],
+            {"elasticsearch.k8s.elastic.co/tier": "system"},
+        )
+
     def test_fleet_cpu_request_never_exceeds_limit(self):
         context = {
             "platform": "rke2",

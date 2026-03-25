@@ -298,6 +298,8 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("Grow root partition and filesystem on all nodes", bootstrap_playbook)
             self.assertIn('findmnt -n -o SOURCE /', bootstrap_playbook)
             self.assertIn("growpart /dev/", bootstrap_playbook)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier=master"', bootstrap_playbook)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier=system"', bootstrap_playbook)
 
     def test_initialize_project_proxmox_tfvars_uses_rke2_pool_resources(self) -> None:
         sizing_context = {

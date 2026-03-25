@@ -72,6 +72,88 @@ class TestAuditEndpoint(unittest.TestCase):
         self.assertEqual(data["entries"][0]["operation"], "scaffold")
 
 
+class TestDeploymentDeleteEndpoint(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def test_delete_deployment_entry_only(self):
+        import backend_api
+        from backend_api import DeploymentHistoryStore, AuditLogStore
+        backend_api.DEPLOYMENT_HISTORY = DeploymentHistoryStore(Path(self.tmpdir) / "deployment_history.json")
+        backend_api.AUDIT_LOG = AuditLogStore(Path(self.tmpdir) / "audit_log.json")
+        created = backend_api.DEPLOYMENT_HISTORY.add({
+            "name": "os-1",
+            "project_path": "/tmp/os-1",
+            "git_remote_url": "",
+        })
+
+        from fastapi.testclient import TestClient
+        client = TestClient(backend_api.app)
+        resp = client.request("DELETE", f"/api/deployments/{created['id']}", json={})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json().get("ok"), True)
+        self.assertEqual(len(backend_api.DEPLOYMENT_HISTORY.list()), 0)
+
+    def test_delete_deployment_remote_repo_requires_confirmation_phrase(self):
+        import backend_api
+        from backend_api import DeploymentHistoryStore, AuditLogStore
+        backend_api.DEPLOYMENT_HISTORY = DeploymentHistoryStore(Path(self.tmpdir) / "deployment_history.json")
+        backend_api.AUDIT_LOG = AuditLogStore(Path(self.tmpdir) / "audit_log.json")
+        created = backend_api.DEPLOYMENT_HISTORY.add({
+            "name": "os-2",
+            "project_path": "/tmp/os-2",
+            "git_remote_url": "https://gitlab.com/example/os-2.git",
+            "git_remote_repo": {
+                "created": True,
+                "provider": "gitlab",
+                "namespace": "example",
+                "url": "https://gitlab.com/example/os-2.git",
+                "private": True,
+            },
+        })
+
+        from fastapi.testclient import TestClient
+        client = TestClient(backend_api.app)
+        resp = client.request("DELETE", f"/api/deployments/{created['id']}", json={
+            "delete_remote_repo": True,
+            "git_token": "token",
+            "confirm_text": "DELETE WRONG",
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Confirmation text mismatch", str(resp.json().get("detail", "")))
+
+    def test_delete_deployment_remote_repo_calls_delete_helper(self):
+        import backend_api
+        from backend_api import DeploymentHistoryStore, AuditLogStore
+        backend_api.DEPLOYMENT_HISTORY = DeploymentHistoryStore(Path(self.tmpdir) / "deployment_history.json")
+        backend_api.AUDIT_LOG = AuditLogStore(Path(self.tmpdir) / "audit_log.json")
+        created = backend_api.DEPLOYMENT_HISTORY.add({
+            "name": "os-3",
+            "project_path": "/tmp/os-3",
+            "git_remote_url": "https://gitlab.com/example/os-3.git",
+            "git_remote_repo": {
+                "created": True,
+                "provider": "gitlab",
+                "namespace": "example",
+                "url": "https://gitlab.com/example/os-3.git",
+                "private": True,
+            },
+        })
+
+        from fastapi.testclient import TestClient
+        client = TestClient(backend_api.app)
+        with patch("backend_api._delete_remote_repo_for_deployment", return_value={"ok": True, "provider": "gitlab", "repository": "example/os-3"}) as mock_delete:
+            resp = client.request("DELETE", f"/api/deployments/{created['id']}", json={
+                "delete_remote_repo": True,
+                "git_token": "token",
+                "confirm_text": "DELETE os-3",
+            })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json().get("remote_repo_deleted"))
+        self.assertEqual(len(backend_api.DEPLOYMENT_HISTORY.list()), 0)
+        self.assertEqual(mock_delete.call_count, 1)
+
+
 class TestSSEEndpoint(unittest.TestCase):
     """WEBUI-01: /api/create/stream returns SSE events in order."""
 

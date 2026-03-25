@@ -29,7 +29,7 @@ try:
 except Exception:  # pragma: no cover
     yaml = None
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -820,6 +820,95 @@ def _create_remote_repo(provider: str, namespace: str, project_name: str, token:
     if p == "gitlab":
         return _create_gitlab_repo(namespace, project_name, token, private_repo)
     raise HTTPException(status_code=400, detail="git_provider must be 'github' or 'gitlab' for remote repo creation")
+
+
+def _remote_repo_owner_and_name(repo_url: str) -> tuple[str, str]:
+    raw = (repo_url or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Missing repository URL")
+
+    # Support HTTPS URLs
+    if raw.startswith("http://") or raw.startswith("https://"):
+        parsed = urllib.parse.urlparse(raw)
+        parts = [part for part in (parsed.path or "").split("/") if part]
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail=f"Invalid repository URL path: {repo_url}")
+        repo = parts[-1]
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        owner = "/".join(parts[:-1])
+        if not owner or not repo:
+            raise HTTPException(status_code=400, detail=f"Invalid repository URL path: {repo_url}")
+        return owner, repo
+
+    # Support SSH URLs: git@host:owner/repo.git
+    if raw.startswith("git@") and ":" in raw:
+        after_colon = raw.split(":", 1)[1]
+        parts = [part for part in after_colon.split("/") if part]
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail=f"Invalid SSH repository URL path: {repo_url}")
+        repo = parts[-1]
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        owner = "/".join(parts[:-1])
+        if not owner or not repo:
+            raise HTTPException(status_code=400, detail=f"Invalid SSH repository URL path: {repo_url}")
+        return owner, repo
+
+    raise HTTPException(status_code=400, detail=f"Unsupported repository URL format: {repo_url}")
+
+
+def _delete_remote_repo_for_deployment(entry: Dict[str, Any], git_token: str, confirm_text: str) -> Dict[str, Any]:
+    remote_repo = entry.get("git_remote_repo") or {}
+    if not isinstance(remote_repo, dict) or not remote_repo.get("created"):
+        raise HTTPException(status_code=400, detail="Remote repository deletion is allowed only for repositories created by this app for this deployment")
+
+    expected_confirm = f"DELETE {entry.get('name', '')}".strip()
+    if not expected_confirm or confirm_text.strip() != expected_confirm:
+        raise HTTPException(status_code=400, detail=f"Confirmation text mismatch. Expected: '{expected_confirm}'")
+
+    token = (git_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="git_token is required to delete remote repository")
+
+    provider = str(remote_repo.get("provider") or "").strip().lower()
+    repo_url = str(remote_repo.get("url") or entry.get("git_remote_url") or "").strip()
+    if not provider or not repo_url:
+        raise HTTPException(status_code=400, detail="Missing remote repository provider/url metadata")
+
+    owner, repo_name = _remote_repo_owner_and_name(repo_url)
+    expected_repo_name = str(entry.get("name") or "").strip().strip("/").strip("\\")
+    if not expected_repo_name or repo_name.lower() != expected_repo_name.lower():
+        raise HTTPException(status_code=400, detail="Refusing to delete: remote repo name does not match deployment project name")
+
+    if provider == "gitlab":
+        headers = {
+            "Accept": "application/json",
+            "PRIVATE-TOKEN": token,
+            "User-Agent": "project-initializer",
+        }
+        project_id = urllib.parse.quote(f"{owner}/{repo_name}", safe="")
+        _http_json_request(
+            url=f"https://gitlab.com/api/v4/projects/{project_id}",
+            method="DELETE",
+            headers=headers,
+        )
+        return {"ok": True, "provider": provider, "repository": f"{owner}/{repo_name}"}
+
+    if provider == "github":
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "project-initializer",
+        }
+        _http_json_request(
+            url=f"https://api.github.com/repos/{owner}/{repo_name}",
+            method="DELETE",
+            headers=headers,
+        )
+        return {"ok": True, "provider": provider, "repository": f"{owner}/{repo_name}"}
+
+    raise HTTPException(status_code=400, detail="Remote repository deletion currently supports github and gitlab only")
 
 
 def _detect_provider(provider: str, remote_url: str) -> str:
@@ -2694,6 +2783,7 @@ async def create_project(
             "iac_tool": "terraform" if use_terraform_iac else "",
             "git_remote_url": effective_remote_url,
             "git_branch": git_branch,
+            "git_remote_repo": created_remote,
             "remote": remote_result if effective_target_type == "remote" else None,
             "license_id": governance_preview["license_policy"]["license_id"],
             "confidentiality": governance_preview["license_policy"]["confidentiality"],
@@ -3028,6 +3118,7 @@ async def _create_stream_generator(
             "iac_tool": "terraform" if use_terraform_iac else "",
             "git_remote_url": effective_remote_url,
             "git_branch": git_branch,
+            "git_remote_repo": created_remote,
             "remote": remote_result if effective_target_type == "remote" else None,
             "license_id": governance_preview["license_policy"]["license_id"],
             "confidentiality": governance_preview["license_policy"]["confidentiality"],
@@ -3325,9 +3416,39 @@ def deployment_history_list() -> Dict[str, Any]:
 
 
 @app.delete("/api/deployments/{entry_id}")
-def deployment_history_delete(entry_id: str) -> Dict[str, Any]:
+def deployment_history_delete(
+    entry_id: str,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+) -> Dict[str, Any]:
+    payload = payload or {}
+    entry = next((item for item in DEPLOYMENT_HISTORY.list() if item.get("id") == entry_id), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="deployment history entry not found")
+
+    delete_remote_repo = bool(payload.get("delete_remote_repo"))
+    remote_delete_result: Optional[Dict[str, Any]] = None
+
+    if delete_remote_repo:
+        remote_delete_result = _delete_remote_repo_for_deployment(
+            entry=entry,
+            git_token=str(payload.get("git_token") or ""),
+            confirm_text=str(payload.get("confirm_text") or ""),
+        )
+
     DEPLOYMENT_HISTORY.delete(entry_id)
-    return {"ok": True}
+    if delete_remote_repo and remote_delete_result:
+        AUDIT_LOG.append(
+            "deployment-delete",
+            f"Deleted deployment {entry.get('name', entry_id)} and remote repository {remote_delete_result.get('repository', '')}",
+        )
+    else:
+        AUDIT_LOG.append("deployment-delete", f"Deleted deployment {entry.get('name', entry_id)}")
+
+    return {
+        "ok": True,
+        "remote_repo_deleted": bool(remote_delete_result and remote_delete_result.get("ok")),
+        "remote_repo": remote_delete_result,
+    }
 
 
 def _safe_json_load(text: str) -> Dict[str, Any]:

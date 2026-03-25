@@ -45,6 +45,18 @@ class TestSizingFixtures(unittest.TestCase):
         self.assertIsNone(result.addon_context)
         self.assertEqual(result.fatal_error.code, "invalid_json")
 
+    def test_system_pool_composition_sets_system_selector_for_kibana_and_fleet(self) -> None:
+        result = parse_sizing_file_detailed(str(self.fixture("platform-v1-system-placement.json")))
+        self.assertIsNone(result.fatal_error)
+        self.assertIsNotNone(result.model)
+        self.assertEqual(result.model.schema_version, "es-sizing-platform.v1")
+        kibana = result.model.components.get("kibana", {})
+        fleet = result.model.components.get("fleet_server", {})
+        self.assertEqual(kibana.get("count"), 1)
+        self.assertEqual(fleet.get("count"), 1)
+        self.assertEqual(kibana.get("node_selector"), {"elasticsearch.k8s.elastic.co/tier": "system"})
+        self.assertEqual(fleet.get("node_selector"), {"elasticsearch.k8s.elastic.co/tier": "system"})
+
     def test_rke2_fixture_generates_expected_golden_outputs(self) -> None:
         sizing_context = parse_sizing_file(str(self.fixture("rke2-v1.json")))
         with tempfile.TemporaryDirectory(prefix="pi-sizing-fixture-rke2-") as td:
@@ -103,6 +115,43 @@ class TestSizingFixtures(unittest.TestCase):
             self.assertIn('"system_pool" = { node_count = 2, vcpu_per_node = 4, ram_gb_per_node = 8, disk_gb = 80, full_clone = true }', tfvars)
             self.assertIn("# Platform: OpenShift", requirements)
             self.assertIn("# Health Score: 93/100", requirements)
+
+    def test_system_pool_fixture_places_kibana_and_fleet_on_system_tier(self) -> None:
+        sizing_context = parse_sizing_file(str(self.fixture("platform-v1-system-placement.json")))
+        with tempfile.TemporaryDirectory(prefix="pi-sizing-fixture-system-placement-") as td:
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            kibana_yaml = (out_dir / "kibana/kibana.yaml").read_text()
+            fleet_yaml = (out_dir / "agents/fleet-server.yaml").read_text()
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "system"', kibana_yaml)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "system"', fleet_yaml)
+            self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "hot"', kibana_yaml)
+            self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "hot"', fleet_yaml)
+
+    def test_zero_dedicated_master_nodes_do_not_fall_back_to_three(self) -> None:
+        sizing_context = parse_sizing_file(str(self.fixture("rke2-v1.json")))
+        with tempfile.TemporaryDirectory(prefix="pi-sizing-fixture-zero-master-") as td:
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            es_cluster = (out_dir / "elasticsearch/cluster.yaml").read_text()
+            self.assertNotIn("- name: master", es_cluster)
+            self.assertIn('node.roles: ["master", "data_hot", "data_content", "ingest", "transform", "remote_cluster_client"]', es_cluster)
 
     def test_proxmox_rke2_fixture_generates_platform_golden_outputs(self) -> None:
         sizing_context = parse_sizing_file(str(self.fixture("rke2-v1.json")))

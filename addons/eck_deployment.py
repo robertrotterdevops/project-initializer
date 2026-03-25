@@ -61,6 +61,7 @@ class ECKDeploymentGenerator:
                 "cpu": "1",
             },
         )
+        self.master_count = self._count_for_selector_candidate(self.master_nodes)
 
         # Multi-tier nodes (from sizing report)
         self.cold_nodes = self.sizing.get("cold_nodes")
@@ -70,6 +71,7 @@ class ECKDeploymentGenerator:
         if not self.node_selectors:
             self.node_selectors = {
                 "master": {"elasticsearch.k8s.elastic.co/tier": "master"},
+                "system": {"elasticsearch.k8s.elastic.co/tier": "system"},
                 "hot": {"elasticsearch.k8s.elastic.co/tier": "hot"},
                 "cold": {"elasticsearch.k8s.elastic.co/tier": "cold"},
                 "frozen": {"elasticsearch.k8s.elastic.co/tier": "frozen"},
@@ -222,7 +224,7 @@ class ECKDeploymentGenerator:
         for tier_name, tier_cfg in candidates:
             if self._count_for_selector_candidate(tier_cfg) > 0 and tier_name not in available:
                 available.append(tier_name)
-        for tier_name in ("master", "hot", "cold", "frozen", "infra"):
+        for tier_name in ("master", "system", "hot", "cold", "frozen", "infra"):
             selector = self.explicit_node_selectors.get(tier_name)
             if isinstance(selector, dict) and selector and tier_name not in available:
                 available.append(tier_name)
@@ -232,7 +234,7 @@ class ECKDeploymentGenerator:
         if isinstance(tier_config, dict) and (tier_config.get("node_selector") or tier_config.get("nodeSelector")):
             return preferred_tier
         available = self._available_selector_tiers()
-        fallback_order = [preferred_tier, "master", "hot", "cold", "frozen", "infra"]
+        fallback_order = [preferred_tier, "system", "master", "hot", "cold", "frozen", "infra"]
         for candidate in fallback_order:
             if candidate in available and isinstance(self.node_selectors.get(candidate), dict):
                 return candidate
@@ -572,8 +574,9 @@ metadata:
         # Build nodesets
         nodesets = []
 
-        # Master nodes (dedicated)
-        nodesets.append(self._generate_master_nodeset())
+        # Master nodes (dedicated) - optional when sizing does not request them
+        if self.master_count > 0:
+            nodesets.append(self._generate_master_nodeset())
 
         # Hot tier (data nodes) - always active
         nodesets.append(self._generate_hot_nodeset())
@@ -700,12 +703,18 @@ spec:
                     topologyKey: topology.kubernetes.io/zone"""
         node_selector = self._render_node_selector_block("hot", self.data_nodes)
 
+        roles = ["data_hot", "data_content", "ingest", "transform", "remote_cluster_client"]
+        if self.master_count <= 0:
+            # No dedicated masters requested by sizing contract; make hot tier master-eligible.
+            roles.insert(0, "master")
+        roles_yaml = ", ".join([f'"{role}"' for role in roles])
+
         return f"""
     # Hot tier - data nodes (ingest, recent data)
     - name: hot
       count: {count}
       config:
-        node.roles: ["data_hot", "data_content", "ingest", "transform", "remote_cluster_client"]
+        node.roles: [{roles_yaml}]
         # Hot tier node attributes
         node.attr.data: hot
       podTemplate:
@@ -1494,9 +1503,10 @@ commonLabels:
         """Generate README for elasticsearch directory."""
         # Build tier table
         tier_rows = []
-        tier_rows.append(
-            f"| Master nodes | {self.master_nodes.get('count', 3)} | {self.master_nodes.get('memory', '2Gi')} | {self.master_nodes.get('cpu', '1')} | - |"
-        )
+        if self.master_count > 0:
+            tier_rows.append(
+                f"| Master nodes | {self.master_nodes.get('count', 3)} | {self.master_nodes.get('memory', '2Gi')} | {self.master_nodes.get('cpu', '1')} | - |"
+            )
         tier_rows.append(
             f"| Hot tier | {self.data_nodes.get('count', 3)} | {self.data_nodes.get('memory', '8Gi')} | {self.data_nodes.get('cpu', '2')} | {self.data_nodes.get('storage', '100Gi')} |"
         )

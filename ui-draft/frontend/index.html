@@ -2947,6 +2947,38 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <div class="dialog-overlay" id="deploymentDeleteDialog">
+      <div class="dialog">
+        <div class="dialog-header">
+          <div class="dialog-title">Dangerous Delete Confirmation</div>
+          <button class="header-btn" type="button" id="deploymentDeleteCloseBtn"><i data-lucide="x"></i></button>
+        </div>
+        <div class="form-hint" id="deploymentDeleteSummary" style="margin-bottom:8px;"></div>
+        <div class="form-field">
+          <label class="checkbox-wrapper">
+            <input type="checkbox" id="deploymentDeleteRemoteToggle">
+            <span class="checkbox-custom"><i data-lucide="check"></i></span>
+            <span class="checkbox-label">Also delete linked remote repository (dangerous)</span>
+          </label>
+        </div>
+        <div id="deploymentDeleteRemotePanel" style="display:none; margin-top:8px;">
+          <div class="form-hint" id="deploymentDeleteRemoteInfo" style="margin-bottom:8px;"></div>
+          <div class="form-field">
+            <label class="form-label">Confirmation text</label>
+            <input type="text" class="form-input" id="deploymentDeleteConfirmText" placeholder="DELETE project-name">
+          </div>
+          <div class="form-field" style="margin-top:8px;">
+            <label class="form-label">Git token (delete permission)</label>
+            <input type="password" class="form-input" id="deploymentDeleteToken" placeholder="Paste token here">
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" type="button" id="deploymentDeleteCancelBtn">Cancel</button>
+          <button class="btn" type="button" id="deploymentDeleteConfirmBtn" style="background: var(--accent-error); color: white;" disabled>Delete</button>
+        </div>
+      </div>
+    </div>
+
     <div class="dialog-overlay" id="folderDialog">
       <div class="dialog">
         <div class="dialog-header">
@@ -4136,17 +4168,121 @@
         }
       }
 
+      async function openDeploymentDeleteDialog(entry) {
+        const overlay = document.getElementById('deploymentDeleteDialog');
+        const summary = document.getElementById('deploymentDeleteSummary');
+        const remoteToggle = document.getElementById('deploymentDeleteRemoteToggle');
+        const remotePanel = document.getElementById('deploymentDeleteRemotePanel');
+        const remoteInfo = document.getElementById('deploymentDeleteRemoteInfo');
+        const confirmInput = document.getElementById('deploymentDeleteConfirmText');
+        const tokenInput = document.getElementById('deploymentDeleteToken');
+        const confirmBtn = document.getElementById('deploymentDeleteConfirmBtn');
+        const cancelBtn = document.getElementById('deploymentDeleteCancelBtn');
+        const closeBtn = document.getElementById('deploymentDeleteCloseBtn');
+
+        if (!overlay || !summary || !remoteToggle || !remotePanel || !remoteInfo || !confirmInput || !tokenInput || !confirmBtn || !cancelBtn || !closeBtn) {
+          return null;
+        }
+
+        const remoteRepo = entry.git_remote_repo && entry.git_remote_repo.created ? entry.git_remote_repo : null;
+        const phrase = `DELETE ${entry.name || ''}`.trim();
+
+        summary.textContent = `You are about to delete deployment entry "${entry.name || entry.id}". This action is dangerous and cannot be undone from the UI.`;
+        remoteToggle.checked = false;
+        remoteToggle.disabled = !remoteRepo;
+        confirmInput.value = '';
+        tokenInput.value = '';
+        remoteInfo.textContent = remoteRepo
+          ? `Linked remote repository (created by app): ${remoteRepo.url}. Required confirmation phrase: ${phrase}`
+          : 'No app-created remote repository is linked to this deployment.';
+
+        const updateState = () => {
+          const remoteEnabled = !!(remoteRepo && remoteToggle.checked);
+          remotePanel.style.display = remoteEnabled ? '' : 'none';
+          confirmInput.disabled = !remoteEnabled;
+          tokenInput.disabled = !remoteEnabled;
+          if (!remoteEnabled) {
+            confirmBtn.disabled = false;
+            return;
+          }
+          const phraseOk = confirmInput.value.trim() === phrase;
+          const hasToken = !!tokenInput.value.trim();
+          confirmBtn.disabled = !(phraseOk && hasToken);
+        };
+
+        updateState();
+        overlay.classList.add('visible');
+        lucide.createIcons();
+
+        return await new Promise((resolve) => {
+          const cleanup = () => {
+            overlay.classList.remove('visible');
+            remoteToggle.removeEventListener('change', onUpdate);
+            confirmInput.removeEventListener('input', onUpdate);
+            tokenInput.removeEventListener('input', onUpdate);
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+            closeBtn.removeEventListener('click', onCancel);
+            overlay.removeEventListener('click', onBackdrop);
+          };
+
+          const onUpdate = () => updateState();
+          const onCancel = () => { cleanup(); resolve(null); };
+          const onBackdrop = (event) => {
+            if (event.target === overlay) onCancel();
+          };
+          const onConfirm = () => {
+            const remoteEnabled = !!(remoteRepo && remoteToggle.checked);
+            cleanup();
+            resolve({
+              delete_remote_repo: remoteEnabled,
+              confirm_text: remoteEnabled ? confirmInput.value.trim() : '',
+              git_token: remoteEnabled ? tokenInput.value.trim() : '',
+            });
+          };
+
+          remoteToggle.addEventListener('change', onUpdate);
+          confirmInput.addEventListener('input', onUpdate);
+          tokenInput.addEventListener('input', onUpdate);
+          confirmBtn.addEventListener('click', onConfirm);
+          cancelBtn.addEventListener('click', onCancel);
+          closeBtn.addEventListener('click', onCancel);
+          overlay.addEventListener('click', onBackdrop);
+        });
+      }
+
       async function deleteDeploymentHistory(id) {
+        const entry = (state.deploymentHistory || []).find(item => item.id === id);
+        if (!entry) {
+          showToast('Deployment entry not found', 'error');
+          return;
+        }
+
+        const payload = await openDeploymentDeleteDialog(entry);
+        if (!payload) {
+          showToast('Deletion cancelled', 'warning');
+          return;
+        }
+
         try {
-          const res = await fetch(apiUrl(`/api/deployments/${id}`), { method: 'DELETE' });
+          const res = await fetch(apiUrl(`/api/deployments/${id}`), {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             showToast(data.detail || 'Failed to delete deployment', 'error');
             return;
           }
-          state.deploymentHistory = state.deploymentHistory.filter(entry => entry.id !== id);
+          state.deploymentHistory = state.deploymentHistory.filter(item => item.id !== id);
           updateRecentProjects();
-          showToast('Deployment entry deleted');
+          populateValidationDropdown();
+          if (data.remote_repo_deleted) {
+            showToast('Deployment entry and remote repository deleted', 'warning');
+          } else {
+            showToast('Deployment entry deleted');
+          }
         } catch (err) {
           showToast(`Failed to delete deployment: ${err}`, 'error');
         }

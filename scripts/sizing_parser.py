@@ -662,6 +662,43 @@ def _normalize_component(count: int, memory_gb: float, cpu: float) -> dict[str, 
     }
 
 
+def _selector_tier_from_pool_name(pool_name: Any) -> str | None:
+    raw = str(pool_name or "").strip().lower().replace("-", "_")
+    if not raw:
+        return None
+    # System pool keeps an explicit "system" tier so Kibana/Fleet can target
+    # dedicated system nodes independently from Elasticsearch master role.
+    if "system" in raw:
+        return "system"
+    if raw.startswith("master") or "_master" in raw:
+        return "master"
+    if "infra" in raw:
+        return "infra"
+    if "hot" in raw:
+        return "hot"
+    if "cold" in raw:
+        return "cold"
+    if "frozen" in raw:
+        return "frozen"
+    return None
+
+
+def _selector_for_tier_name(tier_name: str | None) -> dict[str, str] | None:
+    if not tier_name:
+        return None
+    return {"elasticsearch.k8s.elastic.co/tier": tier_name}
+
+
+def _choose_component_tier(candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+    priority = {"system": 0, "master": 1, "infra": 2, "hot": 3, "cold": 4, "frozen": 5}
+    ranked = [tier for tier in candidates if tier in priority]
+    if not ranked:
+        return None
+    return sorted(ranked, key=lambda item: priority[item])[0]
+
+
 def _enrich_rke2_pools_from_tiers(
     rke2_data: dict[str, Any], tier_map: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
@@ -757,23 +794,45 @@ def _normalize_platform_component_counts(platform_details: dict[str, Any]) -> tu
         or _component_count(root_composition.get("fleet_server"))
     )
 
-    if kibana_count == 0 and fleet_count == 0:
-        for pool in pools:
-            comp = pool.get("composition") or {}
-            kibana_count += _component_count(comp.get("kibana_pods")) or _component_count(comp.get("kibana"))
-            fleet_count += (
-                _component_count(comp.get("fleet_pods"))
-                or _component_count(comp.get("fleet"))
-                or _component_count(comp.get("fleet_server"))
-            )
+    kibana_tier_candidates: list[str] = []
+    fleet_tier_candidates: list[str] = []
+
+    for pool in pools:
+        comp = pool.get("composition") or {}
+        pool_tier = _selector_tier_from_pool_name(pool.get("name"))
+        kibana_in_pool = _component_count(comp.get("kibana_pods")) or _component_count(comp.get("kibana"))
+        fleet_in_pool = (
+            _component_count(comp.get("fleet_pods"))
+            or _component_count(comp.get("fleet"))
+            or _component_count(comp.get("fleet_server"))
+        )
+
+        if kibana_count == 0 and fleet_count == 0:
+            kibana_count += kibana_in_pool
+            fleet_count += fleet_in_pool
+
+        if pool_tier and kibana_in_pool > 0:
+            kibana_tier_candidates.append(pool_tier)
+        if pool_tier and fleet_in_pool > 0:
+            fleet_tier_candidates.append(pool_tier)
 
     shared_stack_cpu = float(stack_components.get("vcpu") or 0)
     shared_stack_ram = float(stack_components.get("ram_gb") or 0)
     total_components = max(kibana_count + fleet_count, 1)
     per_component_cpu = shared_stack_cpu / total_components if shared_stack_cpu else 2.0
     per_component_ram = shared_stack_ram / total_components if shared_stack_ram else 4.0
+
     kibana = _normalize_component(kibana_count, per_component_ram, per_component_cpu) if kibana_count > 0 else {}
     fleet = _normalize_component(fleet_count, per_component_ram, per_component_cpu) if fleet_count > 0 else {}
+
+    kibana_selector = _selector_for_tier_name(_choose_component_tier(kibana_tier_candidates))
+    if kibana and kibana_selector:
+        kibana["node_selector"] = kibana_selector
+
+    fleet_selector = _selector_for_tier_name(_choose_component_tier(fleet_tier_candidates))
+    if fleet and fleet_selector:
+        fleet["node_selector"] = fleet_selector
+
     return kibana, fleet, kibana_count + fleet_count
 
 
