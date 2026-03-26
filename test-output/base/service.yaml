@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-project
+  labels:
+    app: test-project
+spec:
+  selector:
+    app: test-project
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP

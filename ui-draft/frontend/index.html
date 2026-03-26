@@ -3100,6 +3100,8 @@
         sizingFile: null,
         sizingPreview: null,
         sizingPreviewRequestId: 0,
+        lastNamePrefill: '',
+        lastDescriptionPrefill: '',
         isLoading: false,
         dialogTargetField: null,
         lastCreatedTargetType: 'local',
@@ -3219,6 +3221,72 @@
         }
       }
 
+      function buildSizingNamePrefill(preview) {
+        if (!preview || typeof preview !== 'object') return '';
+        const explicit = String(preview.prefill_project_name || '').trim();
+        if (explicit) return explicit;
+        const header = (preview.project_header && typeof preview.project_header === 'object') ? preview.project_header : {};
+        const name = String(header.name || '').trim();
+        if (name) return name;
+        return String(header.customer || '').trim();
+      }
+
+      function applySizingNamePrefill(preview) {
+        const nameEl = document.getElementById('name');
+        if (!nameEl) return;
+        const nextName = buildSizingNamePrefill(preview);
+        if (!nextName) return;
+        const current = nameEl.value.trim();
+        const canAutofill = !current || (state.lastNamePrefill && current === state.lastNamePrefill);
+        if (!canAutofill) return;
+        if (current === nextName) {
+          state.lastNamePrefill = nextName;
+          return;
+        }
+        nameEl.value = nextName;
+        state.lastNamePrefill = nextName;
+      }
+
+      function buildSizingDescriptionPrefill(preview) {
+        if (!preview || typeof preview !== 'object') return '';
+        const explicit = String(preview.prefill_description || '').trim();
+        if (explicit) return explicit;
+        const header = (preview.project_header && typeof preview.project_header === 'object') ? preview.project_header : {};
+        const description = String(header.description || '').trim();
+        if (description) return description;
+        const name = String(header.name || '').trim();
+        const customer = String(header.customer || '').trim();
+        const projectId = String(header.project_id || '').trim();
+        const owner = String(header.user_name || '').trim();
+        const platform = String(preview.effective_platform || preview.platform_detected || '').trim();
+        const parts = [];
+        if (name && customer && name.toLowerCase() !== customer.toLowerCase()) {
+          parts.push(`${name} (${customer})`);
+        } else if (name || customer) {
+          parts.push(name || customer);
+        }
+        if (platform) parts.push(`platform=${platform}`);
+        if (projectId) parts.push(`project_id=${projectId}`);
+        if (owner) parts.push(`owner=${owner}`);
+        return parts.join(' | ');
+      }
+
+      function applySizingDescriptionPrefill(preview) {
+        const descriptionEl = document.getElementById('description');
+        if (!descriptionEl) return;
+        const nextDescription = buildSizingDescriptionPrefill(preview);
+        if (!nextDescription) return;
+        const current = descriptionEl.value.trim();
+        const canAutofill = !current || (state.lastDescriptionPrefill && current === state.lastDescriptionPrefill);
+        if (!canAutofill) return;
+        if (current === nextDescription) {
+          state.lastDescriptionPrefill = nextDescription;
+          return;
+        }
+        descriptionEl.value = nextDescription;
+        state.lastDescriptionPrefill = nextDescription;
+      }
+
       function renderSizingPreview(preview) {
         const panel = document.getElementById('sizingPreviewPanel');
         const status = document.getElementById('sizingPreviewStatus');
@@ -3246,6 +3314,8 @@
           return;
         }
         panel.style.display = 'block';
+        applySizingNamePrefill(preview);
+        applySizingDescriptionPrefill(preview);
         const ok = !!preview.ok;
         status.className = `status-badge ${ok ? 'success' : 'error'}`;
         statusText.textContent = ok ? 'Ready' : 'Needs attention';
@@ -3255,6 +3325,12 @@
           `platform=${preview.effective_platform || preview.platform_detected || 'unknown'}`,
           `health=${preview.health_score ?? 'n/a'}`,
         ].join(' • ');
+
+        const projectHeader = preview.project_header || {};
+        const generatedAt = preview.sizing_generated_at || '';
+        if (projectHeader && Object.keys(projectHeader).length) {
+          meta.textContent += ` • project=${projectHeader.name || 'n/a'} • owner=${projectHeader.user_name || 'n/a'}${generatedAt ? ` • generated=${generatedAt}` : ''}`;
+        }
 
         const warningItems = [];
         if (preview.fatal_error) warningItems.push(preview.fatal_error);
@@ -4447,6 +4523,8 @@
       clearSizingFileBtn.addEventListener('click', () => {
         sizingFileEl.value = '';
         state.sizingFile = null;
+        state.lastNamePrefill = '';
+        state.lastDescriptionPrefill = '';
         sizingDropzoneEl.classList.remove('has-file');
         sizingDropzoneEl.querySelector('p').textContent = 'Drop sizing report here or click to browse';
         sizingFilenameEl.style.display = 'none';

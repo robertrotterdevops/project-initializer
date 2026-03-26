@@ -1200,10 +1200,15 @@ def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "",
     candidates: List[Path] = []
     if explicit_path.strip():
         candidates.append(Path(explicit_path).expanduser())
+    project_root, _ = _project_root_from_entry(entry)
+    project_name = _project_scoped_kubeconfig_name(entry)
+    if project_root and project_name:
+        candidates.append(Path(project_root).expanduser() / ".kube" / project_name)
+    if project_root:
+        candidates.append(Path(project_root).expanduser() / ".kube" / "config")
     kube_path = os.environ.get("KUBECONFIG")
     if kube_path:
         candidates.append(Path(kube_path).expanduser())
-    project_name = _project_scoped_kubeconfig_name(entry)
     if project_name:
         candidates.append(Path.home() / ".kube" / project_name)
     candidates.append(Path.home() / ".kube" / "config")
@@ -1219,11 +1224,21 @@ def _local_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "",
     return deduped
 
 
+def _remote_shell_double_quote(value: str) -> str:
+    escaped = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _remote_kubeconfig_candidates(entry: Dict[str, Any], explicit_path: str = "", include_bootstrap_source: bool = False) -> List[str]:
     candidates: List[str] = []
     if explicit_path.strip():
         candidates.append(explicit_path.strip())
+    project_root, _ = _project_root_from_entry(entry)
     project_name = _project_scoped_kubeconfig_name(entry)
+    if project_root and project_name:
+        candidates.append(str(PurePosixPath(project_root) / ".kube" / project_name))
+    if project_root:
+        candidates.append(str(PurePosixPath(project_root) / ".kube" / "config"))
     if project_name:
         candidates.append(f"$HOME/.kube/{project_name}")
     candidates.append("$HOME/.kube/config")
@@ -1253,13 +1268,17 @@ def _remote_kubectl_command(entry: Dict[str, Any], command: str) -> str:
 
 def _classify_kubeconfig_source(detail: str, entry: Dict[str, Any], target_type: str) -> str:
     project_name = _project_scoped_kubeconfig_name(entry)
-    if not detail:
+    project_root, _ = _project_root_from_entry(entry)
+    value = str(detail or "")
+    if not value:
         return "missing"
-    if "/etc/rancher/rke2/rke2.yaml" in detail:
+    if "/etc/rancher/rke2/rke2.yaml" in value:
         return "bootstrap-source"
-    if project_name and f".kube/{project_name}" in detail:
+    if project_root and f"{project_root}/.kube/" in value:
+        return "remote-project-root" if target_type == "remote" else "project-root"
+    if project_name and f".kube/{project_name}" in value:
         return "remote-project-home" if target_type == "remote" else "project-home"
-    if ".kube/config" in detail:
+    if ".kube/config" in value:
         return "remote-home-default" if target_type == "remote" else "default-home"
     return "explicit" if target_type == "local" else "remote-explicit"
 
@@ -1319,8 +1338,9 @@ def _check_remote_prerequisite(entry: Dict[str, Any], prerequisite: str) -> Dict
         clauses = []
         for index, candidate in enumerate(candidates):
             prefix = "if" if index == 0 else "elif"
-            clauses.append(f"{prefix} test -f {candidate}; then echo {candidate};")
-        cmd = " ".join(clauses + ["else echo missing;", "fi"])
+            q_candidate = _remote_shell_double_quote(candidate)
+            clauses.append(f"{prefix} test -f {q_candidate}; then printf '%s\\n' {q_candidate};")
+        cmd = " ".join(clauses + ["else printf '%s\\n' missing;", "fi"])
     elif lower == "kibana_endpoint":
         ingress = shlex.quote(str(PurePosixPath(project_root) / "kibana" / "ingress.yaml"))
         route = shlex.quote(str(PurePosixPath(project_root) / "platform" / "openshift" / "route.yaml"))
@@ -1743,23 +1763,78 @@ def _serialize_sizing_messages(messages: List[Any] | tuple[Any, ...]) -> List[Di
     return serialized
 
 
+def _normalize_project_header(raw_header: Any) -> Dict[str, str]:
+    if not isinstance(raw_header, dict):
+        return {}
+    header: Dict[str, str] = {}
+    for field in ("name", "customer", "description", "project_id", "user_name"):
+        value = raw_header.get(field)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            header[field] = text
+    return header
+
+
+def _build_prefill_description(project_header: Dict[str, str], platform_detected: Optional[str]) -> str:
+    explicit = (project_header.get("description") or "").strip()
+    if explicit:
+        return explicit
+
+    name = (project_header.get("name") or "").strip()
+    customer = (project_header.get("customer") or "").strip()
+    project_id = (project_header.get("project_id") or "").strip()
+    user_name = (project_header.get("user_name") or "").strip()
+
+    parts: List[str] = []
+    if name and customer and customer.lower() != name.lower():
+        parts.append(f"{name} ({customer})")
+    elif name:
+        parts.append(name)
+    elif customer:
+        parts.append(customer)
+
+    if platform_detected:
+        parts.append(f"platform={platform_detected}")
+    if project_id:
+        parts.append(f"project_id={project_id}")
+    if user_name:
+        parts.append(f"owner={user_name}")
+
+    return " | ".join(parts)
+
+
 def _build_sizing_preview_payload(result: Any) -> Dict[str, Any]:
     model = result.model
     ctx = result.addon_context or {}
     pools = list(model.pools) if model else list(
         ((ctx.get("rke2") or {}).get("pools") or ((ctx.get("openshift") or {}).get("pools") or []))
     )
+    metadata = (model.metadata if model else ctx.get("metadata", {})) or {}
+    project_header = _normalize_project_header(metadata)
+    raw_payload = (ctx.get("raw") if isinstance(ctx.get("raw"), dict) else None) or (
+        model.raw if model and isinstance(model.raw, dict) else {}
+    )
+    generated_at = raw_payload.get("generated_at") or raw_payload.get("created_at") or raw_payload.get("timestamp")
+    platform_detected = model.platform_detected if model else ctx.get("platform_detected")
+
+    prefill_project_name = (project_header.get("name") or project_header.get("customer") or "").strip()
     return {
         "ok": result.fatal_error is None,
         "schema_version": model.schema_version if model else None,
         "source_format": model.source_format if model else None,
-        "platform_detected": model.platform_detected if model else None,
+        "platform_detected": platform_detected,
         "health_score": ctx.get("health_score"),
         "inputs": model.inputs if model else {},
         "summary": model.summary if model else {},
         "tiers": model.tiers if model else {},
         "components": model.components if model else {},
         "pools": pools,
+        "project_header": project_header,
+        "sizing_generated_at": generated_at,
+        "prefill_project_name": prefill_project_name,
+        "prefill_description": _build_prefill_description(project_header, platform_detected),
         "warnings": _serialize_sizing_messages(result.warnings),
         "fatal_error": _serialize_sizing_messages([result.fatal_error])[0] if result.fatal_error else None,
         "sizing_context_applied": result.addon_context is not None and result.fatal_error is None,
@@ -4196,6 +4271,23 @@ def _execute_project_script(
     if dangerous and not script.get("remote_gate", {}).get("ok", True):
         raise HTTPException(status_code=400, detail=f"remote readiness gate failed: {'; '.join(script.get('blocked_reasons') or ['remote diagnostics not ready'])}")
     script_env = {f"PI_ARG_{key.upper()}": value for key, value in supplied_arguments.items() if value.strip()}
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    if "PI_ARG_KUBECONFIG_PATH" not in script_env:
+        kube_check = next(
+            (
+                check
+                for check in (script.get("prerequisite_checks") or [])
+                if str(check.get("name") or "").strip().lower() == "kubeconfig"
+            ),
+            None,
+        )
+        if not kube_check:
+            kube_check = _check_remote_prerequisite(entry, "kubeconfig") if target_type == "remote" else _check_local_prerequisite(entry, "kubeconfig")
+        if kube_check and kube_check.get("ok"):
+            kube_path = _extract_kubeconfig_path(str(kube_check.get("detail") or "")).strip()
+            if kube_path and kube_path.lower() not in {"present", "connected"}:
+                script_env["PI_ARG_KUBECONFIG_PATH"] = kube_path
+                script_env.setdefault("KUBECONFIG", kube_path)
     project_root, remote_cfg = _project_root_from_entry(entry)
     if remote_cfg:
         env_prefix = " ".join(f"{key}={shlex.quote(value)}" for key, value in script_env.items())

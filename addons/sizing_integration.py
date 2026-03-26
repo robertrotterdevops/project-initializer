@@ -11,6 +11,7 @@ Zero external dependencies -- Python 3.9+ stdlib only.
 """
 
 import json
+import re
 from typing import Any, Dict, Optional
 
 
@@ -378,12 +379,30 @@ class SizingIntegrationGenerator:
         platform_name = platform_info["platform_name"]
         recommended_skill = platform_info["skill"]
         
-        # Helper to extract numeric value
-        def extract_num(val, default=0):
+        # Helpers to extract numeric values from sizing quantities
+        def extract_num(val: Any, default: float = 0.0) -> float:
             if isinstance(val, (int, float)):
-                return int(val)
+                return float(val)
             if isinstance(val, str):
-                return int(val.rstrip("GiTiBMK") or default)
+                match = re.search(r"-?\d+(?:\.\d+)?", val)
+                if match:
+                    return float(match.group(0))
+            return float(default)
+
+        def extract_cpu(val: Any, default: float = 0.0) -> float:
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                raw = val.strip().lower()
+                if raw.endswith("m"):
+                    try:
+                        return float(raw[:-1]) / 1000.0
+                    except ValueError:
+                        return default
+                try:
+                    return float(raw)
+                except ValueError:
+                    return default
             return default
         
         readme = f"""# Elasticsearch Cluster Sizing
@@ -477,14 +496,38 @@ This configuration is optimized for **{platform_name}** deployment.
 """
         
         # Summary totals
+        es_nodes = int(summary.get('total_nodes', 0) or 0)
+        es_vcpu = float(summary.get('total_vcpu', 0) or 0)
+        es_ram = float(summary.get('total_ram_gb', 0) or 0)
+        es_disk = float(summary.get('total_disk_gb', 0) or 0)
+
+        kibana_count = int((kibana or {}).get('count', 0) or 0)
+        kibana_ram = extract_num((kibana or {}).get('memory', '0Gi'), 0.0) * kibana_count
+        kibana_cpu = extract_cpu((kibana or {}).get('cpu', '0'), 0.0) * kibana_count
+        kibana_disk = 1 * kibana_count
+
+        fleet_count = int((fleet or {}).get('count', 0) or 0)
+        fleet_ram = extract_num((fleet or {}).get('memory', '0Gi'), 0.0) * fleet_count
+        fleet_cpu = extract_cpu((fleet or {}).get('cpu', '0'), 0.0) * fleet_count
+        fleet_disk = 10 * fleet_count
+
+        platform_nodes = es_nodes + kibana_count + fleet_count
+        platform_vcpu = round(es_vcpu + kibana_cpu + fleet_cpu, 2)
+        platform_ram = int(round(es_ram + kibana_ram + fleet_ram))
+        platform_disk = int(round(es_disk + kibana_disk + fleet_disk))
+
         readme += f"""## Resource Totals
 
 | Resource | Total |
 |----------|-------|
-| Nodes | {summary.get('total_nodes', 'N/A')} |
-| vCPU | {summary.get('total_vcpu', 'N/A')} cores |
-| RAM | {summary.get('total_ram_gb', 'N/A')} GB |
-| Local Disk | {summary.get('total_disk_gb', 'N/A')} GB |
+| Elasticsearch Nodes | {summary.get('total_nodes', 'N/A')} |
+| Elasticsearch vCPU | {summary.get('total_vcpu', 'N/A')} cores |
+| Elasticsearch RAM | {summary.get('total_ram_gb', 'N/A')} GB |
+| Elasticsearch Local Disk | {summary.get('total_disk_gb', 'N/A')} GB |
+| Platform Nodes (incl Kibana/Fleet) | {platform_nodes} |
+| Platform vCPU (incl Kibana/Fleet) | {platform_vcpu} cores |
+| Platform RAM (incl Kibana/Fleet) | {platform_ram} GB |
+| Platform Local Disk (incl Kibana/Fleet) | {platform_disk} GB |
 """
         
         # Add snapshot storage if frozen tier exists
@@ -634,6 +677,22 @@ load skill elasticsearch-openshift-sizing-assistant-legacy
             if isinstance(val, str):
                 return int(val.rstrip("GiTiBMK") or default)
             return default
+
+        def extract_cpu(val: Any, default: float = 0.0) -> float:
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                raw = val.strip().lower()
+                if raw.endswith("m"):
+                    try:
+                        return float(raw[:-1]) / 1000.0
+                    except ValueError:
+                        return default
+                try:
+                    return float(raw)
+                except ValueError:
+                    return default
+            return default
         
         # Hot tier (data nodes)
         hot = self.sizing_context.get("data_nodes", {})
@@ -681,10 +740,31 @@ load skill elasticsearch-openshift-sizing-assistant-legacy
             cpu = fleet.get("cpu", "2")
             lines.append(f"Fleet Server,{fleet.get('count', 1)},{mem},{cpu},10,Agent management")
         
-        # Totals row from summary
+        # Totals row from summary + system services (Kibana/Fleet)
         summary = self.sizing_context.get("summary", {})
         if summary:
-            lines.append(f"TOTAL,{summary.get('total_nodes', 0)},{summary.get('total_ram_gb', 0)},{summary.get('total_vcpu', 0)},{summary.get('total_disk_gb', 0)},Elasticsearch cluster totals")
+            es_nodes = int(summary.get("total_nodes", 0) or 0)
+            es_ram = float(summary.get("total_ram_gb", 0) or 0)
+            es_cpu = float(summary.get("total_vcpu", 0) or 0)
+            es_disk = float(summary.get("total_disk_gb", 0) or 0)
+
+            kib_count = int((kibana.get("count", 0) or 0) if kibana else 0)
+            kib_ram = extract_num((kibana or {}).get("memory", "0Gi"), 0) * kib_count
+            kib_cpu = extract_cpu((kibana or {}).get("cpu", 0), 0.0) * kib_count
+            kib_disk = 1 * kib_count
+
+            fleet_count = int((fleet.get("count", 0) or 0) if fleet else 0)
+            fleet_ram = extract_num((fleet or {}).get("memory", "0Gi"), 0) * fleet_count
+            fleet_cpu = extract_cpu((fleet or {}).get("cpu", 0), 0.0) * fleet_count
+            fleet_disk = 10 * fleet_count
+
+            total_nodes = es_nodes + kib_count + fleet_count
+            total_ram = int(round(es_ram + kib_ram + fleet_ram))
+            total_cpu = round(es_cpu + kib_cpu + fleet_cpu, 2)
+            total_disk = int(round(es_disk + kib_disk + fleet_disk))
+            lines.append(
+                f"TOTAL,{total_nodes},{total_ram},{total_cpu},{total_disk},Platform totals (Elasticsearch + Kibana + Fleet)"
+            )
         
         return "\n".join(lines)
     
@@ -729,11 +809,52 @@ load skill elasticsearch-openshift-sizing-assistant-legacy
         frozen = self.sizing_context.get("frozen_nodes", {})
         kibana = self.sizing_context.get("kibana", {})
         fleet = self.sizing_context.get("fleet_server", {})
-        
+
+        def extract_num(value: Any, default: float = 0.0) -> float:
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                match = re.search(r"-?\d+(?:\.\d+)?", value)
+                if match:
+                    return float(match.group(0))
+            return float(default)
+
+        def extract_cpu(value: Any, default: float = 0.0) -> float:
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                raw = value.strip().lower()
+                if raw.endswith("m"):
+                    try:
+                        return float(raw[:-1]) / 1000.0
+                    except ValueError:
+                        return default
+                try:
+                    return float(raw)
+                except ValueError:
+                    return default
+            return default
+
+        es_nodes = int(summary.get("total_nodes", 0) or 0)
+        es_vcpu = float(summary.get("total_vcpu", 0) or 0)
+        es_ram = float(summary.get("total_ram_gb", 0) or 0)
+
+        kibana_count = int((kibana or {}).get("count", 0) or 0)
+        kibana_cpu = extract_cpu((kibana or {}).get("cpu", 0), 0.0) * kibana_count
+        kibana_ram = extract_num((kibana or {}).get("memory", "0Gi"), 0.0) * kibana_count
+
+        fleet_count = int((fleet or {}).get("count", 0) or 0)
+        fleet_cpu = extract_cpu((fleet or {}).get("cpu", 0), 0.0) * fleet_count
+        fleet_ram = extract_num((fleet or {}).get("memory", "0Gi"), 0.0) * fleet_count
+
+        platform_nodes = es_nodes + kibana_count + fleet_count
+        platform_vcpu = round(es_vcpu + kibana_cpu + fleet_cpu, 2)
+        platform_ram = round(es_ram + kibana_ram + fleet_ram, 2)
+
         # Get platform info
         platform_key = self.platform.lower() if self.platform else "kubernetes"
         platform_info = PLATFORM_SKILL_MAP.get(platform_key, PLATFORM_SKILL_MAP["kubernetes"])
-        
+
         yaml_content = f"""# Elasticsearch Cluster Resource Requirements
 # Source: Sizing Report (Custom)
 # Platform: {platform_info['platform_name']}
@@ -757,6 +878,9 @@ data:
 # Total RAM: {summary.get('total_ram_gb', 0)} GB
 # Total Local Disk: {summary.get('total_disk_gb', 0)} GB
 # Snapshot Storage: {frozen.get('snapshot_storage_gb', 0)} GB
+# Platform Nodes (incl Kibana/Fleet): {platform_nodes}
+# Platform vCPU (incl Kibana/Fleet): {platform_vcpu}
+# Platform RAM (incl Kibana/Fleet): {platform_ram} GB
 #
 # ============================================================
 # Tier Breakdown

@@ -67,16 +67,16 @@ class ECKDeploymentGenerator:
         self.cold_nodes = self.sizing.get("cold_nodes")
         self.frozen_nodes = self.sizing.get("frozen_nodes")
         self.explicit_node_selectors = self.sizing.get("node_selectors") or {}
-        self.node_selectors = dict(self.explicit_node_selectors)
-        if not self.node_selectors:
-            self.node_selectors = {
-                "master": {"elasticsearch.k8s.elastic.co/tier": "master"},
-                "system": {"elasticsearch.k8s.elastic.co/tier": "system"},
-                "hot": {"elasticsearch.k8s.elastic.co/tier": "hot"},
-                "cold": {"elasticsearch.k8s.elastic.co/tier": "cold"},
-                "frozen": {"elasticsearch.k8s.elastic.co/tier": "frozen"},
-                "infra": {"elasticsearch.k8s.elastic.co/tier": "infra"},
-            }
+        self.node_selectors = {
+            "master": {"elasticsearch.k8s.elastic.co/tier": "master"},
+            "system": {"elasticsearch.k8s.elastic.co/tier": "system"},
+            "hot": {"elasticsearch.k8s.elastic.co/tier": "hot"},
+            "cold": {"elasticsearch.k8s.elastic.co/tier": "cold"},
+            "frozen": {"elasticsearch.k8s.elastic.co/tier": "frozen"},
+            "infra": {"elasticsearch.k8s.elastic.co/tier": "infra"},
+        }
+        if isinstance(self.explicit_node_selectors, dict):
+            self.node_selectors.update(self.explicit_node_selectors)
 
         # Kibana and Fleet from sizing
         self.kibana_config = self.sizing.get(
@@ -233,6 +233,12 @@ class ECKDeploymentGenerator:
     def _resolve_component_tier(self, preferred_tier: str, tier_config: Optional[Dict[str, Any]] = None) -> str:
         if isinstance(tier_config, dict) and (tier_config.get("node_selector") or tier_config.get("nodeSelector")):
             return preferred_tier
+        # Elasticsearch nodeSets should keep their explicit tier mapping even when
+        # count is currently zero (e.g. frozen disabled but preconfigured).
+        if preferred_tier in {"master", "system", "hot", "cold", "frozen"} and isinstance(
+            self.node_selectors.get(preferred_tier), dict
+        ):
+            return preferred_tier
         available = self._available_selector_tiers()
         fallback_order = [preferred_tier, "system", "master", "hot", "cold", "frozen", "infra"]
         for candidate in fallback_order:
@@ -377,29 +383,23 @@ class ECKDeploymentGenerator:
         return files
 
     def _generate_cluster_healthcheck_script(self) -> str:
-        kubeconfig_bootstrap = ""
-        if self.platform in {"rke2", "proxmox"}:
-            kubeconfig_bootstrap = f"""
-if [[ -z "${{KUBECONFIG:-}}" && -f "$INVENTORY_FILE" && "$(command -v sshpass || true)" != "" ]]; then
-  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/')
-  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/')
-  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/')
-  if [[ -n "$SERVER_IP" && -n "$SSH_USER" && -n "$SSH_PASS" ]]; then
-    mkdir -p "$(dirname "$KUBECONFIG_FILE")"
-    echo ">>> Fetching kubeconfig from $SSH_USER@$SERVER_IP"
-    sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$SSH_USER@$SERVER_IP" \
-      "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_FILE"
-    chmod 600 "$KUBECONFIG_FILE"
-    sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$KUBECONFIG_FILE"
-    export KUBECONFIG="$KUBECONFIG_FILE"
-    echo ">>> KUBECONFIG set to $KUBECONFIG"
+        kubeconfig_bootstrap = """if [[ -f "$ROOT_DIR/scripts/lib/kubeconfig.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/scripts/lib/kubeconfig.sh"
+  if pi_prepare_kubeconfig "$PLATFORM" "$INVENTORY_FILE" "$PROJECT_KUBECONFIG"; then
+    export PI_ARG_KUBECONFIG_PATH="${KUBECONFIG:-$PROJECT_KUBECONFIG}"
+  else
+    echo ">>> WARNING: kubeconfig is not currently available; health checks may be partial."
   fi
-fi
-"""
-        else:
-            kubeconfig_bootstrap = """
-if [[ -z "${KUBECONFIG:-}" ]]; then
-  echo ">>> KUBECONFIG is not set. For managed or externally delivered clusters, export kubeconfig before running this health check."
+elif [[ -n "${PI_ARG_KUBECONFIG_PATH:-}" && -f "${PI_ARG_KUBECONFIG_PATH}" ]]; then
+  export KUBECONFIG="${PI_ARG_KUBECONFIG_PATH}"
+elif [[ -n "${KUBECONFIG:-}" && -f "${KUBECONFIG}" ]]; then
+  echo ">>> Using exported KUBECONFIG at $KUBECONFIG"
+elif [[ -f "$PROJECT_KUBECONFIG" ]]; then
+  export KUBECONFIG="$PROJECT_KUBECONFIG"
+  export PI_ARG_KUBECONFIG_PATH="$PROJECT_KUBECONFIG"
+else
+  echo ">>> WARNING: KUBECONFIG is not set. Export kubeconfig before running this health check."
 fi
 """
 
@@ -410,8 +410,10 @@ NAMESPACE="{self.project_name}"
 ES_NAME="{self.project_name}"
 KB_NAME="{self.project_name}-kb"
 KIBANA_INGRESS="{self.project_name}-kibana"
-INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
-KUBECONFIG_FILE="$HOME/.kube/{self.project_name}"
+PLATFORM="{self.platform}"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"
+PROJECT_KUBECONFIG="${{PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/{self.project_name}}}"
 {kubeconfig_bootstrap}
 
 sep() {{ echo; echo "=== $* ==="; echo; }}
@@ -983,7 +985,7 @@ spec:
         # Parse memory for limits (same as requests for Kibana)
         memory_limit = memory
         cpu_limit = str(int(cpu) * 2) if str(cpu).isdigit() else cpu
-        node_selector = self._render_pod_node_selector_block("infra", self.kibana_config)
+        node_selector = self._render_pod_node_selector_block("system", self.kibana_config)
 
         return f"""apiVersion: kibana.k8s.elastic.co/v1
 kind: Kibana
@@ -1038,6 +1040,16 @@ spec:
   
   podTemplate:
     spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: CriticalAddonsOnly
+          operator: Exists
+{node_selector}
       containers:
         - name: kibana
           resources:
@@ -1046,8 +1058,8 @@ spec:
               cpu: "{cpu}"
             limits:
               memory: "{memory_limit}"
-              cpu: "{cpu_limit}"{node_selector}
-""".replace(f'cpu: "{cpu_limit}"{node_selector}', f'cpu: "{cpu_limit}"') + node_selector + "\n"
+              cpu: "{cpu_limit}"
+"""
 
     def _uses_inline_kibana_ingress(self) -> bool:
         """Return True when Kibana exposure should be generated in the kibana/ overlay."""
@@ -1103,7 +1115,7 @@ spec:
         count = self.fleet_config.get("count", 1)
         memory = self.fleet_config.get("memory", "1Gi")
         cpu, cpu_limit = self._fleet_cpu_values()
-        node_selector = self._render_deployment_pod_node_selector_block("infra", self.fleet_config)
+        node_selector = self._render_deployment_pod_node_selector_block("system", self.fleet_config)
 
         return f"""apiVersion: agent.k8s.elastic.co/v1alpha1
 kind: Agent
@@ -1135,6 +1147,15 @@ spec:
       spec:
         serviceAccountName: elastic-agent
         automountServiceAccountToken: true
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+          - key: node-role.kubernetes.io/master
+            operator: Exists
+            effect: NoSchedule
+          - key: CriticalAddonsOnly
+            operator: Exists
         containers:
           - name: agent
             resources:
@@ -1524,6 +1545,9 @@ commonLabels:
         tier_rows.append(
             f"| Kibana | {self.kibana_config.get('count', 1)} | {self.kibana_config.get('memory', '2Gi')} | {self.kibana_config.get('cpu', '1')} | - |"
         )
+        tier_rows.append(
+            f"| Fleet Server | {self.fleet_config.get('count', 1)} | {self.fleet_config.get('memory', '1Gi')} | {self.fleet_config.get('cpu', '500m')} | - |"
+        )
 
         tier_table = "\n".join(tier_rows)
 
@@ -1539,13 +1563,23 @@ This cluster was sized using an Elastic sizing export normalized by project-init
 - **Profile**: Multi-tier (Hot/Cold/Frozen)
 """
 
-        # Total resources
+        # Total Elasticsearch nodes
         total_nodes = (
             self.master_nodes.get("count", 3)
             + self.data_nodes.get("count", 3)
             + (self.cold_nodes.get("count", 0) if self.cold_nodes else 0)
             + (self.frozen_nodes.get("count", 0) if self.frozen_nodes else 0)
         )
+
+        single_master_eligible_note = ""
+        if self.master_count <= 0 and int(self.data_nodes.get("count", 0) or 0) <= 1:
+            single_master_eligible_note = """
+## HA Note
+
+This sizing uses a **single master-eligible node on the hot tier** (no dedicated masters).
+This is acceptable for lab/test environments, but **not high availability**.
+For production HA, use at least 3 master-eligible nodes across failure domains.
+"""
 
         hot_storage_class = self._resolve_storage_class(
             self.data_nodes.get("storage_class"), self._default_storage_class_for_tier("hot")
@@ -1562,8 +1596,10 @@ This cluster was sized using an Elastic sizing export normalized by project-init
 ECK-managed Elasticsearch cluster with the following components:
 - **Elasticsearch {self.es_version}**: {total_nodes} nodes (multi-tier architecture)
 - **Kibana {self.es_version}**: {self.kibana_config.get("count", 1)} instance(s) for visualization
+- **Fleet Server {self.es_version}**: {self.fleet_config.get("count", 1)} instance(s) for agent management
 - **Elastic Agent**: Fleet-managed for log/metric collection
 {sizing_note}
+{single_master_eligible_note}
 ## Prerequisites
 
 1. ECK Operator installed (v{self.eck_version}+):

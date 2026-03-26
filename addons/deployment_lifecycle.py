@@ -40,12 +40,12 @@ class DeploymentLifecycleGenerator:
         self.context = context or {}
         self.platform = (self.context.get("platform") or "").lower()
         self.gitops_tool = (self.context.get("gitops_tool") or "").lower()
-        sizing_context = self.context.get("sizing_context") or {}
+        self.sizing_context = self.context.get("sizing_context") or {}
         self.eck_enabled = bool(
-            sizing_context
+            self.sizing_context
             and (
-                sizing_context.get("eck_operator")
-                or sizing_context.get("source") == "sizing_report"
+                self.sizing_context.get("eck_operator")
+                or self.sizing_context.get("source") == "sizing_report"
             )
         )
 
@@ -54,15 +54,92 @@ class DeploymentLifecycleGenerator:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "\n"
-            f'PROJECT_NAME="{self.project_name}"\n'
-            'ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"\n'
+            f'PROJECT_NAME=\"{self.project_name}\"\n'
+            f'PLATFORM=\"{self.platform}\"\n'
+            'ROOT_DIR=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\n'
+            'INVENTORY_FILE=\"$ROOT_DIR/ansible/inventory.ini\"\n'
+            'PROJECT_KUBECONFIG=\"${PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/$PROJECT_NAME}\"\n'
+            "\n"
+            'if [[ -f \"$ROOT_DIR/scripts/lib/kubeconfig.sh\" ]]; then\n'
+            '  # shellcheck source=/dev/null\n'
+            '  source \"$ROOT_DIR/scripts/lib/kubeconfig.sh\"\n'
+            'fi\n'
+            "\n"
+            'pi_prepare_script_kubeconfig() {\n'
+            '  if declare -F pi_require_kubeconfig >/dev/null 2>&1; then\n'
+            '    if pi_require_kubeconfig \"$PLATFORM\" \"$INVENTORY_FILE\" \"$PROJECT_KUBECONFIG\"; then\n'
+            '      export PI_ARG_KUBECONFIG_PATH=\"${KUBECONFIG:-$PROJECT_KUBECONFIG}\"\n'
+            '      return 0\n'
+            '    fi\n'
+            '    return 1\n'
+            '  fi\n'
+            '  if [[ -n \"${PI_ARG_KUBECONFIG_PATH:-}\" && -f \"${PI_ARG_KUBECONFIG_PATH}\" ]]; then\n'
+            '    export KUBECONFIG=\"${PI_ARG_KUBECONFIG_PATH}\"\n'
+            '    return 0\n'
+            '  fi\n'
+            '  if [[ -n \"${KUBECONFIG:-}\" && -f \"${KUBECONFIG}\" ]]; then\n'
+            '    return 0\n'
+            '  fi\n'
+            '  if [[ -f \"$PROJECT_KUBECONFIG\" ]]; then\n'
+            '    export KUBECONFIG=\"$PROJECT_KUBECONFIG\"\n'
+            '    export PI_ARG_KUBECONFIG_PATH=\"$PROJECT_KUBECONFIG\"\n'
+            '    return 0\n'
+            '  fi\n'
+            '  return 1\n'
+            '}\n'
             "\n"
         )
+
+    def _kubeconfig_helper_script(self) -> str:
+        try:
+            from addons.terraform_gitops_trigger import _kubeconfig_helper_script as shared_helper
+
+            return shared_helper()
+        except Exception:
+            return """#!/usr/bin/env bash
+set -euo pipefail
+
+pi_resolve_kubeconfig() {
+  local target_path="${1:-}"
+  local candidate
+  for candidate in \
+    "${PI_ARG_KUBECONFIG_PATH:-}" \
+    "${KUBECONFIG:-}" \
+    "$target_path" \
+    "$HOME/.kube/config" \
+    "/etc/rancher/rke2/rke2.yaml"; do
+    [[ -z "$candidate" ]] && continue
+    if [[ -f "$candidate" ]]; then
+      export KUBECONFIG="$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+pi_prepare_kubeconfig() {
+  local target_path="${3:-}"
+  pi_resolve_kubeconfig "$target_path" && return 0
+  return 1
+}
+
+pi_require_kubeconfig() {
+  pi_prepare_kubeconfig "$@" || {
+    echo "ERROR: kubeconfig not available (checked PI_ARG_KUBECONFIG_PATH, project-local .kube, and home .kube)."
+    return 1
+  }
+}
+"""
 
     def _mirror_secrets_script(self) -> str:
         return (
             self._script_header()
-            + f"""echo "[1/3] Waiting for Elasticsearch to be ready (this may take several minutes)..."
+            + f"""if ! pi_prepare_script_kubeconfig; then
+  echo "ERROR: kubeconfig is required for secret mirroring"
+  exit 1
+fi
+
+echo "[1/3] Waiting for Elasticsearch to be ready (this may take several minutes)..."
 ELAPSED=0
 while [ $ELAPSED -lt 900 ]; do
   PHASE=$(kubectl get elasticsearch/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
@@ -80,10 +157,15 @@ echo "[2/3] Creating observability namespace..."
 kubectl create namespace observability 2>/dev/null || true
 
 echo "[3/3] Mirroring ECK elastic-user secret to observability namespace..."
+ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
+  -o go-template='{{{{.data.elastic | base64decode}}}}' 2>/dev/null || true)"
+if [ -z "$ES_PASS" ]; then
+  echo "ERROR: Elasticsearch elastic-user password is empty or unavailable; refusing to mirror blank secret"
+  exit 1
+fi
 kubectl create secret generic otel-es-credentials \\
   --from-literal=username=elastic \\
-  --from-literal=password="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
-    -o go-template='{{{{.data.elastic | base64decode}}}}')" \\
+  --from-literal=password="$ES_PASS" \\
   -n observability --dry-run=client -o yaml | kubectl apply -f -
 
 echo "Secret mirroring complete."
@@ -93,7 +175,12 @@ echo "Secret mirroring complete."
     def _fleet_output_script(self) -> str:
         return (
             self._script_header()
-            + f"""echo "[1/4] Waiting for Kibana to be ready..."
+            + f"""if ! pi_prepare_script_kubeconfig; then
+  echo "ERROR: kubeconfig is required for Fleet output configuration"
+  exit 1
+fi
+
+echo "[1/4] Waiting for Kibana to be ready..."
 ELAPSED=0
 while [ $ELAPSED -lt 300 ]; do
   KB_NODES=$(kubectl get kibana/${{PROJECT_NAME}} -n ${{PROJECT_NAME}} \\
@@ -142,7 +229,12 @@ fi
     def _import_dashboards_script(self) -> str:
         return (
             self._script_header()
-            + f"""echo "[1/3] Retrieving Elasticsearch credentials..."
+            + f"""if ! pi_prepare_script_kubeconfig; then
+  echo "ERROR: kubeconfig is required for dashboard import"
+  exit 1
+fi
+
+echo "[1/3] Retrieving Elasticsearch credentials..."
 ES_PASS="$(kubectl get secret ${{PROJECT_NAME}}-es-elastic-user -n ${{PROJECT_NAME}} \\
   -o go-template='{{{{.data.elastic | base64decode}}}}')"
 
@@ -182,16 +274,123 @@ echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print('OTE
         )
 
     def _preflight_check_script(self) -> str:
+        def _safe_int(value: Any, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        hot_count = _safe_int((self.sizing_context.get("data_nodes") or {}).get("count"), 1 if self.eck_enabled else 0)
+        cold_count = _safe_int((self.sizing_context.get("cold_nodes") or {}).get("count"), 0)
+        frozen_count = _safe_int((self.sizing_context.get("frozen_nodes") or {}).get("count"), 0)
+        kibana_count = _safe_int((self.sizing_context.get("kibana") or {}).get("count"), 1 if self.eck_enabled else 0)
+        fleet_count = _safe_int((self.sizing_context.get("fleet_server") or {}).get("count"), 1 if self.eck_enabled else 0)
+
+        expect_hot = hot_count > 0
+        expect_cold = cold_count > 0
+        expect_frozen = frozen_count > 0
+        expect_system = (kibana_count + fleet_count) > 0
+
         return (
             self._script_header()
             + f"""PASS=0
 FAIL=0
+EXPECT_HOT={str(expect_hot).lower()}
+EXPECT_COLD={str(expect_cold).lower()}
+EXPECT_FROZEN={str(expect_frozen).lower()}
+EXPECT_SYSTEM={str(expect_system).lower()}
+
+if ! pi_prepare_script_kubeconfig; then
+  echo "WARNING: kubeconfig could not be resolved; connectivity and node checks may fail."
+fi
 
 echo "=== Pre-flight checks for FluxCD deployment ==="
 echo
 
-# [1/3] Cluster connectivity
-echo "[1/3] Checking cluster connectivity..."
+require_manifest_selector() {{
+  local file="$1"
+  local tier="$2"
+  local component="$3"
+
+  if [ ! -f "$file" ]; then
+    echo "  ERROR: $component manifest not found: $file"
+    echo "  Fix: regenerate project scaffolding so $component manifest exists."
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  if grep -Eq 'elasticsearch\.k8s\.elastic\.co/tier"?:[[:space:]]*"?'"$tier"'"?' "$file"; then
+    echo "  PASS: $component selector requires tier=$tier"
+    PASS=$((PASS + 1))
+  else
+    echo "  ERROR: $component selector is not tier=$tier"
+    echo "  Fix: set nodeSelector elasticsearch.k8s.elastic.co/tier=$tier in $file"
+    FAIL=$((FAIL + 1))
+  fi
+}}
+
+require_node_label() {{
+  local tier="$1"
+  local component="$2"
+  if kubectl get nodes -l "elasticsearch.k8s.elastic.co/tier=$tier" -o name 2>/dev/null | grep -q .; then
+    echo "  PASS: Node label exists for $component (tier=$tier)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ERROR: No Kubernetes node found with label elasticsearch.k8s.elastic.co/tier=$tier"
+    echo "  Fix: label at least one node for $component before deployment."
+    FAIL=$((FAIL + 1))
+  fi
+}}
+
+extract_csv_storage() {{
+  local component="$1"
+  awk -F, -v comp="$component" '$1 == comp {{ gsub(/[^0-9.]/, "", $5); print $5; exit }}' "$ROOT_DIR/sizing/capacity-planning.csv" 2>/dev/null || true
+}}
+
+extract_manifest_storage() {{
+  local nodeset="$1"
+  awk -v target="$nodeset" '
+    /^[[:space:]]*-[[:space:]]name:[[:space:]]*/ {{
+      if (in_ns && $0 !~ "name:[[:space:]]*" target "$") in_ns=0
+      if ($0 ~ "name:[[:space:]]*" target "$") {{ in_ns=1; next }}
+    }}
+    in_ns && /storage:[[:space:]]*/ {{
+      val=$2
+      gsub(/"/, "", val)
+      gsub(/Gi/, "", val)
+      print val
+      exit
+    }}
+  ' "$ROOT_DIR/elasticsearch/cluster.yaml" 2>/dev/null || true
+}}
+
+check_storage_match() {{
+  local csv_name="$1"
+  local nodeset="$2"
+  local expected
+  local actual
+  expected="$(extract_csv_storage "$csv_name")"
+  actual="$(extract_manifest_storage "$nodeset")"
+
+  if [ -z "$expected" ] || [ -z "$actual" ]; then
+    echo "  ERROR: Could not resolve storage comparison for $nodeset (csv='$expected', manifest='$actual')"
+    echo "  Fix: verify sizing/capacity-planning.csv and elasticsearch/cluster.yaml contain $nodeset storage values."
+    FAIL=$((FAIL + 1))
+    return
+  fi
+
+  if [ "$expected" = "$actual" ]; then
+    echo "  PASS: Storage matches for $nodeset ($actual Gi)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ERROR: Storage mismatch for $nodeset (csv=$expected Gi, manifest=$actual Gi)"
+    echo "  Fix: align elasticsearch/cluster.yaml storage with sizing/capacity-planning.csv"
+    FAIL=$((FAIL + 1))
+  fi
+}}
+
+# [1/7] Cluster connectivity
+echo "[1/7] Checking cluster connectivity..."
 if kubectl cluster-info >/dev/null 2>&1; then
   echo "  PASS: Kubernetes API is reachable."
   PASS=$((PASS + 1))
@@ -201,8 +400,8 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# [2/3] Flux installation
-echo "[2/3] Checking Flux installation..."
+# [2/7] Flux installation
+echo "[2/7] Checking Flux installation..."
 if kubectl get deployment -n flux-system kustomize-controller source-controller -o name >/dev/null 2>&1; then
   echo "  PASS: Flux controllers found in flux-system namespace."
   PASS=$((PASS + 1))
@@ -212,8 +411,8 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# [3/3] Required CRDs
-echo "[3/3] Checking required Flux CRDs..."
+# [3/7] Required CRDs
+echo "[3/7] Checking required Flux CRDs..."
 if kubectl get crd kustomizations.kustomize.toolkit.fluxcd.io gitrepositories.source.toolkit.fluxcd.io >/dev/null 2>&1; then
   echo "  PASS: Required Flux CRDs are present."
   PASS=$((PASS + 1))
@@ -221,6 +420,88 @@ else
   echo "  ERROR: Required Flux CRDs missing (kustomizations.kustomize.toolkit.fluxcd.io, gitrepositories.source.toolkit.fluxcd.io)."
   echo "  Fix: flux install --namespace=flux-system"
   FAIL=$((FAIL + 1))
+fi
+
+# [4/7] Manifest selector validation
+echo "[4/7] Checking manifest selectors for tier placement..."
+if [ "$EXPECT_HOT" = "true" ]; then
+  require_manifest_selector "$ROOT_DIR/elasticsearch/cluster.yaml" "hot" "Elasticsearch hot nodeset"
+fi
+if [ "$EXPECT_COLD" = "true" ]; then
+  require_manifest_selector "$ROOT_DIR/elasticsearch/cluster.yaml" "cold" "Elasticsearch cold nodeset"
+fi
+if [ "$EXPECT_FROZEN" = "true" ]; then
+  require_manifest_selector "$ROOT_DIR/elasticsearch/cluster.yaml" "frozen" "Elasticsearch frozen nodeset"
+fi
+if [ "$EXPECT_SYSTEM" = "true" ]; then
+  require_manifest_selector "$ROOT_DIR/kibana/kibana.yaml" "system" "Kibana"
+  require_manifest_selector "$ROOT_DIR/agents/fleet-server.yaml" "system" "Fleet Server"
+fi
+
+# [5/7] Node label existence
+echo "[5/7] Checking Kubernetes node labels against selectors..."
+if [ "$EXPECT_HOT" = "true" ]; then
+  require_node_label "hot" "Elasticsearch hot tier"
+fi
+if [ "$EXPECT_COLD" = "true" ]; then
+  require_node_label "cold" "Elasticsearch cold tier"
+fi
+if [ "$EXPECT_FROZEN" = "true" ]; then
+  require_node_label "frozen" "Elasticsearch frozen tier"
+fi
+if [ "$EXPECT_SYSTEM" = "true" ]; then
+  require_node_label "system" "Kibana/Fleet system services"
+fi
+
+# [6/7] System taints vs tolerations
+echo "[6/7] Checking system node taints and service tolerations..."
+if [ "$EXPECT_SYSTEM" = "true" ]; then
+  SYSTEM_TAINT_KEYS=$(kubectl get nodes -l "elasticsearch.k8s.elastic.co/tier=system" \
+    -o jsonpath='{{range .items[*].spec.taints[*]}}{{.key}}{{"\\n"}}{{end}}' 2>/dev/null | sed '/^$/d' | sort -u || true)
+  if [ -z "$SYSTEM_TAINT_KEYS" ]; then
+    echo "  PASS: No taints detected on system nodes."
+    PASS=$((PASS + 1))
+  else
+    MISSING_TOL=0
+    for TAINT_KEY in $SYSTEM_TAINT_KEYS; do
+      if ! grep -q "$TAINT_KEY" "$ROOT_DIR/kibana/kibana.yaml"; then
+        echo "  ERROR: Kibana missing toleration for system taint key '$TAINT_KEY'"
+        MISSING_TOL=1
+      fi
+      if ! grep -q "$TAINT_KEY" "$ROOT_DIR/agents/fleet-server.yaml"; then
+        echo "  ERROR: Fleet Server missing toleration for system taint key '$TAINT_KEY'"
+        MISSING_TOL=1
+      fi
+    done
+    if [ "$MISSING_TOL" -eq 0 ]; then
+      echo "  PASS: Kibana/Fleet tolerations cover system node taints."
+      PASS=$((PASS + 1))
+    else
+      echo "  Fix: add matching tolerations to kibana/kibana.yaml and agents/fleet-server.yaml"
+      FAIL=$((FAIL + 1))
+    fi
+  fi
+else
+  echo "  PASS: No system-service placement requested."
+  PASS=$((PASS + 1))
+fi
+
+# [7/7] Storage consistency
+echo "[7/7] Checking storage values against sizing summary..."
+if [ ! -f "$ROOT_DIR/sizing/capacity-planning.csv" ] || [ ! -f "$ROOT_DIR/elasticsearch/cluster.yaml" ]; then
+  echo "  ERROR: Missing sizing/capacity-planning.csv or elasticsearch/cluster.yaml"
+  echo "  Fix: regenerate project files before running preflight checks."
+  FAIL=$((FAIL + 1))
+else
+  if [ "$EXPECT_HOT" = "true" ]; then
+    check_storage_match "Hot Tier Nodes" "hot"
+  fi
+  if [ "$EXPECT_COLD" = "true" ]; then
+    check_storage_match "Cold Tier Nodes" "cold"
+  fi
+  if [ "$EXPECT_FROZEN" = "true" ]; then
+    check_storage_match "Frozen Tier Nodes" "frozen"
+  fi
 fi
 
 echo
@@ -249,12 +530,14 @@ exit 0
         to_array = " ".join(str(t) for t in timeouts)
 
         return (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            "\n"
-            f'PROJECT_NAME="{pn}"\n'
-            "\n"
-            f"KUSTOMIZATIONS=({ks_array})\n"
+            self._script_header()
+            + """if ! pi_prepare_script_kubeconfig; then
+  echo "ERROR: kubeconfig is required for deployment verification"
+  exit 1
+fi
+
+"""
+            + f"KUSTOMIZATIONS=({ks_array})\n"
             f"TIMEOUTS=({to_array})\n"
             "POLL_INTERVAL=30\n"
             "OVERALL_RESULT=0\n"
@@ -340,12 +623,14 @@ exit 0
         )
 
         return (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            "\n"
-            f'PROJECT_NAME="{pn}"\n'
-            "\n"
-            f"KUSTOMIZATIONS=({ks_array})\n"
+            self._script_header()
+            + """if ! pi_prepare_script_kubeconfig; then
+  echo "ERROR: kubeconfig is required for rollback operations"
+  exit 1
+fi
+
+"""
+            + f"KUSTOMIZATIONS=({ks_array})\n"
             "\n"
             'echo "[1/3] Suspending all Flux kustomizations..."\n'
             "for KSNAME in \"${KUSTOMIZATIONS[@]}\"; do\n"
@@ -454,6 +739,7 @@ exit 0
             Dict mapping filepath to script content.
         """
         return {
+            "scripts/lib/kubeconfig.sh": self._kubeconfig_helper_script(),
             "scripts/mirror-secrets.sh": self._mirror_secrets_script(),
             "scripts/fleet-output.sh": self._fleet_output_script(),
             "scripts/import-dashboards.sh": self._import_dashboards_script(),

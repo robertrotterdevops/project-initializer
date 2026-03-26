@@ -125,6 +125,129 @@ def prepare_template_context(analysis_result: Dict) -> Dict:
 # ------------------------------------------------------------------
 
 
+def _string_or_na(value: object, fallback: str = "n/a") -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text or fallback
+
+
+def _int_or_zero(value: object) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_readme_sizing_section(sizing_context: Optional[Dict], context: Dict) -> str:
+    if not sizing_context:
+        return ""
+
+    metadata = sizing_context.get("metadata") or {}
+    summary = sizing_context.get("summary") or {}
+    inputs = sizing_context.get("inputs") or {}
+    raw = sizing_context.get("raw") or {}
+
+    project_name = _string_or_na(metadata.get("name"))
+    customer = _string_or_na(metadata.get("customer"))
+    project_description = _string_or_na(metadata.get("description"))
+    project_id = _string_or_na(metadata.get("project_id"))
+    user_name = _string_or_na(metadata.get("user_name"))
+
+    platform = _string_or_na(
+        sizing_context.get("platform_detected") or context.get("platform") or context.get("platform_display")
+    )
+    health_score = _string_or_na(sizing_context.get("health_score"))
+
+    ingest_per_day = _string_or_na(
+        inputs.get("daily_ingest_gb")
+        or inputs.get("ingest_gb_per_day")
+        or inputs.get("ingest_per_day_gb")
+    )
+    retention_days = _string_or_na(
+        inputs.get("retention_days")
+        or inputs.get("total_retention_days")
+    )
+    workload_type = _string_or_na(inputs.get("workload_type"))
+
+    hot = sizing_context.get("data_nodes") or {}
+    cold = sizing_context.get("cold_nodes") or {}
+    frozen = sizing_context.get("frozen_nodes") or {}
+    kibana = sizing_context.get("kibana") or {}
+    fleet = sizing_context.get("fleet_server") or {}
+
+    hot_count = _int_or_zero(hot.get("count"))
+    cold_count = _int_or_zero(cold.get("count"))
+    frozen_count = _int_or_zero(frozen.get("count"))
+
+    pool_root = (
+        sizing_context.get("rke2")
+        or sizing_context.get("openshift")
+        or sizing_context.get("aks")
+        or {}
+    )
+    pools = list(pool_root.get("pools") or [])
+
+    generated_at = _string_or_na(
+        raw.get("generated_at")
+        or raw.get("created_at")
+        or raw.get("timestamp")
+    )
+
+    lines = [
+        "",
+        "## Deployment Snapshot",
+        "",
+        "### Project Header (from sizing input)",
+        f"- Project Name: `{project_name}`",
+        f"- Customer: `{customer}`",
+        f"- Description: {project_description}",
+        f"- Project ID: `{project_id}`",
+        f"- Owner / User: `{user_name}`",
+        "",
+        "### Cluster Details",
+        f"- Platform: `{platform}`",
+        f"- Health Score: `{health_score}/100`",
+        f"- Total Nodes: `{_string_or_na(summary.get('total_nodes'))}`",
+        f"- Data Nodes: `{_string_or_na(summary.get('total_data_nodes'))}`",
+        f"- Workload Type: `{workload_type}`",
+        f"- Ingest per Day: `{ingest_per_day} GB`",
+        f"- Retention: `{retention_days} days`",
+        "",
+        "### Tier Allocation",
+        f"- Hot Tier: count={hot_count}, cpu={_string_or_na(hot.get('cpu'))}, ram={_string_or_na(hot.get('memory'))}, storage={_string_or_na(hot.get('storage'))}",
+        f"- Cold Tier: count={cold_count}, cpu={_string_or_na(cold.get('cpu'))}, ram={_string_or_na(cold.get('memory'))}, storage={_string_or_na(cold.get('storage'))}",
+        f"- Frozen Tier: count={frozen_count}, cpu={_string_or_na(frozen.get('cpu'))}, ram={_string_or_na(frozen.get('memory'))}, storage={_string_or_na(frozen.get('storage'))}",
+        "",
+        "### Supporting Services",
+        f"- Kibana Pods: `{_string_or_na(kibana.get('count'))}` (cpu={_string_or_na(kibana.get('cpu'))}, ram={_string_or_na(kibana.get('memory'))})",
+        f"- Fleet Server Pods: `{_string_or_na(fleet.get('count'))}` (cpu={_string_or_na(fleet.get('cpu'))}, ram={_string_or_na(fleet.get('memory'))})",
+    ]
+
+    if pools:
+        lines.append("")
+        lines.append("### Pool Layout")
+        for pool in pools:
+            lines.append(
+                f"- {pool.get('name', 'pool')}: nodes={_string_or_na(pool.get('nodes') or pool.get('node_count'))}, "
+                f"vcpu/node={_string_or_na(pool.get('vcpu_per_node'))}, "
+                f"ram/node={_string_or_na(pool.get('ram_gb_per_node'))}Gi, "
+                f"disk/node={_string_or_na(pool.get('disk_gb_per_node') or pool.get('disk_gb'))}Gi"
+            )
+
+    lines.extend(
+        [
+            "",
+            "### Dates",
+            f"- Sizing Export Generated: `{generated_at}`",
+            f"- Scaffold Generated: `{_string_or_na(context.get('timestamp'))}`",
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 def create_project_structure(base_path: str, structure: List[str]) -> List[str]:
     """Create directory structure. Items ending with / are dirs, else files."""
     created = []
@@ -143,7 +266,12 @@ def create_project_structure(base_path: str, structure: List[str]) -> List[str]:
     return created
 
 
-def generate_readme(base_path: str, context: Dict, template_path: str) -> str:
+def generate_readme(
+    base_path: str,
+    context: Dict,
+    template_path: str,
+    sizing_context: Optional[Dict] = None,
+) -> str:
     """Render and write README.md."""
     try:
         with open(template_path, "r") as fh:
@@ -152,6 +280,7 @@ def generate_readme(base_path: str, context: Dict, template_path: str) -> str:
         template = "# {{project_name}}\n\n{{project_description}}\n"
 
     content = render_template(template, context)
+    content = content.rstrip() + "\n" + _format_readme_sizing_section(sizing_context, context)
     out = os.path.join(base_path, "README.md")
     return write_text_file(out, content)
 
@@ -429,6 +558,7 @@ def initialize_project(
         target_directory,
         context,
         custom.get("README.md", str(tmpl_base / "README_template.md")),
+        sizing_context=sizing_context,
     )
     agents = generate_agents_doc(
         target_directory,

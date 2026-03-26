@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-
 ADDON_META = {
     "name": "rke2_bootstrap",
     "version": "1.0",
@@ -56,7 +55,7 @@ echo "[3/4] Running RKE2 bootstrap playbook..."
 ansible-galaxy install -r ansible/requirements.yml || true
 ansible-playbook -i ansible/inventory.ini ansible/rke2-bootstrap.yml
 
-echo "[4/4] Bootstrap complete. kubeconfig expected at ~/.kube/config or /etc/rancher/rke2/rke2.yaml on server nodes."
+echo "[4/4] Bootstrap complete. kubeconfig written to ~/.kube/config (API server address rewritten to server IP)."
 """
 
 
@@ -442,6 +441,38 @@ def _ansible_playbook() -> str:
       until: agent_result.finished
       retries: 40
       delay: 15
+
+- name: Fetch kubeconfig to local machine
+  hosts: rke2_servers[0]
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Fetch kubeconfig from server node
+      ansible.builtin.fetch:
+        src: /etc/rancher/rke2/rke2.yaml
+        dest: /tmp/rke2.yaml
+        flat: true
+
+    - name: Rewrite loopback address to actual server IP
+      delegate_to: localhost
+      ansible.builtin.replace:
+        path: /tmp/rke2.yaml
+        regexp: '127\\.0\\.0\\.1'
+        replace: "{{ ansible_host }}"
+
+    - name: Ensure ~/.kube directory exists
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.kube"
+        state: directory
+        mode: '0700'
+
+    - name: Install kubeconfig to ~/.kube/config
+      delegate_to: localhost
+      ansible.builtin.copy:
+        src: /tmp/rke2.yaml
+        dest: "{{ lookup('env', 'HOME') }}/.kube/config"
+        mode: '0600'
 """
 
 
@@ -480,7 +511,9 @@ This project includes an automated post-Terraform RKE2 bootstrap stage.
 """
 
 
-def main(project_name: str, description: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+def main(
+    project_name: str, description: str, context: Optional[Dict[str, Any]] = None
+) -> Dict[str, str]:
     ctx = context or {}
     if (ctx.get("iac_tool") or "").lower() != "terraform":
         return {}
@@ -497,7 +530,9 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     return {
         "scripts/bootstrap-rke2.sh": _bootstrap_script(project_name),
         "scripts/render-rke2-inventory.py": _inventory_renderer(),
-        "ansible/inventory.tpl.ini": _inventory_template(pool_names if pool_names else None),
+        "ansible/inventory.tpl.ini": _inventory_template(
+            pool_names if pool_names else None
+        ),
         "ansible/rke2-bootstrap.yml": _ansible_playbook(),
         "ansible/requirements.yml": _requirements(),
         "docs/RKE2_BOOTSTRAP.md": _docs(),

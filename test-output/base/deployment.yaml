@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-project
+  labels:
+    app: test-project
+    managed-by: flux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-project
+  template:
+    metadata:
+      labels:
+        app: test-project
+    spec:
+      containers:
+      - name: test-project
+        image: test-project:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5

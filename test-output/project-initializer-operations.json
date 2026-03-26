@@ -1,0 +1,23 @@
+{
+  "schema_version": "project-initializer-operations.v1",
+  "generated_at": "2026-03-25T07:07:06.843992Z",
+  "generator": {
+    "name": "project-initializer",
+    "version": "dev"
+  },
+  "project": {
+    "name": "test-project",
+    "path": "/Users/robert.rotter/Projects/web-app-dev/project-initializer/test-output",
+    "platform": "",
+    "gitops_tool": "",
+    "iac_tool": ""
+  },
+  "operations": [],
+  "runbooks": [
+    {
+      "platform": "generic",
+      "note": "Follow the ordered operations to move from validation to deployment safely.",
+      "steps": []
+    }
+  ]
+}

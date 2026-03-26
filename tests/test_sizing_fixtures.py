@@ -88,6 +88,78 @@ class TestSizingFixtures(unittest.TestCase):
             self.assertIn('# KIBANA:', requirements)
             self.assertIn("Component,Count,Memory (Gi),CPU (cores),Storage (Gi),Notes", csv)
             self.assertIn("Hot Tier Nodes,1,8,2,100,Primary indexing (hot tier)", csv)
+            self.assertIn("Platform totals (Elasticsearch + Kibana + Fleet)", csv)
+
+    def test_readme_includes_project_header_metadata_from_json(self) -> None:
+        payload = {
+            "schema_version": "es-sizing-rke2.v1",
+            "platform": "rke2",
+            "generated_at": "2026-03-25T10:00:00Z",
+            "project": {
+                "name": "OS-6",
+                "customer": "OS-6",
+                "description": "RKE2-dev",
+                "project_id": "1",
+                "user_name": "XX",
+            },
+            "elasticsearch": {
+                "inputs": {
+                    "ingest_gb_per_day": 1,
+                    "total_retention_days": 365,
+                    "workload_type": "mixed",
+                },
+                "summary": {
+                    "cluster_health_score": 95,
+                    "total_nodes": 2,
+                    "total_data_nodes": 2,
+                    "total_master_nodes": 0,
+                },
+                "tiers": [
+                    {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100},
+                    {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100},
+                    {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0},
+                ],
+            },
+            "rke2": {
+                "pools": [
+                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 8, "ram_gb_per_node": 32, "disk_gb_per_node": 100},
+                    {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 8, "ram_gb_per_node": 32, "disk_gb_per_node": 100},
+                    {
+                        "name": "system_pool",
+                        "nodes": 1,
+                        "vcpu_per_node": 8,
+                        "ram_gb_per_node": 32,
+                        "disk_gb_per_node": 80,
+                        "composition": {"kibana_pods": 1, "fleet_pods": 1},
+                    },
+                ],
+                "stack_components": {"vcpu": 4, "ram_gb": 8},
+            },
+        }
+
+        with tempfile.TemporaryDirectory(prefix="pi-readme-metadata-") as td:
+            contract_path = Path(td) / "sizing.json"
+            contract_path.write_text(json.dumps(payload), encoding="utf-8")
+            sizing_context = parse_sizing_file(str(contract_path))
+
+            out_dir = Path(td) / "sample-project"
+            initialize_project(
+                project_name="sample-project",
+                description="",
+                target_directory=str(out_dir),
+                platform="proxmox",
+                gitops_tool="flux",
+                iac_tool="terraform",
+                sizing_context=sizing_context,
+            )
+            readme = (out_dir / "README.md").read_text(encoding="utf-8")
+            self.assertIn("## Deployment Snapshot", readme)
+            self.assertIn("Project Name: `OS-6`", readme)
+            self.assertIn("Customer: `OS-6`", readme)
+            self.assertIn("Project ID: `1`", readme)
+            self.assertIn("Owner / User: `XX`", readme)
+            self.assertIn("Description: RKE2-dev", readme)
+            self.assertIn("Sizing Export Generated: `2026-03-25T10:00:00Z`", readme)
 
     def test_platform_fixture_generates_expected_golden_outputs(self) -> None:
         sizing_context = parse_sizing_file(str(self.fixture("platform-v1-openshift.json")))
@@ -176,7 +248,11 @@ class TestSizingFixtures(unittest.TestCase):
             self.assertIn('"hot_pool" = { node_count = 1, vcpu_per_node = 12, ram_gb_per_node = 20, disk_gb = 100, full_clone = true }', tfvars)
             self.assertIn("- ingress.yaml", kibana_kustomization)
             self.assertTrue((out_dir / "kibana/ingress.yaml").exists())
-            self.assertIn("/etc/rancher/rke2/rke2.yaml", healthcheck)
+            # kubeconfig.sh (sourced by healthcheck) holds the RKE2 path; healthcheck delegates to the library
+            kubeconfig_sh = (out_dir / "scripts/lib/kubeconfig.sh").read_text()
+            self.assertIn("/etc/rancher/rke2/rke2.yaml", kubeconfig_sh)
+            self.assertIn("kubeconfig.sh", healthcheck)
+            self.assertIn("pi_prepare_kubeconfig", healthcheck)
             self.assertIn("Rancher-governed RKE2", blueprint)
             self.assertIn("Azure AKS", blueprint)
             self.assertIn("Day-0 substrate", rollout)
@@ -206,7 +282,11 @@ class TestSizingFixtures(unittest.TestCase):
             self.assertIn("Rancher/Fleet import and governance", blueprint)
             self.assertIn("write-kubeconfig-mode:", rke2_cluster_config)
             self.assertIn("kubelet-arg:", rke2_cluster_config)
-            self.assertIn("/etc/rancher/rke2/rke2.yaml", healthcheck)
+            # kubeconfig.sh (sourced by healthcheck) holds the RKE2 path; healthcheck delegates to the library
+            kubeconfig_sh = (out_dir / "scripts/lib/kubeconfig.sh").read_text()
+            self.assertIn("/etc/rancher/rke2/rke2.yaml", kubeconfig_sh)
+            self.assertIn("kubeconfig.sh", healthcheck)
+            self.assertIn("pi_prepare_kubeconfig", healthcheck)
             self.assertIn("- ingress.yaml", kibana_kustomization)
             self.assertTrue((out_dir / "platform/rke2/storage-class.yaml").exists())
 

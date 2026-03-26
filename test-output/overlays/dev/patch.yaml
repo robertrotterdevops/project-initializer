@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-project
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: test-project
+        env:
+        - name: ENVIRONMENT
+          value: dev
+        - name: LOG_LEVEL
+          value: DEBUG

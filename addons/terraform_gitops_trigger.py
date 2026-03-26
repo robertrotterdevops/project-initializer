@@ -17,43 +17,191 @@ ADDON_META = {
 }
 
 
-def _script_header(project_name: str, platform: str = "") -> str:
-    rke2_kubeconfig_block = ""
-    if platform in ("rke2", "proxmox"):
-        rke2_kubeconfig_block = """
-# Fetch kubeconfig from the RKE2 server node — used by bootstrap-flux and reconcile
-SERVER_IP=$(cd "$ROOT_DIR/terraform" && terraform output -json vm_ips | \\
-  python3 -c "import sys,json; ips=json.load(sys.stdin); \\
-  print(next(v for k,v in ips.items() if 'system' in k))")
+def _kubeconfig_helper_script() -> str:
+    return """#!/usr/bin/env bash
+set -euo pipefail
 
-KUBECONFIG_TMP=$(mktemp /tmp/rke2-kubeconfig.XXXXXX)
-trap "rm -f $KUBECONFIG_TMP" EXIT
+pi_resolve_kubeconfig() {
+  local target_path="${1:-}"
+  local project_name="${PROJECT_NAME:-}"
+  local root_dir="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+  local seen=""
+  local candidate=""
 
-sshpass -p "${ANSIBLE_SSH_PASS:-ubuntu}" ssh -o StrictHostKeyChecking=no ubuntu@"$SERVER_IP" \\
-  "sudo cat /etc/rancher/rke2/rke2.yaml" > "$KUBECONFIG_TMP"
+  while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] && continue
+    case ":$seen:" in
+      *":$candidate:"*) continue ;;
+      *) seen="$seen:$candidate" ;;
+    esac
+    if [[ -f "$candidate" ]]; then
+      export KUBECONFIG="$candidate"
+      echo ">>> Using existing KUBECONFIG at $KUBECONFIG"
+      return 0
+    fi
+  done < <(
+    {
+      [[ -n "${PI_ARG_KUBECONFIG_PATH:-}" ]] && echo "${PI_ARG_KUBECONFIG_PATH}"
+      [[ -n "${KUBECONFIG:-}" ]] && echo "${KUBECONFIG}"
+      [[ -n "$target_path" ]] && echo "$target_path"
+      if [[ -n "$project_name" ]]; then
+        echo "$root_dir/.kube/$project_name"
+        echo "$HOME/.kube/$project_name"
+      fi
+      echo "$HOME/.kube/config"
+      echo "/etc/rancher/rke2/rke2.yaml"
+    }
+  )
 
-sed -i "s|https://127.0.0.1:6443|https://${SERVER_IP}:6443|g" "$KUBECONFIG_TMP"
-export KUBECONFIG="$KUBECONFIG_TMP"
+  return 1
+}
+
+pi_fetch_rke2_kubeconfig() {
+  local inventory_file="${1:-}"
+  local target_path="${2:-}"
+  [[ -z "$target_path" ]] && return 1
+
+  local server_ip=""
+  local ssh_user=""
+  local ssh_pass=""
+  local ssh_key="${PI_ARG_SSH_KEY_PATH:-${SSH_KEY_PATH:-}}"
+
+  if [[ -n "${PI_ARG_SERVER_IP:-}" ]]; then
+    server_ip="${PI_ARG_SERVER_IP}"
+  elif [[ -f "$inventory_file" ]]; then
+    server_ip=$(grep -A 20 '^\[rke2_servers\]' "$inventory_file" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\1/' || true)
+    ssh_user=$(grep -m1 'ansible_user=' "$inventory_file" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\1/' || true)
+    ssh_pass=$(grep -m1 'ansible_ssh_pass=' "$inventory_file" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\1/' || true)
+  fi
+
+  if [[ -z "$server_ip" ]]; then
+    echo ">>> WARNING: Could not resolve RKE2 server IP for kubeconfig fetch"
+    return 1
+  fi
+
+  [[ -z "$ssh_user" ]] && ssh_user="ubuntu"
+  mkdir -p "$(dirname "$target_path")"
+
+  local tmp_kube
+  tmp_kube=$(mktemp)
+  local fetch_ok=0
+  local ssh_base=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+  [[ -n "$ssh_key" ]] && ssh_base+=( -i "$ssh_key" )
+  local ssh_target="$ssh_user@$server_ip"
+
+  echo ">>> Fetching kubeconfig from $ssh_target"
+  if [[ -n "$ssh_pass" && "$(command -v sshpass || true)" != "" ]]; then
+    if sshpass -p "$ssh_pass" "${ssh_base[@]}" "$ssh_target" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$tmp_kube" 2>/dev/null && [[ -s "$tmp_kube" ]]; then
+      fetch_ok=1
+    fi
+  fi
+  if [[ $fetch_ok -eq 0 ]]; then
+    if "${ssh_base[@]}" "$ssh_target" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$tmp_kube" 2>/dev/null && [[ -s "$tmp_kube" ]]; then
+      fetch_ok=1
+    fi
+  fi
+
+  if [[ $fetch_ok -eq 1 ]]; then
+    sed -i "s|https://127.0.0.1:6443|https://$server_ip:6443|g" "$tmp_kube"
+    mv "$tmp_kube" "$target_path"
+    chmod 600 "$target_path"
+    export KUBECONFIG="$target_path"
+    echo ">>> KUBECONFIG set to $KUBECONFIG"
+    return 0
+  fi
+
+  rm -f "$tmp_kube"
+  echo ">>> WARNING: Failed to fetch kubeconfig from $server_ip"
+  return 1
+}
+
+pi_prepare_kubeconfig() {
+  local platform="${1:-}"
+  local inventory_file="${2:-}"
+  local target_path="${3:-}"
+
+  if pi_resolve_kubeconfig "$target_path"; then
+    return 0
+  fi
+
+  if [[ "$platform" == "rke2" || "$platform" == "proxmox" ]]; then
+    pi_fetch_rke2_kubeconfig "$inventory_file" "$target_path" || true
+    pi_resolve_kubeconfig "$target_path" && return 0
+  fi
+
+  return 1
+}
+
+pi_require_kubeconfig() {
+  local platform="${1:-}"
+  local inventory_file="${2:-}"
+  local target_path="${3:-}"
+  if ! pi_prepare_kubeconfig "$platform" "$inventory_file" "$target_path"; then
+    echo "ERROR: kubeconfig not available (checked PI_ARG_KUBECONFIG_PATH, project-local .kube, and home .kube)."
+    return 1
+  fi
+  return 0
+}
 """
+
+
+def _script_header(project_name: str, platform: str = "", total_steps: int = 9) -> str:
+    platform_value = (platform or "").lower()
+    kubeconfig_stage = """
+echo "[3/7] Resolving persistent project kubeconfig..."
+if [ -f "$ROOT_DIR/scripts/lib/kubeconfig.sh" ]; then
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/scripts/lib/kubeconfig.sh"
+  if pi_prepare_kubeconfig "$PLATFORM" "$INVENTORY_FILE" "$PROJECT_KUBECONFIG"; then
+    export PI_ARG_KUBECONFIG_PATH="$KUBECONFIG"
+    echo ">>> Active KUBECONFIG: $KUBECONFIG"
+  else
+    echo ">>> WARNING: kubeconfig could not be resolved yet; downstream scripts may fetch/bootstrap it."
+  fi
+else
+  echo ">>> WARNING: scripts/lib/kubeconfig.sh not found; kubeconfig resolution fallback only."
+  if [[ -f "$PROJECT_KUBECONFIG" ]]; then
+    export KUBECONFIG="$PROJECT_KUBECONFIG"
+    export PI_ARG_KUBECONFIG_PATH="$PROJECT_KUBECONFIG"
+  fi
+fi
+"""
+    if platform_value not in {"rke2", "proxmox"}:
+        kubeconfig_stage = """
+echo "[3/7] Resolving kubeconfig context..."
+if [ -f "$ROOT_DIR/scripts/lib/kubeconfig.sh" ]; then
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/scripts/lib/kubeconfig.sh"
+  pi_prepare_kubeconfig "$PLATFORM" "$INVENTORY_FILE" "$PROJECT_KUBECONFIG" || true
+fi
+if [[ -n "${KUBECONFIG:-}" ]]; then
+  export PI_ARG_KUBECONFIG_PATH="$KUBECONFIG"
+fi
+"""
+    kubeconfig_stage = kubeconfig_stage.replace("[3/7]", f"[3/{total_steps}]")
+
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
 PROJECT_NAME="{project_name}"
+PLATFORM="{platform_value}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"
+PROJECT_KUBECONFIG="${{PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/$PROJECT_NAME}}"
 
 cd "$ROOT_DIR/terraform"
-echo "[1/7] Running terraform apply..."
+echo "[1/{total_steps}] Running terraform apply..."
 terraform init
 terraform apply -auto-approve -parallelism=4
 cd "$ROOT_DIR"
 
 if [ -x "$ROOT_DIR/scripts/bootstrap-rke2.sh" ]; then
-  echo "[2/7] Running RKE2 bootstrap..."
+  echo "[2/{total_steps}] Running RKE2 bootstrap..."
   "$ROOT_DIR/scripts/bootstrap-rke2.sh"
 else
-  echo "[2/7] No RKE2 bootstrap script found; skipping."
+  echo "[2/{total_steps}] No RKE2 bootstrap script found; skipping."
 fi
-{rke2_kubeconfig_block}"""
+{kubeconfig_stage}"""
 
 
 def _flux_tail(project_name: str, eck_version: str = "3.0.0") -> str:
@@ -63,19 +211,29 @@ def _flux_tail(project_name: str, eck_version: str = "3.0.0") -> str:
     except (ValueError, IndexError):
         pass
     agent_note = "echo \"  Waiting for agent auto-enrollment (ECK 3.x)...\"\n" if eck_major >= 3 else ""
-    return f"""if command -v flux >/dev/null 2>&1; then
-  echo "[4/9] Bootstrapping Flux..."
+    return f"""run_pi_script() {{
+  local script_path="$1"
+  shift || true
+  if [[ -n "${{PI_ARG_KUBECONFIG_PATH:-}}" ]]; then
+    PI_ARG_KUBECONFIG_PATH="${{PI_ARG_KUBECONFIG_PATH}}" KUBECONFIG="${{PI_ARG_KUBECONFIG_PATH}}" "$script_path" "$@"
+  else
+    "$script_path" "$@"
+  fi
+}}
+
+if command -v flux >/dev/null 2>&1; then
+  echo "[5/9] Bootstrapping Flux..."
   if [ -x "$ROOT_DIR/scripts/bootstrap-flux.sh" ]; then
-    "$ROOT_DIR/scripts/bootstrap-flux.sh"
+    run_pi_script "$ROOT_DIR/scripts/bootstrap-flux.sh"
   else
     echo "bootstrap-flux.sh not found; skipping."
   fi
 
-  echo "[5/9] Waiting for Flux source and root kustomization..."
+  echo "[6/9] Waiting for Flux source and root kustomization..."
   kubectl -n flux-system wait gitrepository/"$PROJECT_NAME" --for=condition=Ready --timeout=5m || echo "  GitRepository not ready yet (will reconcile in background)."
   kubectl -n flux-system wait kustomization/"$PROJECT_NAME" --for=condition=Ready --timeout=10m || echo "  Root kustomization not ready yet (will reconcile in background)."
 
-  echo "[6/9] Triggering Flux reconcile..."
+  echo "[7/9] Triggering Flux reconcile..."
   flux reconcile source git "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME" -n flux-system || true
   flux reconcile kustomization "$PROJECT_NAME-infra" -n flux-system || true
@@ -90,10 +248,10 @@ else
   echo "Flux CLI not installed; skipped bootstrap and reconcile."
 fi
 
-echo "[7/9] Checking cluster status and ensuring kubeconfig is in place..."
+echo "[8/9] Checking cluster status and ensuring kubeconfig is in place..."
 echo "::pi-substep cluster-healthcheck start"
 if [ -x "$ROOT_DIR/scripts/cluster-healthcheck.sh" ]; then
-  if "$ROOT_DIR/scripts/cluster-healthcheck.sh"; then
+  if run_pi_script "$ROOT_DIR/scripts/cluster-healthcheck.sh"; then
     echo "::pi-substep cluster-healthcheck ok"
   else
     echo "::pi-substep cluster-healthcheck warning"
@@ -104,10 +262,10 @@ else
   echo "  cluster-healthcheck.sh not found; skipping."
 fi
 
-echo "[8/9] Mirroring secrets after cluster stabilizes..."
+echo "[9/9] Mirroring secrets after cluster stabilizes..."
 echo "::pi-substep mirror-secrets start"
 if [ -x "$ROOT_DIR/scripts/mirror-secrets.sh" ]; then
-  if "$ROOT_DIR/scripts/mirror-secrets.sh"; then
+  if run_pi_script "$ROOT_DIR/scripts/mirror-secrets.sh"; then
     echo "::pi-substep mirror-secrets ok"
   else
     echo "::pi-substep mirror-secrets warning"
@@ -120,7 +278,7 @@ fi
 
 {agent_note}echo "::pi-substep fleet-output start"
 if [ -x "$ROOT_DIR/scripts/fleet-output.sh" ]; then
-  if "$ROOT_DIR/scripts/fleet-output.sh"; then
+  if run_pi_script "$ROOT_DIR/scripts/fleet-output.sh"; then
     echo "::pi-substep fleet-output ok"
   else
     echo "::pi-substep fleet-output warning"
@@ -131,7 +289,7 @@ else
 fi
 echo "::pi-substep import-dashboards start"
 if [ -x "$ROOT_DIR/scripts/import-dashboards.sh" ]; then
-  if "$ROOT_DIR/scripts/import-dashboards.sh"; then
+  if run_pi_script "$ROOT_DIR/scripts/import-dashboards.sh"; then
     echo "::pi-substep import-dashboards ok"
   else
     echo "::pi-substep import-dashboards warning"
@@ -147,69 +305,38 @@ echo "Deployment trigger finished."
 
 def _argo_tail(project_name: str) -> str:
     return f"""if command -v argocd >/dev/null 2>&1; then
-  echo "[4/5] Triggering ArgoCD sync..."
+  echo "[5/6] Triggering ArgoCD sync..."
   argocd app sync "$PROJECT_NAME" || true
   argocd app wait "$PROJECT_NAME" --health || true
 else
   echo "ArgoCD CLI not installed; skipped sync trigger."
 fi
 
-echo "[5/5] Deployment trigger finished."
+echo "[6/6] Deployment trigger finished."
 """
 
 
 def _cluster_healthcheck_script(project_name: str, platform: str = "") -> str:
     platform = (platform or "").lower()
-    kubeconfig_bootstrap = """
-if [[ -n "${PI_ARG_KUBECONFIG_PATH:-}" && -f "${PI_ARG_KUBECONFIG_PATH}" ]]; then
+    kubeconfig_bootstrap = """if [[ -f "$ROOT_DIR/scripts/lib/kubeconfig.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/scripts/lib/kubeconfig.sh"
+  if pi_prepare_kubeconfig "$PLATFORM" "$INVENTORY_FILE" "$PROJECT_KUBECONFIG"; then
+    export PI_ARG_KUBECONFIG_PATH="${KUBECONFIG:-$PROJECT_KUBECONFIG}"
+  else
+    echo ">>> WARNING: kubeconfig is not currently available; health checks may be partial."
+  fi
+elif [[ -n "${PI_ARG_KUBECONFIG_PATH:-}" && -f "${PI_ARG_KUBECONFIG_PATH}" ]]; then
   export KUBECONFIG="${PI_ARG_KUBECONFIG_PATH}"
   echo ">>> Using PI_ARG_KUBECONFIG_PATH at $KUBECONFIG"
 elif [[ -n "${KUBECONFIG:-}" && -f "${KUBECONFIG}" ]]; then
   echo ">>> Using exported KUBECONFIG at $KUBECONFIG"
-elif [[ -f "$KUBECONFIG_FILE" ]]; then
-  export KUBECONFIG="$KUBECONFIG_FILE"
-  echo ">>> Using existing KUBECONFIG at $KUBECONFIG_FILE"
-"""
-    if platform in {"rke2", "proxmox"}:
-        kubeconfig_bootstrap += """elif [[ -f "$INVENTORY_FILE" ]]; then
-  SERVER_IP=$(grep -A 20 '^\\[rke2_servers\\]' "$INVENTORY_FILE" | grep -m1 'ansible_host=' | sed -E 's/.*ansible_host=([^[:space:]]+).*/\\1/' || true)
-  SSH_USER=$(grep -m1 'ansible_user=' "$INVENTORY_FILE" | sed -E 's/.*ansible_user=([^[:space:]]+).*/\\1/' || true)
-  SSH_PASS=$(grep -m1 'ansible_ssh_pass=' "$INVENTORY_FILE" | sed -E 's/.*ansible_ssh_pass=([^[:space:]]+).*/\\1/' || true)
-  SSH_KEY="${PI_ARG_SSH_KEY_PATH:-${SSH_KEY_PATH:-}}"
-  if [[ -n "$SERVER_IP" ]]; then
-    mkdir -p "$(dirname "$KUBECONFIG_FILE")"
-    TMPKUBE=$(mktemp)
-    echo ">>> Fetching kubeconfig from ${SSH_USER:-ubuntu}@$SERVER_IP"
-    SSH_BASE=(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
-    [[ -n "$SSH_KEY" ]] && SSH_BASE+=( -i "$SSH_KEY" )
-    SSH_TARGET="${SSH_USER:-ubuntu}@$SERVER_IP"
-    FETCH_OK=0
-    if [[ -n "$SSH_PASS" && "$(command -v sshpass || true)" != "" ]]; then
-      if sshpass -p "$SSH_PASS" "${SSH_BASE[@]}" "$SSH_TARGET" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
-        FETCH_OK=1
-      fi
-    fi
-    if [[ $FETCH_OK -eq 0 ]]; then
-      if "${SSH_BASE[@]}" "$SSH_TARGET" "sudo cat /etc/rancher/rke2/rke2.yaml" > "$TMPKUBE" 2>/dev/null && [[ -s "$TMPKUBE" ]]; then
-        FETCH_OK=1
-      fi
-    fi
-    if [[ $FETCH_OK -eq 1 ]]; then
-      sed -i "s|https://127.0.0.1:6443|https://$SERVER_IP:6443|g" "$TMPKUBE"
-      mv "$TMPKUBE" "$KUBECONFIG_FILE"
-      chmod 600 "$KUBECONFIG_FILE"
-      export KUBECONFIG="$KUBECONFIG_FILE"
-      echo ">>> KUBECONFIG set to $KUBECONFIG"
-    else
-      rm -f "$TMPKUBE"
-      echo ">>> WARNING: Failed to fetch kubeconfig from $SERVER_IP"
-    fi
-  fi
-fi
-"""
-    else:
-        kubeconfig_bootstrap += """elif [[ -z "${KUBECONFIG:-}" ]]; then
-  echo ">>> KUBECONFIG is not set. For managed or externally delivered clusters, export kubeconfig before running this health check."
+elif [[ -f "$PROJECT_KUBECONFIG" ]]; then
+  export KUBECONFIG="$PROJECT_KUBECONFIG"
+  export PI_ARG_KUBECONFIG_PATH="$PROJECT_KUBECONFIG"
+  echo ">>> Using existing KUBECONFIG at $PROJECT_KUBECONFIG"
+else
+  echo ">>> WARNING: KUBECONFIG is not set. For managed or externally delivered clusters, export kubeconfig before running this health check."
 fi
 """
 
@@ -218,10 +345,11 @@ set -euo pipefail
 
 NAMESPACE="{project_name}"
 ES_NAME="{project_name}"
+PLATFORM="{platform}"
 KIBANA_INGRESS="{project_name}-kibana"
-INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"
-KUBECONFIG_FILE="$HOME/.kube/{project_name}"
-[[ -n "${{PI_ARG_KUBECONFIG_PATH:-}}" ]] && KUBECONFIG_FILE="${{PI_ARG_KUBECONFIG_PATH}}"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"
+PROJECT_KUBECONFIG="${{PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/{project_name}}}"
 
 {kubeconfig_bootstrap}
 
@@ -312,8 +440,16 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     if git_token and repo_url.startswith("https://"):
         remote_with_token = "https://oauth2:" + git_token + "@" + repo_url[len("https://"):]
 
+    # Total steps depends on gitops tool; must be defined before git_push_block
+    if gitops == "flux":
+        total_steps = 9
+    elif gitops == "argo":
+        total_steps = 6
+    else:
+        total_steps = 4
+
     git_push_block = f"""
-echo "[3/7] Updating Git repository..."
+echo "[4/{total_steps}] Updating Git repository..."
 cd "$ROOT_DIR"
 git add .
 git commit -m "Post-terraform deployment update for $PROJECT_NAME" || true
@@ -336,7 +472,8 @@ fi
 
     if gitops not in {"flux", "argo"}:
         return {
-            "scripts/post-terraform-deploy.sh": _script_header(project_name, platform)
+            "scripts/lib/kubeconfig.sh": _kubeconfig_helper_script(),
+            "scripts/post-terraform-deploy.sh": _script_header(project_name, platform, total_steps)
             + git_push_block
             + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
             "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
@@ -351,7 +488,8 @@ fi
     eck_version = ctx.get("eck_version", "3.0.0")
     tail = _flux_tail(project_name, eck_version=eck_version) if gitops == "flux" else _argo_tail(project_name)
     return {
-        "scripts/post-terraform-deploy.sh": _script_header(project_name, platform) + git_push_block + tail,
+        "scripts/lib/kubeconfig.sh": _kubeconfig_helper_script(),
+        "scripts/post-terraform-deploy.sh": _script_header(project_name, platform, total_steps) + git_push_block + tail,
         "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
         "docs/DEPLOYMENT_PIPELINE.md": (
             "# Deployment Pipeline\n\n"

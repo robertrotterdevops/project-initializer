@@ -99,7 +99,7 @@ class TestECKDeploymentUnit(unittest.TestCase):
         )
         self.assertTrue(found, "No agents/ file mentions 'fleet'")
 
-    def test_kibana_and_fleet_fall_back_from_missing_infra_to_master(self):
+    def test_kibana_and_fleet_default_to_system_tier(self):
         context = {
             "platform": "rke2",
             "sizing_context": {
@@ -117,8 +117,8 @@ class TestECKDeploymentUnit(unittest.TestCase):
         fleet = yaml.safe_load(files["agents/fleet-server.yaml"])
         kibana_selector = kibana["spec"]["podTemplate"]["spec"]["nodeSelector"]
         fleet_selector = fleet["spec"]["deployment"]["podTemplate"]["spec"]["nodeSelector"]
-        self.assertEqual(kibana_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
-        self.assertEqual(fleet_selector, {"elasticsearch.k8s.elastic.co/tier": "master"})
+        self.assertEqual(kibana_selector, {"elasticsearch.k8s.elastic.co/tier": "system"})
+        self.assertEqual(fleet_selector, {"elasticsearch.k8s.elastic.co/tier": "system"})
 
     def test_kibana_and_fleet_honor_explicit_system_selector(self):
         context = {
@@ -151,6 +151,22 @@ class TestECKDeploymentUnit(unittest.TestCase):
             fleet["spec"]["deployment"]["podTemplate"]["spec"]["nodeSelector"],
             {"elasticsearch.k8s.elastic.co/tier": "system"},
         )
+
+    def test_frozen_zero_count_keeps_frozen_selector_mapping(self):
+        context = {
+            "platform": "rke2",
+            "sizing_context": {
+                "source": "sizing_report",
+                "data_nodes": {"count": 1, "memory": "8Gi", "cpu": "2", "storage": "100Gi"},
+                "frozen_nodes": {"count": 0, "memory": "8Gi", "cpu": "2", "cache_storage": "50Gi"},
+                "eck_operator": {"version": "3.0.0"},
+            },
+        }
+        files = ECKDeploymentGenerator("proj", "ES on RKE2", context).generate()
+        cluster = yaml.safe_load(files["elasticsearch/cluster.yaml"])
+        frozen = next(ns for ns in cluster["spec"]["nodeSets"] if ns["name"] == "frozen")
+        selector = frozen["podTemplate"]["spec"]["nodeSelector"]
+        self.assertEqual(selector, {"elasticsearch.k8s.elastic.co/tier": "frozen"})
 
     def test_fleet_cpu_request_never_exceeds_limit(self):
         context = {

@@ -1,0 +1,17 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: test-project-apps
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: test-project
+  path: ./apps
+  prune: true
+  wait: true
+  timeout: 20m
+  dependsOn:
+  - name: test-project
+  - name: test-project-infra

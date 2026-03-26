@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-project-allow-agent-egress
+  namespace: test-project
+spec:
+  podSelector:
+    matchLabels:
+      common.k8s.elastic.co/type: agent
+  policyTypes:
+  - Egress
+  egress:
+  # Allow Elastic Agent and Fleet Server to reach k8s API, ES, and Fleet
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 6443   # Kubernetes API
+    - protocol: TCP
+      port: 9200   # Elasticsearch
+    - protocol: TCP
+      port: 8220   # Fleet Server

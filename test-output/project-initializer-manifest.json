@@ -1,0 +1,387 @@
+{
+  "schema_version": "project-initializer-manifest.v1",
+  "generated_at": "2026-03-25T07:07:06.843635Z",
+  "generator": {
+    "name": "project-initializer",
+    "version": "dev"
+  },
+  "project": {
+    "name": "test-project",
+    "description": "Test project for project initialization",
+    "path": "/Users/robert.rotter/Projects/web-app-dev/project-initializer/test-output",
+    "platform": "",
+    "gitops_tool": "",
+    "iac_tool": "",
+    "primary_category": "generic",
+    "priority_chain": "default"
+  },
+  "source": {
+    "sizing_source": "",
+    "sizing_schema_version": ""
+  },
+  "governance": {
+    "license_policy": {
+      "license_id": "UNLICENSED",
+      "mode": "user_selectable",
+      "copyright_owner": "",
+      "organization": "",
+      "confidentiality": "internal"
+    },
+    "header_policy": {
+      "mode": "none",
+      "managed_header": false,
+      "apply_to": [
+        ".py",
+        ".sh",
+        ".tf",
+        ".yaml",
+        ".yml",
+        ".md"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "source_type": "core",
+      "source_name": "readme",
+      "executable": false
+    },
+    {
+      "path": "AGENTS.md",
+      "source_type": "core",
+      "source_name": "agents_doc",
+      "executable": false
+    },
+    {
+      "path": ".opencode/context.md",
+      "source_type": "core",
+      "source_name": "opencode_context",
+      "executable": false
+    },
+    {
+      "path": ".gitignore",
+      "source_type": "core",
+      "source_name": "basic_files",
+      "executable": false
+    },
+    {
+      "path": "terraform/main.tf",
+      "source_type": "core",
+      "source_name": "basic_files",
+      "executable": false
+    },
+    {
+      "path": "terraform/variables.tf",
+      "source_type": "core",
+      "source_name": "basic_files",
+      "executable": false
+    },
+    {
+      "path": "k8s/namespace.yaml",
+      "source_type": "core",
+      "source_name": "basic_files",
+      "executable": false
+    },
+    {
+      "path": "flux-system/namespace.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "flux-system/gitrepository.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "flux-system/gotk-sync.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "flux-system/kustomization-apps.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "flux-system/kustomization-infra.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "flux-system/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "base/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "base/deployment.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "base/service.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "base/ingress.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "apps/README.md",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "apps/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "apps/test-project/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "apps/test-project/patches/dev-patch.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/dev/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/dev/resources.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/dev/patch.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/dev/flux-kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/staging/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/staging/resources.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/staging/patch.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/staging/flux-kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/production/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/production/resources.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/production/patch.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "overlays/production/flux-kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "clusters/README.md",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "clusters/management/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "clusters/management/namespace.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/namespace.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/README.md",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/kustomization.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-dns.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-intra-namespace.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-eck-operator.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-ingress-nginx.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-kibana-egress.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-agent-egress.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/network-policy-allow-otel-collector.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/storageclasses.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "infrastructure/local-path-provisioner.yaml",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "scripts/bootstrap-flux.sh",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": true
+    },
+    {
+      "path": "docs/FLUX_DEPLOYMENT.md",
+      "source_type": "addon",
+      "source_name": "flux_deployment",
+      "executable": false
+    },
+    {
+      "path": "LICENSE",
+      "source_type": "governance",
+      "source_name": "license",
+      "executable": false
+    },
+    {
+      "path": "NOTICE",
+      "source_type": "governance",
+      "source_name": "notice",
+      "executable": false
+    },
+    {
+      "path": "GENERATED_BY.md",
+      "source_type": "governance",
+      "source_name": "generated_by.md",
+      "executable": false
+    },
+    {
+      "path": "project-initializer-manifest.json",
+      "source_type": "governance",
+      "source_name": "generation_manifest",
+      "executable": false
+    },
+    {
+      "path": "project-initializer-operations.json",
+      "source_type": "governance",
+      "source_name": "operations_manifest",
+      "executable": false
+    },
+    {
+      "path": "project-initializer-validation-report.json",
+      "source_type": "governance",
+      "source_name": "generation_validation_report",
+      "executable": false
+    }
+  ]
+}

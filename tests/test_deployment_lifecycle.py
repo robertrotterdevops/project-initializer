@@ -80,14 +80,31 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
         content = files["scripts/preflight-check.sh"]
         self.assertIn("kustomizations.kustomize.toolkit.fluxcd.io", content)
 
-    def test_09_preflight_actionable_errors(self):
+    def test_09_preflight_checks_tier_labels_and_selectors(self):
+        """Test 9: preflight-check.sh validates system/hot/cold/frozen selectors and node labels."""
+        files = main(self.project_name, self.description, self.flux_context)
+        content = files["scripts/preflight-check.sh"]
+        self.assertIn("manifest selectors for tier placement", content)
+        self.assertIn("elasticsearch.k8s.elastic.co/tier=system", content)
+        self.assertIn("Elasticsearch hot nodeset", content)
+        self.assertIn("require_node_label \"hot\"", content)
+
+    def test_10_preflight_checks_taints_and_storage_consistency(self):
+        """Test 10: preflight-check.sh validates system taints/tolerations and storage values."""
+        files = main(self.project_name, self.description, self.flux_context)
+        content = files["scripts/preflight-check.sh"]
+        self.assertIn("system node taints and service tolerations", content)
+        self.assertIn("check_storage_match", content)
+        self.assertIn("capacity-planning.csv", content)
+
+    def test_11_preflight_actionable_errors(self):
         """Test 9: preflight-check.sh contains ERROR: and Fix: on same or adjacent lines."""
         files = main(self.project_name, self.description, self.flux_context)
         content = files["scripts/preflight-check.sh"]
         self.assertIn("ERROR:", content)
         self.assertIn("Fix:", content)
 
-    def test_10_all_scripts_have_shebang_and_pipefail(self):
+    def test_12_all_scripts_have_shebang_and_pipefail(self):
         """Test 10: All generated scripts start with bash shebang and set -euo pipefail."""
         files = main(self.project_name, self.description, self.flux_context)
         for script_path, content in files.items():
@@ -102,7 +119,7 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
                     f"{script_path} must contain 'set -euo pipefail'"
                 )
 
-    def test_11_addon_meta_exists_and_valid(self):
+    def test_13_addon_meta_exists_and_valid(self):
         """Test 11: ADDON_META exists with name=deployment_lifecycle and priority 19-25."""
         self.assertEqual(ADDON_META["name"], "deployment_lifecycle")
         self.assertGreaterEqual(ADDON_META["priority"], 19)
@@ -339,6 +356,7 @@ class TestValidateConfigScript(unittest.TestCase):
         files = main(self.project_name, self.description, self.flux_context_eck)
         script_keys = [k for k in files.keys() if k.startswith("scripts/")]
         expected_scripts = {
+            "scripts/lib/kubeconfig.sh",
             "scripts/mirror-secrets.sh",
             "scripts/fleet-output.sh",
             "scripts/import-dashboards.sh",
@@ -349,7 +367,7 @@ class TestValidateConfigScript(unittest.TestCase):
         }
         for s in expected_scripts:
             self.assertIn(s, files, f"Expected script not found: {s}")
-        self.assertEqual(len(script_keys), 7, f"Expected 7 scripts, got {len(script_keys)}: {script_keys}")
+        self.assertEqual(len(script_keys), 8, f"Expected 8 scripts, got {len(script_keys)}: {script_keys}")
 
 
 if __name__ == "__main__":

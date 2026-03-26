@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-project-allow-intra-namespace
+  namespace: test-project
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector: {}
+  egress:
+  # ipBlock 0.0.0.0/0 alongside podSelector ensures Canal/Calico matches
+  # ClusterIP traffic within the namespace (not just pod-IP traffic).
+  - to:
+    - podSelector: {}
+    - ipBlock:
+        cidr: 0.0.0.0/0

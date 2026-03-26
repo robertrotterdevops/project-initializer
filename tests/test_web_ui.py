@@ -374,6 +374,56 @@ class TestSizingApi(unittest.TestCase):
             self.assertIn("public_unlicensed", codes)
             self.assertIn("missing_owner_metadata", codes)
 
+    def test_preview_endpoint_prefills_description_from_project_header(self):
+        import backend_api
+        from fastapi.testclient import TestClient
+
+        contract = {
+            "schema_version": "es-sizing-rke2.v1",
+            "platform": "rke2",
+            "project": {
+                "name": "OS-6",
+                "customer": "OS-6",
+                "description": "RKE2-dev",
+                "project_id": "1",
+                "user_name": "XX",
+            },
+            "generated_at": "2026-03-25T11:22:33Z",
+            "elasticsearch": {
+                "inputs": {"ingest_gb_per_day": 1, "total_retention_days": 30, "workload_type": "mixed"},
+                "summary": {"cluster_health_score": 90, "total_nodes": 2, "total_data_nodes": 2, "total_master_nodes": 0},
+                "tiers": [
+                    {"name": "hot", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100},
+                    {"name": "cold", "nodes": 1, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 100},
+                    {"name": "frozen", "nodes": 0, "vcpu_per_node": 2, "ram_gb_per_node": 8, "disk_gb_per_node": 0},
+                ],
+            },
+            "rke2": {
+                "pools": [
+                    {"name": "hot_pool", "nodes": 1, "vcpu_per_node": 8, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "cold_pool", "nodes": 1, "vcpu_per_node": 8, "ram_gb_per_node": 16, "disk_gb_per_node": 100},
+                    {"name": "system_pool", "nodes": 1, "vcpu_per_node": 8, "ram_gb_per_node": 16, "disk_gb_per_node": 80, "composition": {"kibana_pods": 1, "fleet_pods": 1}},
+                ],
+                "stack_components": {"vcpu": 2, "ram_gb": 4},
+            },
+        }
+
+        client = TestClient(backend_api.app)
+        resp = client.post(
+            "/api/sizing/preview",
+            data={},
+            files={"sizing_file": ("os-6-rke2.json", json.dumps(contract).encode("utf-8"), "application/json")},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["project_header"]["name"], "OS-6")
+        self.assertEqual(data["project_header"]["customer"], "OS-6")
+        self.assertEqual(data["project_header"]["project_id"], "1")
+        self.assertEqual(data["project_header"]["user_name"], "XX")
+        self.assertEqual(data["prefill_project_name"], "OS-6")
+        self.assertEqual(data["prefill_description"], "RKE2-dev")
+        self.assertEqual(data["sizing_generated_at"], "2026-03-25T11:22:33Z")
+
     def test_create_rejects_fatal_sizing_error_by_default(self):
         import backend_api
         preview = {
@@ -947,8 +997,8 @@ class TestProjectOperationsApi(unittest.TestCase):
                 return {'ok': True, 'stdout': 'Unknown||', 'stderr': ''}
             if 'statefulset' in cmd:
                 return {'ok': True, 'stdout': '1/1', 'stderr': ''}
-            if 'test -f $HOME/.kube/demo' in cmd:
-                return {'ok': True, 'stdout': '/home/ubuntu/.kube/demo', 'stderr': ''}
+            if 'test -f "/opt/projects/demo/.kube/demo"' in cmd:
+                return {'ok': True, 'stdout': '/opt/projects/demo/.kube/demo', 'stderr': ''}
             if 'command -v kubectl' in cmd:
                 return {'ok': True, 'stdout': 'present', 'stderr': ''}
             if 'kubectl config current-context' in cmd:
@@ -968,9 +1018,9 @@ class TestProjectOperationsApi(unittest.TestCase):
             self.assertEqual(data['access_summary']['mode'], 'remote-host')
             self.assertEqual(data['access_summary']['remote']['host'], '10.0.0.8')
             self.assertTrue(data['access_summary']['kubeconfig']['ok'])
-            self.assertEqual(data['access_summary']['kubeconfig']['source'], 'remote-project-home')
+            self.assertEqual(data['access_summary']['kubeconfig']['source'], 'remote-project-root')
             self.assertEqual(data['access_summary']['kubectl_context']['detail'], 'remote-admin')
-            self.assertTrue(any('export KUBECONFIG=/home/ubuntu/.kube/demo; kubectl get kustomization demo -n flux-system' in cmd for cmd in seen))
+            self.assertTrue(any('export KUBECONFIG=/opt/projects/demo/.kube/demo; kubectl get kustomization demo -n flux-system' in cmd for cmd in seen))
 
     def test_check_local_prerequisite_prefers_project_scoped_kubeconfig(self):
         import backend_api
@@ -995,13 +1045,13 @@ class TestProjectOperationsApi(unittest.TestCase):
         captured = {}
         def fake_ssh(host, port, user, cmd, key):
             captured['cmd'] = cmd
-            return {'ok': True, 'stdout': '/home/ubuntu/.kube/os-2', 'stderr': ''}
+            return {'ok': True, 'stdout': '/opt/projects/os-2/.kube/os-2', 'stderr': ''}
         with patch('backend_api._run_ssh_command', side_effect=fake_ssh):
             result = backend_api._check_remote_prerequisite(entry, 'kubeconfig')
             self.assertTrue(result['ok'])
-            self.assertIn('.kube/os-2', result['detail'])
-            self.assertIn('if test -f $HOME/.kube/os-2; then echo $HOME/.kube/os-2;', captured['cmd'])
-            self.assertIn('elif test -f $HOME/.kube/config; then echo $HOME/.kube/config;', captured['cmd'])
+            self.assertIn('/opt/projects/os-2/.kube/os-2', result['detail'])
+            self.assertIn('if test -f "/opt/projects/os-2/.kube/os-2"; then printf', captured['cmd'])
+            self.assertIn('elif test -f "/opt/projects/os-2/.kube/config"; then printf', captured['cmd'])
 
     def test_project_run_script_remote_uses_generated_remote_path(self):
         import backend_api

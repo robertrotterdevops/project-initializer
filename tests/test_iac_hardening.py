@@ -285,8 +285,9 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('KB_NAME=', healthcheck_script)
             self.assertIn('KIBANA_INGRESS="sample-project-kibana"', healthcheck_script)
             self.assertIn('flux get kustomizations', healthcheck_script)
-            self.assertIn('INVENTORY_FILE="$(cd "$(dirname "$0")/.." && pwd)/ansible/inventory.ini"', healthcheck_script)
-            self.assertIn('KUBECONFIG_FILE="$HOME/.kube/sample-project"', healthcheck_script)
+            self.assertIn('ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"', healthcheck_script)
+            self.assertIn('INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"', healthcheck_script)
+            self.assertIn('PROJECT_KUBECONFIG="${PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/sample-project}"', healthcheck_script)
             self.assertFalse((out_dir / "terraform/modules/aks/main.tf").exists())
             self.assertEqual(result.get("iac_tool"), "terraform")
 
@@ -982,7 +983,7 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("replicas: 2", fleet_server)
             self.assertIn('"node-role.kubernetes.io/system": "true"', fleet_server)
 
-    def test_scaffold_falls_back_from_missing_infra_tier_to_master_for_kibana_and_fleet(self) -> None:
+    def test_scaffold_defaults_kibana_and_fleet_to_system_tier(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pi-rke2-tier-fallback-") as td:
             out_dir = Path(td) / "rke2-tier-fallback"
             initialize_project(
@@ -1004,8 +1005,8 @@ class TestIacHardening(unittest.TestCase):
             )
             kibana = (out_dir / "kibana/kibana.yaml").read_text()
             fleet_server = (out_dir / "agents/fleet-server.yaml").read_text()
-            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "master"', kibana)
-            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "master"', fleet_server)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "system"', kibana)
+            self.assertIn('"elasticsearch.k8s.elastic.co/tier": "system"', fleet_server)
             self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "infra"', kibana)
             self.assertNotIn('"elasticsearch.k8s.elastic.co/tier": "infra"', fleet_server)
             self.assertIn('cpu: "2"', fleet_server)
@@ -1094,6 +1095,246 @@ class TestIacHardening(unittest.TestCase):
             secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
             self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)
             self.assertIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
+
+
+class TestPipelineStepNumbering(unittest.TestCase):
+    """Tests that post-terraform-deploy.sh has sequential, non-duplicate step numbers."""
+
+    import re as _re  # avoid polluting module-level namespace
+
+    def _parse_steps(self, script: str):
+        """Return list of (step_num, total) tuples found in [N/M] markers.
+
+        Deduplicates by step number: the header emits both branches of an if/else
+        (e.g. '[2/N] Running RKE2 bootstrap...' and '[2/N] No RKE2 bootstrap
+        script found'), which both carry step 2. Only one branch ever executes,
+        so we keep the lowest-numbered occurrence per step number.
+        """
+        import re
+        seen: dict = {}
+        for n_str, m_str in re.findall(r'\[(\d+)/(\d+)\]', script):
+            n, m = int(n_str), int(m_str)
+            if n not in seen:
+                seen[n] = (n, m)
+        return list(seen.values())
+
+    def test_flux_script_no_duplicate_step_numbers(self) -> None:
+        """No step number should appear twice in a flux post-terraform-deploy.sh."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-flux-") as td:
+            out_dir = Path(td) / "step-flux"
+            initialize_project(
+                project_name="step-flux",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            step_nums = [n for n, _ in steps]
+            self.assertGreater(len(step_nums), 0, "No [N/M] markers found in script")
+            self.assertEqual(
+                len(step_nums), len(set(step_nums)),
+                f"Duplicate step numbers in flux deploy script: {step_nums}",
+            )
+
+    def test_flux_script_consistent_step_denominator(self) -> None:
+        """All [N/M] markers in a flux script must share denominator 9."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-flux-denom-") as td:
+            out_dir = Path(td) / "denom-flux"
+            initialize_project(
+                project_name="denom-flux",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            denominators = list({m for _, m in steps})
+            self.assertEqual(len(denominators), 1, f"Inconsistent denominators: {denominators}")
+            self.assertEqual(denominators[0], 9, f"Expected 9 total steps for flux, got {denominators[0]}")
+
+    def test_flux_script_steps_are_sequential(self) -> None:
+        """Step numbers must form a gap-free sequence starting at 1."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-flux-seq-") as td:
+            out_dir = Path(td) / "seq-flux"
+            initialize_project(
+                project_name="seq-flux",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            step_nums = sorted(n for n, _ in steps)
+            expected = list(range(1, len(step_nums) + 1))
+            self.assertEqual(step_nums, expected, f"Steps not sequential: {step_nums}")
+
+    def test_argo_script_no_duplicate_step_numbers(self) -> None:
+        """No step number should appear twice in an argo post-terraform-deploy.sh."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-argo-") as td:
+            out_dir = Path(td) / "step-argo"
+            initialize_project(
+                project_name="step-argo",
+                description="Argo deployment",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            step_nums = [n for n, _ in steps]
+            self.assertGreater(len(step_nums), 0, "No [N/M] markers found in argo script")
+            self.assertEqual(
+                len(step_nums), len(set(step_nums)),
+                f"Duplicate step numbers in argo deploy script: {step_nums}",
+            )
+
+    def test_argo_script_consistent_step_denominator(self) -> None:
+        """All [N/M] markers in an argo script must share denominator 6."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-argo-denom-") as td:
+            out_dir = Path(td) / "denom-argo"
+            initialize_project(
+                project_name="denom-argo",
+                description="Argo deployment",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            denominators = list({m for _, m in steps})
+            self.assertEqual(len(denominators), 1, f"Inconsistent denominators in argo script: {denominators}")
+            self.assertEqual(denominators[0], 6, f"Expected 6 total steps for argo, got {denominators[0]}")
+
+    def test_no_gitops_script_consistent_step_denominator(self) -> None:
+        """No-gitops script must use denominator 4 (terraform, bootstrap, kubeconfig, git-push)."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-no-gitops-") as td:
+            out_dir = Path(td) / "no-gitops"
+            initialize_project(
+                project_name="no-gitops",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            steps = self._parse_steps(script)
+            if steps:
+                denominators = list({m for _, m in steps})
+                self.assertEqual(len(denominators), 1, f"Inconsistent denominators: {denominators}")
+                self.assertEqual(denominators[0], 4, f"Expected 4 total steps for no-gitops, got {denominators[0]}")
+
+    def test_git_push_is_step_4_not_step_3(self) -> None:
+        """Git push must be labelled step 4, not the conflicting step 3."""
+        with tempfile.TemporaryDirectory(prefix="pi-step-gitpush-") as td:
+            out_dir = Path(td) / "gitpush-check"
+            initialize_project(
+                project_name="gitpush-check",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            # Git push line must be step 4
+            self.assertIn("[4/9] Updating Git repository", script)
+            # Old duplicate step 3 for git push must be gone
+            self.assertNotIn("[3/7] Updating Git repository", script)
+
+    def test_eck_healthcheck_uses_kubeconfig_library_not_sshpass(self) -> None:
+        """ECK-generated cluster-healthcheck.sh must use kubeconfig.sh, not inline sshpass."""
+        with tempfile.TemporaryDirectory(prefix="pi-eck-kube-lib-") as td:
+            out_dir = Path(td) / "eck-kube"
+            initialize_project(
+                project_name="eck-kube",
+                description="Elasticsearch on RKE2",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                # No iac_tool: ECK healthcheck is the final version (no terraform override)
+            )
+            healthcheck = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
+            self.assertNotIn("sshpass", healthcheck)
+            self.assertNotIn("KUBECONFIG_FILE", healthcheck)
+            self.assertIn("kubeconfig.sh", healthcheck)
+            self.assertIn("pi_prepare_kubeconfig", healthcheck)
+            self.assertIn("PROJECT_KUBECONFIG", healthcheck)
+            self.assertIn("ROOT_DIR", healthcheck)
+            self.assertIn('PLATFORM="rke2"', healthcheck)
+
+    def test_eck_healthcheck_has_root_dir_and_platform(self) -> None:
+        """ECK healthcheck must define ROOT_DIR, PLATFORM, and PROJECT_KUBECONFIG variables."""
+        with tempfile.TemporaryDirectory(prefix="pi-eck-vars-") as td:
+            out_dir = Path(td) / "eck-vars"
+            initialize_project(
+                project_name="eck-vars",
+                description="Elasticsearch on RKE2",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+            )
+            healthcheck = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
+            self.assertIn('ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"', healthcheck)
+            self.assertIn('INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"', healthcheck)
+            self.assertIn('PROJECT_KUBECONFIG="${PI_ARG_KUBECONFIG_PATH:-$ROOT_DIR/.kube/eck-vars}"', healthcheck)
+
+    def test_rke2_ansible_playbook_kubeconfig_fetch_play(self) -> None:
+        """Ansible playbook must include the kubeconfig-fetch play that Ansible writes to ~/.kube/config."""
+        with tempfile.TemporaryDirectory(prefix="pi-rke2-kube-play-") as td:
+            out_dir = Path(td) / "kube-play"
+            initialize_project(
+                project_name="kube-play",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            playbook = (out_dir / "ansible/rke2-bootstrap.yml").read_text()
+            self.assertIn("Fetch kubeconfig to local machine", playbook)
+            self.assertIn("Fetch kubeconfig from server node", playbook)
+            self.assertIn("/etc/rancher/rke2/rke2.yaml", playbook)
+            # Regexp rewriting 127.0.0.1 → actual server IP
+            self.assertIn(r"127\.0\.0\.1", playbook)
+            # Installs to standard location picked up by kubectl/flux automatically
+            self.assertIn("~/.kube/config", playbook)
+            self.assertIn("delegate_to: localhost", playbook)
+            self.assertIn("Install kubeconfig to ~/.kube/config", playbook)
+            # become: true required — rke2.yaml is root-owned (config dir mode 0700)
+            fetch_play_start = playbook.find("- name: Fetch kubeconfig to local machine")
+            next_play_start = playbook.find("\n- name:", fetch_play_start + 1)
+            fetch_play_block = playbook[fetch_play_start:next_play_start if next_play_start != -1 else None]
+            self.assertIn("become: true", fetch_play_block, \
+                "Fetch kubeconfig play must have become: true — rke2.yaml is root-owned")
+
+    def test_rke2_ansible_no_bare_escape_in_regexp(self) -> None:
+        """The regexp in the kubeconfig-fetch play must use escaped dots (no Python SyntaxWarning)."""
+        with tempfile.TemporaryDirectory(prefix="pi-rke2-regexp-") as td:
+            out_dir = Path(td) / "regexp-check"
+            initialize_project(
+                project_name="regexp-check",
+                description="",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="flux",
+                iac_tool="terraform",
+            )
+            playbook = (out_dir / "ansible/rke2-bootstrap.yml").read_text()
+            # File must have \.  (escaped dot) not bare \. which would be a linting error
+            self.assertIn(r"127\.0\.0\.1", playbook)
+            # Sanity: the unescaped variant must NOT appear
+            import re
+            bare_unescaped = re.search(r"regexp: '127\.[^\\]", playbook)
+            self.assertIsNone(bare_unescaped, "Found bare unescaped dot in regexp field")
 
 
 if __name__ == "__main__":

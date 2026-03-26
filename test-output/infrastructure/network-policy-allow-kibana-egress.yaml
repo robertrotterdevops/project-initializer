@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-project-allow-kibana-egress
+  namespace: test-project
+spec:
+  podSelector:
+    matchLabels:
+      common.k8s.elastic.co/type: kibana
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 9200   # Kibana → Elasticsearch
