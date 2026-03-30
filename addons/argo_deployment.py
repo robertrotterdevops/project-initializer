@@ -38,7 +38,9 @@ class ArgoDeploymentGenerator:
         self.git_token = (self.context.get("git_token") or "").strip()
 
         self.cluster_name = (self.context.get("cluster_name") or self.project_name).strip() or self.project_name
-        self.domain = (self.context.get("domain") or "{{domain}}").strip() or "{{domain}}"
+        self.domain = (self.context.get("domain") or "lan").strip() or "lan"
+        if "{{" in self.domain or "}}" in self.domain:
+            self.domain = "lan"
 
         sizing_context = self.context.get("sizing_context") or {}
         self.eck_enabled = bool(
@@ -48,6 +50,7 @@ class ArgoDeploymentGenerator:
                 or sizing_context.get("source") == "sizing_report"
             )
         )
+        self.enable_otel_collector = bool(self.context.get("enable_otel_collector", False))
 
     def generate(self) -> Dict[str, str]:
         files: Dict[str, str] = {}
@@ -71,6 +74,7 @@ class ArgoDeploymentGenerator:
         # Needed for Argo-only projects so component paths are valid.
         files.update(self._generate_infrastructure_scaffold())
 
+        files["argocd/patches/system-pool-affinity.yaml"] = self._generate_system_pool_affinity_patch()
         files["argocd/README.md"] = self._generate_readme()
         files["scripts/bootstrap-argocd.sh"] = self._generate_bootstrap_script()
         files["scripts/argocd-sync.sh"] = self._generate_sync_script()
@@ -84,6 +88,8 @@ class ArgoDeploymentGenerator:
         ]
         if self.eck_enabled:
             components.append(("agents", "agents", "3"))
+        if self.enable_otel_collector:
+            components.append(("observability", "observability", "4"))
         return components
 
     def _argocd_host(self) -> str:
@@ -111,11 +117,7 @@ spec:
   sourceRepos:
     - "{self.repo_url}"
   destinations:
-    - namespace: "{self.project_name}"
-      server: "https://kubernetes.default.svc"
-    - namespace: "argocd"
-      server: "https://kubernetes.default.svc"
-    - namespace: "observability"
+    - namespace: "*"
       server: "https://kubernetes.default.svc"
   clusterResourceWhitelist:
     - group: "*"
@@ -402,6 +404,45 @@ reclaimPolicy: Delete
         }
         return files
 
+    def _generate_system_pool_affinity_patch(self) -> str:
+        workloads = [
+            ("apps/v1", "Deployment", "argocd-applicationset-controller"),
+            ("apps/v1", "Deployment", "argocd-server"),
+            ("apps/v1", "Deployment", "argocd-repo-server"),
+            ("apps/v1", "Deployment", "argocd-redis"),
+            ("apps/v1", "Deployment", "argocd-dex-server"),
+            ("apps/v1", "Deployment", "argocd-notifications-controller"),
+            ("apps/v1", "StatefulSet", "argocd-application-controller"),
+        ]
+        docs: List[str] = []
+        for api_version, kind, name in workloads:
+            docs.append(
+                f"""apiVersion: {api_version}
+kind: {kind}
+metadata:
+  name: {name}
+  namespace: argocd
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/system: "true"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/system
+                    operator: In
+                    values: ["true"]
+      tolerations:
+        - key: node-role.kubernetes.io/system
+          operator: Exists
+          effect: NoSchedule
+"""
+            )
+        return "---\n".join(docs)
+
     def _generate_bootstrap_script(self) -> str:
         return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -410,6 +451,8 @@ PROJECT_NAME=\"{self.project_name}\"
 ROOT_DIR=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"
 TARGET_REVISION=\"{self.target_revision}\"
 REPO_URL=\"{self.repo_url}\"
+ARGOCD_INSTALL_URL=\"https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml\"
+GIT_TOKEN=\"{self.git_token}\"
 
 command -v kubectl >/dev/null 2>&1 || {{ echo >&2 \"kubectl is not installed\"; exit 1; }}
 
@@ -417,19 +460,112 @@ if ! kubectl get namespace argocd >/dev/null 2>&1; then
   kubectl create namespace argocd
 fi
 
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+# Server-side apply avoids oversized last-applied annotations on Argo CRDs.
+kubectl apply --server-side -n argocd -f "$ARGOCD_INSTALL_URL"
 kubectl -n argocd wait deployment/argocd-server --for=condition=Available --timeout=10m || true
 
-if [[ -n \"{self.git_token}\" ]]; then
-  kubectl -n argocd create secret generic \"$PROJECT_NAME-git-auth\" \\
-    --from-literal=username=oauth2 \\
-    --from-literal=password=\"{self.git_token}\" \\
-    --dry-run=client -o yaml | kubectl apply -f -
+# Re-apply scheduling hardening after every ArgoCD install/upgrade.
+AFFINITY_PATCH="$ROOT_DIR/argocd/patches/system-pool-affinity.yaml"
+if [[ -f "$AFFINITY_PATCH" ]]; then
+  echo "Applying ArgoCD system-pool scheduling patch..."
+  PATCH_FILE="$(mktemp)"
+  cat > "$PATCH_FILE" <<'EOF'
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/system: "true"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/system
+                    operator: In
+                    values:
+                      - "true"
+      tolerations:
+        - key: node-role.kubernetes.io/system
+          operator: Exists
+          effect: NoSchedule
+EOF
+  for TARGET in \
+    deployment/argocd-applicationset-controller \
+    deployment/argocd-server \
+    deployment/argocd-repo-server \
+    deployment/argocd-redis \
+    deployment/argocd-dex-server \
+    deployment/argocd-notifications-controller \
+    statefulset/argocd-application-controller; do
+    kubectl -n argocd patch "$TARGET" --type merge --patch-file "$PATCH_FILE" || \
+      echo "WARNING: failed to patch $TARGET for system-pool scheduling; continuing."
+  done
+  rm -f "$PATCH_FILE"
 fi
 
-kubectl apply -f \"$ROOT_DIR/argocd/appproject.yaml\"
-kubectl apply -f \"$ROOT_DIR/argocd/apps/root-app.yaml\"
-kubectl apply -f \"$ROOT_DIR/argocd/ingress.yaml\" || true
+# Register private Git repository credentials for ArgoCD when token is provided.
+if [[ -n \"$GIT_TOKEN\" ]]; then
+  cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{PROJECT_NAME}}-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: ${{REPO_URL}}
+  username: oauth2
+  password: ${{GIT_TOKEN}}
+EOF
+fi
+
+wait_ingress_admission_ready() {{
+  local svc_name="rke2-ingress-nginx-controller-admission"
+  if ! kubectl -n kube-system get svc "$svc_name" >/dev/null 2>&1; then
+    return 0
+  fi
+  local tries=0
+  while true; do
+    local eps
+    eps=$(kubectl -n kube-system get endpoints "$svc_name" -o jsonpath='{{.subsets[*].addresses[*].ip}}' 2>/dev/null || true)
+    if [[ -n "${{eps// /}}" ]]; then
+      return 0
+    fi
+    tries=$((tries + 1))
+    if [[ "$tries" -ge 24 ]]; then
+      echo "WARNING: ingress admission endpoints still unavailable for $svc_name after waiting."
+      return 1
+    fi
+    echo "Waiting for ingress admission endpoints ($svc_name) ... ${{tries}}/24"
+    sleep 5
+  done
+}}
+
+if [[ -f "$ROOT_DIR/argocd/ingress.yaml" ]]; then
+  wait_ingress_admission_ready || true
+fi
+
+if ! kubectl apply -k \"$ROOT_DIR/argocd\"; then
+  echo "WARNING: kubectl apply -k argocd failed; retrying critical resources individually."
+  kubectl apply -f "$ROOT_DIR/argocd/appproject.yaml" || true
+  kubectl apply -f "$ROOT_DIR/argocd/apps/root-app.yaml" || true
+  if [[ -f "$ROOT_DIR/argocd/ingress.yaml" ]]; then
+    wait_ingress_admission_ready || true
+    ATTEMPTS=0
+    until kubectl apply -f "$ROOT_DIR/argocd/ingress.yaml"; do
+      ATTEMPTS=$((ATTEMPTS + 1))
+      if [[ "$ATTEMPTS" -ge 12 ]]; then
+        echo "WARNING: failed to apply ArgoCD ingress after retries (ingress admission webhook may be unavailable)."
+        break
+      fi
+      echo "Ingress admission not ready yet; retrying in 5s ($ATTEMPTS/12)..."
+      sleep 5
+    done
+  fi
+fi
 
 echo \"ArgoCD bootstrap/configuration complete.\"
 echo \"UI host: {self._argocd_host()}\"

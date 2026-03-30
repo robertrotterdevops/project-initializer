@@ -18,8 +18,8 @@ Output: {phase_num}-UI-REVIEW.md
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/ui-review.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/references/ui-brand.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/ui-review.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/references/ui-brand.md
 </execution_context>
 
 <context>
@@ -27,6 +27,6 @@ Phase: $ARGUMENTS — optional, defaults to last completed phase.
 </context>
 
 <process>
-Execute @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/ui-review.md end-to-end.
+Execute @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/ui-review.md end-to-end.
 Preserve all workflow gates.
 </process>

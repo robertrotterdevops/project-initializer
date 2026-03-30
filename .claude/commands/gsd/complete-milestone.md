@@ -19,8 +19,8 @@ Output: Milestone archived (roadmap + requirements), PROJECT.md evolved, git tag
 <execution_context>
 **Load these files NOW (before proceeding):**
 
-- @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/complete-milestone.md (main workflow)
-- @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/templates/milestone-archive.md (archive template)
+- @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/complete-milestone.md (main workflow)
+- @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/templates/milestone-archive.md (archive template)
   </execution_context>
 
 <context>

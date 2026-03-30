@@ -10,9 +10,9 @@ Display comprehensive project statistics including phase progress, plan executio
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/stats.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/stats.md
 </execution_context>
 
 <process>
-Execute the stats workflow from @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/stats.md end-to-end.
+Execute the stats workflow from @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/stats.md end-to-end.
 </process>

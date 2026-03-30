@@ -686,6 +686,39 @@ class TestProjectOperationsApi(unittest.TestCase):
                 self.assertIn('prerequisite_checks', script)
                 self.assertIn('recommended_order', script)
 
+    def test_project_operations_fallback_registry_includes_argo_scripts(self):
+        import backend_api
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / 'scripts').mkdir(parents=True, exist_ok=True)
+            (root / 'scripts' / 'bootstrap-argocd.sh').write_text('#!/usr/bin/env bash\necho argo\n', encoding='utf-8')
+            (root / 'scripts' / 'argocd-sync.sh').write_text('#!/usr/bin/env bash\necho sync\n', encoding='utf-8')
+            entry = {
+                'id': 'dep-fallback-argo',
+                'name': 'fallback-argo',
+                'project_path': str(root),
+                'target_type': 'local',
+                'platform': 'rke2',
+                'gitops_tool': 'argo',
+            }
+            with patch('backend_api.DEPLOYMENT_HISTORY') as mock_hist:
+                mock_hist.list.return_value = [entry]
+                from fastapi.testclient import TestClient
+                client = TestClient(backend_api.app)
+                resp = client.get('/api/project/operations', params={'deployment_id': 'dep-fallback-argo'})
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                keys = {item['key'] for item in data['scripts']}
+                self.assertIn('bootstrap-argocd', keys)
+                self.assertIn('argocd-sync', keys)
+                bootstrap = next(item for item in data['scripts'] if item['key'] == 'bootstrap-argocd')
+                sync = next(item for item in data['scripts'] if item['key'] == 'argocd-sync')
+                flux_verify = next(item for item in data['scripts'] if item['key'] == 'verify-deployment')
+                self.assertTrue(bootstrap['exists'])
+                self.assertTrue(sync['exists'])
+                self.assertFalse(flux_verify.get('applicable', True))
+                self.assertIn('Flux-oriented', flux_verify.get('applicability_reason', ''))
+
     def test_project_operations_remote_uses_remote_project_dir(self):
         import backend_api
         entry = {
@@ -904,6 +937,34 @@ class TestProjectOperationsApi(unittest.TestCase):
                 self.assertTrue(resp.json()['script']['safe'])
                 self.assertFalse(resp.json()['script'].get('dangerous', False))
 
+    def test_project_run_script_rejects_not_applicable_script(self):
+        import backend_api
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / 'scripts').mkdir()
+            for rel in ['project-initializer-operations.json', 'scripts/verify-deployment.sh']:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('#!/usr/bin/env bash\necho verify\n', encoding='utf-8')
+            entry = {
+                'id': 'dep-run-not-applicable',
+                'name': 'argo-proj',
+                'project_path': str(root),
+                'target_type': 'local',
+                'gitops_tool': 'argo',
+            }
+            with patch('backend_api.DEPLOYMENT_HISTORY') as mock_hist,                  patch('backend_api.AUDIT_LOG'),                  patch('backend_api.OPERATION_RUN_HISTORY') as mock_runs:
+                mock_hist.list.return_value = [entry]
+                mock_runs.list.return_value = []
+                from fastapi.testclient import TestClient
+                client = TestClient(backend_api.app)
+                resp = client.post('/api/project/run-script', data={
+                    'deployment_id': 'dep-run-not-applicable',
+                    'script_key': 'verify-deployment',
+                })
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn('not applicable', (resp.json().get('detail') or '').lower())
+
     def test_project_run_script_post_terraform_returns_chained_substeps(self):
         import backend_api
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -979,6 +1040,47 @@ class TestProjectOperationsApi(unittest.TestCase):
             self.assertTrue(data['access_summary']['kubeconfig']['ok'])
             self.assertEqual(data['access_summary']['kubectl_context']['detail'], 'demo-admin')
             self.assertEqual(data['access_summary']['nodes_ready']['detail'], '2/2 node(s) Ready')
+
+
+    def test_flux_status_returns_argocd_applications_for_argo_projects(self):
+        import backend_api
+        entry = {
+            'id': 'dep-status-argo',
+            'name': 'demo-argo',
+            'target_type': 'local',
+            'gitops_tool': 'argo',
+        }
+        def fake_run(cmd, cwd, env=None):
+            rendered = ' '.join(cmd)
+            if 'applications.argoproj.io -n argocd -o json' in rendered:
+                return {'ok': True, 'stdout': '{"items":[{"metadata":{"name":"demo-argo-root","namespace":"argocd"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}},{"metadata":{"name":"demo-argo-infrastructure","namespace":"argocd"},"status":{"sync":{"status":"OutOfSync"},"health":{"status":"Progressing"}}}]}', 'stderr': ''}
+            if 'statefulset -n demo-argo' in rendered:
+                return {'ok': True, 'stdout': '1/1', 'stderr': ''}
+            if 'get pods -n demo-argo -o json' in rendered:
+                return {'ok': True, 'stdout': '{"items":[]}', 'stderr': ''}
+            if 'get ingress -n demo-argo -o json' in rendered or 'get route -n demo-argo -o json' in rendered:
+                return {'ok': True, 'stdout': '{"items":[]}', 'stderr': ''}
+            if 'config current-context' in rendered:
+                return {'ok': True, 'stdout': 'demo-admin', 'stderr': ''}
+            if 'cluster-info' in rendered:
+                return {'ok': True, 'stdout': 'Cluster API running', 'stderr': ''}
+            if 'get nodes --no-headers' in rendered:
+                return {'ok': True, 'stdout': 'cp-1 Ready control-plane', 'stderr': ''}
+            return {'ok': True, 'stdout': '', 'stderr': ''}
+
+        with patch('backend_api.DEPLOYMENT_HISTORY') as mock_hist,              patch('backend_api._run_shell_command', side_effect=fake_run),              patch('backend_api._check_local_prerequisite', return_value={'name': 'kubeconfig', 'ok': True, 'detail': 'Using /tmp/demo-kubeconfig'}),              patch('backend_api.shutil.which', return_value='/usr/bin/kubectl'),              patch('backend_api.AUDIT_LOG'):
+            mock_hist.list.return_value = [entry]
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.get('/api/flux-status', params={'deployment_id': 'dep-status-argo'})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data['gitops_tool'], 'argo')
+            self.assertEqual(data['gitops_kind'], 'applications')
+            self.assertEqual(len(data['applications']), 2)
+            self.assertEqual(data['kustomizations'], [])
+            self.assertEqual(data['gitops_summary']['counts']['ready'], 1)
+            self.assertEqual(data['gitops_summary']['counts']['reconciling'], 1)
 
     def test_flux_status_returns_remote_access_summary(self):
         import backend_api

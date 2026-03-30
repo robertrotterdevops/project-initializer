@@ -17,7 +17,7 @@ Verify milestone achieved its definition of done. Check requirements coverage, c
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/audit-milestone.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/audit-milestone.md
 </execution_context>
 
 <context>
@@ -31,6 +31,6 @@ Glob: .planning/phases/*/*-VERIFICATION.md
 </context>
 
 <process>
-Execute the audit-milestone workflow from @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/audit-milestone.md end-to-end.
+Execute the audit-milestone workflow from @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/audit-milestone.md end-to-end.
 Preserve all workflow gates (scope determination, verification reading, integration check, requirements coverage, routing).
 </process>

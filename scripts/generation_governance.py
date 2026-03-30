@@ -15,6 +15,28 @@ GENERATOR_NAME = "project-initializer"
 GENERATOR_VERSION = os.environ.get("PROJECT_INITIALIZER_VERSION", "dev")
 
 DEFAULT_OPERATION_SPECS = {
+    "bootstrap-argocd": {
+        "path": "scripts/bootstrap-argocd.sh",
+        "title": "Bootstrap ArgoCD",
+        "description": "Installs ArgoCD, applies AppProject/root app, and configures ingress/repository access.",
+        "safe": True,
+        "category": "operations",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 25,
+        "arguments": [],
+    },
+    "argocd-sync": {
+        "path": "scripts/argocd-sync.sh",
+        "title": "ArgoCD Sync",
+        "description": "Triggers ArgoCD sync and waits for healthy reconciliation.",
+        "safe": True,
+        "category": "operations",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 55,
+        "arguments": [],
+    },
     "preflight-check": {
         "path": "scripts/preflight-check.sh",
         "title": "Preflight Check",
@@ -644,4 +666,3 @@ def build_generation_validation_report(
         },
         "items": items,
     }
-

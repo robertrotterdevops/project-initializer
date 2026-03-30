@@ -31,11 +31,12 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
         self.assertIn("scripts/import-dashboards.sh", files)
         self.assertIn("scripts/preflight-check.sh", files)
 
-    def test_02_argo_context_returns_empty(self):
-        """Test 2: main() with gitops_tool=argo returns empty dict (Flux-only addon)."""
+    def test_02_argo_context_returns_scripts(self):
+        """Test 2: main() with gitops_tool=argo still returns lifecycle scripts."""
         argo_context = {"gitops_tool": "argo", "platform": "rke2"}
         files = main(self.project_name, self.description, argo_context)
-        self.assertEqual(files, {})
+        self.assertIn("scripts/mirror-secrets.sh", files)
+        self.assertIn("scripts/import-dashboards.sh", files)
 
     def test_03_mirror_secrets_content(self):
         """Test 3: mirror-secrets.sh contains kubectl get secret, kubectl apply, and ES secret name pattern."""
@@ -125,15 +126,15 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
         self.assertGreaterEqual(ADDON_META["priority"], 19)
         self.assertLessEqual(ADDON_META["priority"], 25)
 
-    def test_no_context_returns_empty(self):
-        """Bonus: main() with no context (gitops_tool not flux) returns empty dict."""
+    def test_no_context_returns_scripts(self):
+        """Bonus: main() with no context still returns lifecycle scripts."""
         files = main(self.project_name, self.description, None)
-        self.assertEqual(files, {})
+        self.assertIn("scripts/preflight-check.sh", files)
 
-    def test_non_flux_gitops_returns_empty(self):
-        """Bonus: main() with gitops_tool=none returns empty dict."""
+    def test_non_flux_gitops_returns_scripts(self):
+        """Bonus: main() with gitops_tool=none still returns lifecycle scripts."""
         files = main(self.project_name, self.description, {"gitops_tool": "none"})
-        self.assertEqual(files, {})
+        self.assertIn("scripts/validate-config.sh", files)
 
 
 class TestDeploymentLifecycleGenerator(unittest.TestCase):

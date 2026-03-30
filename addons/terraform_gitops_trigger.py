@@ -350,7 +350,7 @@ echo "Deployment trigger finished."
 """
 
 
-def _cluster_healthcheck_script(project_name: str, platform: str = "") -> str:
+def _cluster_healthcheck_script(project_name: str, platform: str = "", gitops: str = "") -> str:
     platform = (platform or "").lower()
     kubeconfig_bootstrap = """if [[ -f "$ROOT_DIR/scripts/lib/kubeconfig.sh" ]]; then
   # shellcheck source=/dev/null
@@ -380,6 +380,7 @@ set -euo pipefail
 NAMESPACE="{project_name}"
 ES_NAME="{project_name}"
 PLATFORM="{platform}"
+GITOPS_TOOL="{gitops}"
 KIBANA_INGRESS="{project_name}-kibana"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/ansible/inventory.ini"
@@ -452,8 +453,31 @@ kubectl get pods -n "$NAMESPACE" -l agent.k8s.elastic.co/name -o wide 2>/dev/nul
 sep "OTEL COLLECTOR"
 kubectl get pods -n observability -l app.kubernetes.io/name=otel-collector -o wide 2>/dev/null || echo "No OTEL pods"
 
+if [[ "${{GITOPS_TOOL}}" == "argo" ]]; then
+sep "ARGOCD"
+ARGO_HOST=$(kubectl get ingress -n argocd argocd-server -o jsonpath='{{.spec.rules[0].host}}' 2>/dev/null || true)
+if [[ -n "$ARGO_HOST" ]]; then
+  echo "  URL      : https://${{ARGO_HOST}}"
+else
+  echo "  URL      : ingress host not found (argocd/argocd-server)"
+fi
+ARGO_PASS=$(kubectl get secret argocd-initial-admin-secret -n argocd -o go-template='{{{{.data.password | base64decode}}}}' 2>/dev/null || true)
+if [[ -n "$ARGO_PASS" ]]; then
+  echo "  Username : admin"
+  echo "  Password : $ARGO_PASS"
+else
+  echo "  Password : argocd-initial-admin-secret not found (password may already be rotated)"
+fi
+
+sep "ARGOCD APPLICATIONS"
+kubectl -n argocd get applications.argoproj.io 2>/dev/null || echo "No ArgoCD Application resources found"
+if command -v argocd >/dev/null 2>&1; then
+  argocd app list 2>/dev/null || true
+fi
+else
 sep "FLUX KUSTOMIZATIONS"
 flux get kustomizations 2>/dev/null || echo "flux CLI not available or not configured"
+fi
 
 sep "DONE"
 """
@@ -510,7 +534,7 @@ fi
             "scripts/post-terraform-deploy.sh": _script_header(project_name, platform, total_steps)
             + git_push_block
             + 'echo "No GitOps tool selected (flux/argo). Terraform/bootstrap completed."\n',
-            "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
+            "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform, gitops),
             "docs/DEPLOYMENT_PIPELINE.md": (
                 "# Deployment Pipeline\n\n"
                 "1. Terraform creates infrastructure and VMs.\n"
@@ -524,7 +548,7 @@ fi
     return {
         "scripts/lib/kubeconfig.sh": _kubeconfig_helper_script(),
         "scripts/post-terraform-deploy.sh": _script_header(project_name, platform, total_steps) + git_push_block + tail,
-        "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform),
+        "scripts/cluster-healthcheck.sh": _cluster_healthcheck_script(project_name, platform, gitops),
         "docs/DEPLOYMENT_PIPELINE.md": (
             "# Deployment Pipeline\n\n"
             "Use this sequence to complete deployment:\n\n"

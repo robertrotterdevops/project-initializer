@@ -2917,7 +2917,7 @@
             </div>
 
             <div class="card collapsible-card" id="statusKsCard" style="display:none">
-              <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> Kustomizations</h2><button class="card-collapse-toggle" type="button" data-card-target="statusKsContent" aria-label="Toggle Kustomizations"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> <span id="statusGitopsTitle">Kustomizations</span></h2><button class="card-collapse-toggle" type="button" data-card-target="statusKsContent" aria-label="Toggle Kustomizations"><i data-lucide="chevron-down"></i></button></div>
               <div class="card-content" id="statusKsContent">
               <table class="ks-table">
                 <thead><tr><th>Name</th><th>Namespace</th><th>Ready</th><th>Message</th><th>Last Updated</th></tr></thead>
@@ -4961,6 +4961,11 @@
           runBtn.disabled = true;
           return;
         }
+        if (selected.applicable === false) {
+          scriptHint.textContent = `${selected.title} is not applicable for this project. ${selected.applicability_reason || ''}`.trim();
+          runBtn.disabled = true;
+          return;
+        }
         if (missingRequired.length) {
           scriptHint.textContent = `${selected.title} needs arguments: ${missingRequired.map(item => item.label || item.name).join(', ')}.`;
           runBtn.disabled = true;
@@ -5357,7 +5362,15 @@
         renderValidationStepActions(data);
         renderValidationTimeline(data);
         renderSelectedRunOutput(data);
-        scriptSelect.innerHTML = '<option value="">Select a generated script</option>' + (data.scripts || []).filter(item => item.exists).map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.title)}${item.safe ? '' : ' [mutating]'}${item.ready ? '' : ' [blocked]'}</option>`).join('');
+        scriptSelect.innerHTML = '<option value="">Select a generated script</option>' + (data.scripts || []).map(item => {
+          const suffix = [
+            item.safe ? '' : '[mutating]',
+            item.exists ? '' : '[missing]',
+            item.applicable === false ? '[not applicable]' : '',
+            item.ready ? '' : '[blocked]',
+          ].filter(Boolean).join(' ');
+          return `<option value="${escapeHtml(item.key)}">${escapeHtml(item.title)}${suffix ? ` ${suffix}` : ''}</option>`;
+        }).join('');
         updateValidationScriptState();
       }
 
@@ -5737,7 +5750,9 @@
           const data = await res.json();
           renderStatusOverview(data);
           renderStatusAccess(data);
-          renderKustomizationTable(data.kustomizations || []);
+          const kind = data.gitops_kind || (data.gitops_tool === "argo" ? "applications" : "kustomizations");
+          const resources = data.gitops_resources || (kind === "applications" ? (data.applications || []) : (data.kustomizations || []));
+          renderKustomizationTable(resources, kind);
           renderEsPodHealth(data.es_pods, data.status_details || {});
           document.getElementById('statusLastPolled').textContent = `Last polled: ${new Date().toLocaleTimeString()}`;
           document.getElementById('statusKsCard').style.display = '';
@@ -5746,8 +5761,10 @@
         }
       }
 
-      function renderKustomizationTable(kustomizations) {
+      function renderKustomizationTable(kustomizations, kind = "kustomizations") {
         const tbody = document.getElementById('kustomizationRows');
+        const title = document.getElementById('statusGitopsTitle');
+        if (title) title.textContent = kind === 'applications' ? 'Applications' : 'Kustomizations';
         if (!tbody) return;
         tbody.innerHTML = '';
         for (const ks of kustomizations) {
@@ -5802,13 +5819,15 @@
         const card = document.getElementById('statusOverviewCard');
         const body = document.getElementById('statusOverviewBody');
         if (!card || !body || !data) return;
-        const summary = data.kustomization_summary || { counts: {} };
+        const summary = data.gitops_summary || data.kustomization_summary || { counts: {} };
         const cluster = data.cluster_summary || {};
         const counts = summary.counts || {};
+        const kind = data.gitops_kind || (data.gitops_tool === "argo" ? "applications" : "kustomizations");
+        const kindLabel = kind === "applications" ? "Applications" : "Kustomizations";
         body.innerHTML = `
           <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
             <div><div class="form-hint">Cluster</div><div style="font-weight:600; text-transform:capitalize;">${escapeHtml(cluster.status || 'unknown')}</div></div>
-            <div><div class="form-hint">Kustomizations</div><div style="font-weight:600;">${counts.ready || 0}/${counts.total || 0} ready</div></div>
+            <div><div class="form-hint">${kindLabel}</div><div style="font-weight:600;">${counts.ready || 0}/${counts.total || 0} ready</div></div>
             <div><div class="form-hint">Reconciling</div><div style="font-weight:600;">${counts.reconciling || 0}</div></div>
             <div><div class="form-hint">Failed</div><div style="font-weight:600;">${counts.failed || 0}</div></div>
           </div>`;

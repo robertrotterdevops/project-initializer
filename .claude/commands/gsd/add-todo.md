@@ -23,7 +23,7 @@ Routes to the add-todo workflow which handles:
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/add-todo.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/add-todo.md
 </execution_context>
 
 <context>
@@ -33,7 +33,7 @@ State is resolved in-workflow via `init todos` and targeted reads.
 </context>
 
 <process>
-**Follow the add-todo workflow** from `@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/add-todo.md`.
+**Follow the add-todo workflow** from `@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/add-todo.md`.
 
 The workflow handles all logic including:
 1. Directory ensuring

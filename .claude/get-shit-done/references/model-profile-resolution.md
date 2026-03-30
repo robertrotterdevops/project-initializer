@@ -12,7 +12,7 @@ Default: `balanced` if not set or config missing.
 
 ## Lookup Table
 
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/references/model-profiles.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/references/model-profiles.md
 
 Look up the agent in the table for the resolved profile. Pass the model parameter to Task calls:
 

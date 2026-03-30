@@ -17,7 +17,7 @@ Output: Conversational output only (no file creation) - ends with "What do you t
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/list-phase-assumptions.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/list-phase-assumptions.md
 </execution_context>
 
 <context>

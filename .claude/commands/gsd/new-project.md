@@ -29,14 +29,14 @@ Initialize a new project through unified flow: questioning → research (optiona
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/new-project.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/references/questioning.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/references/ui-brand.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/templates/project.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/templates/requirements.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/new-project.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/references/questioning.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/references/ui-brand.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/templates/project.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/templates/requirements.md
 </execution_context>
 
 <process>
-Execute the new-project workflow from @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/new-project.md end-to-end.
+Execute the new-project workflow from @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/new-project.md end-to-end.
 Preserve all workflow gates (validation, approvals, commits, routing).
 </process>

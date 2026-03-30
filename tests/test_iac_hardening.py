@@ -496,7 +496,23 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-apps"', deploy_script)
             self.assertNotIn("kubectl -n flux-system wait gitrepository", deploy_script)
             self.assertIn('argocd app sync "$PROJECT_NAME-root" || true', deploy_script)
-            self.assertTrue((out_dir / "scripts/cluster-healthcheck.sh").exists())
+
+            healthcheck_script = (out_dir / "scripts/cluster-healthcheck.sh").read_text()
+            self.assertIn('GITOPS_TOOL="argo"', healthcheck_script)
+            self.assertIn('if [[ "${GITOPS_TOOL}" == "argo" ]]; then', healthcheck_script)
+            self.assertIn('sep "ARGOCD"', healthcheck_script)
+            self.assertIn('sep "ARGOCD APPLICATIONS"', healthcheck_script)
+            self.assertIn('kubectl -n argocd get applications.argoproj.io', healthcheck_script)
+
+            bootstrap_argocd = (out_dir / "scripts/bootstrap-argocd.sh").read_text()
+            affinity_patch = (out_dir / "argocd/patches/system-pool-affinity.yaml").read_text()
+            self.assertIn("kubectl apply --server-side -n argocd -f", bootstrap_argocd)
+            self.assertIn('AFFINITY_PATCH="$ROOT_DIR/argocd/patches/system-pool-affinity.yaml"', bootstrap_argocd)
+            self.assertIn("argocd.argoproj.io/secret-type: repository", bootstrap_argocd)
+            self.assertIn("type: git", bootstrap_argocd)
+            self.assertIn("kubectl apply -k \"$ROOT_DIR/argocd\"", bootstrap_argocd)
+            self.assertIn("name: argocd-redis", affinity_patch)
+            self.assertIn("name: argocd-application-controller", affinity_patch)
 
     def test_argo_generation_excludes_flux_scaffold(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pi-argo-no-flux-") as td:
@@ -516,6 +532,9 @@ class TestIacHardening(unittest.TestCase):
             self.assertFalse((out_dir / "flux-system").exists())
             self.assertFalse((out_dir / "scripts/bootstrap-flux.sh").exists())
             self.assertTrue((out_dir / "scripts/bootstrap-argocd.sh").exists())
+            self.assertTrue((out_dir / "scripts/mirror-secrets.sh").exists())
+            self.assertTrue((out_dir / "scripts/import-dashboards.sh").exists())
+            self.assertTrue((out_dir / "scripts/preflight-check.sh").exists())
 
     def test_argo_component_app_paths_and_ingress_host(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pi-argo-paths-") as td:
@@ -539,7 +558,29 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("path: elasticsearch", es_app)
             self.assertIn("path: kibana", kb_app)
             self.assertIn("path: infrastructure", infra_app)
-            self.assertIn("host: argocd.argo-paths.{{domain}}", ingress)
+            self.assertIn("host: argocd.argo-paths.lan", ingress)
+
+
+    def test_argo_includes_observability_application_when_otel_enabled(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-argo-otel-") as td:
+            out_dir = Path(td) / "argo-otel"
+            initialize_project(
+                project_name="argo-otel",
+                description="Argo with OTEL collector",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+                enable_otel_collector=True,
+                sizing_context={
+                    "source": "sizing_report",
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            self.assertTrue((out_dir / "observability/kustomization.yaml").exists())
+            app_yaml = (out_dir / "argocd/apps/components/observability.yaml").read_text()
+            self.assertIn("path: observability", app_yaml)
+            self.assertIn('argocd.argoproj.io/sync-wave: "4"', app_yaml)
 
     def test_healthcheck_script_generated_without_terraform_when_sizing_present(self) -> None:
         sizing_context = {

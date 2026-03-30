@@ -423,7 +423,7 @@
         "gitops"
       ],
       "triggers": {
-        "gitops_tool": "flux"
+        "default": true
       },
       "priority": 20,
       "minimum_python_version": "3.9",

@@ -3,7 +3,7 @@
 Deployment lifecycle addon for project-initializer.
 
 Generates post-deploy automation scripts and a pre-flight check script
-for RKE2 + FluxCD projects. Triggered when gitops_tool=flux.
+for Kubernetes/GitOps projects.
 
 Scripts generated:
   scripts/mirror-secrets.sh     — Mirror ECK elastic-user secret to observability namespace
@@ -21,13 +21,13 @@ ADDON_META = {
     "name": "deployment_lifecycle",
     "version": "1.0",
     "description": "Deployment lifecycle scripts: post-deploy automation, pre-flight checks",
-    "triggers": {"gitops_tool": "flux"},
+    "triggers": {"default": True},
     "priority": 20,
 }
 
 
 class DeploymentLifecycleGenerator:
-    """Generates deployment lifecycle shell scripts for FluxCD projects."""
+    """Generates deployment lifecycle shell scripts for Kubernetes/GitOps projects."""
 
     def __init__(
         self,
@@ -764,12 +764,6 @@ def main(
 
     Returns:
         Dict of {filepath: content} for generated shell scripts.
-        Returns empty dict if gitops_tool is not 'flux'.
     """
-    ctx = context or {}
-    gitops_tool = (ctx.get("gitops_tool") or "").lower()
-    if gitops_tool != "flux":
-        return {}
-
     generator = DeploymentLifecycleGenerator(project_name, description, context)
     return generator.generate()

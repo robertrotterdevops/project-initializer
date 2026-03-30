@@ -19,8 +19,8 @@ Routes to the profile-user workflow which orchestrates the full flow: consent ga
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/profile-user.md
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/references/ui-brand.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/profile-user.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/references/ui-brand.md
 </execution_context>
 
 <context>

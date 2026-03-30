@@ -32,7 +32,7 @@ Flags are composable: `--discuss --research --full` gives discussion + research 
 </objective>
 
 <execution_context>
-@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/quick.md
+@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/quick.md
 </execution_context>
 
 <context>
@@ -42,6 +42,6 @@ Context files are resolved inside the workflow (`init quick`) and delegated via 
 </context>
 
 <process>
-Execute the quick workflow from @/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/quick.md end-to-end.
+Execute the quick workflow from @/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/quick.md end-to-end.
 Preserve all workflow gates (validation, task description, planning, execution, state updates, commits).
 </process>

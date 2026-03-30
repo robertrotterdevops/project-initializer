@@ -216,7 +216,7 @@ get-shit-done/
 
 **New Workflow:**
 - Implementation: `get-shit-done/workflows/{name}.md`
-- Usage: Reference from command with `@/home/ubuntu/App-Projects-Workspace/project-initializer/.claude/get-shit-done/workflows/{name}.md`
+- Usage: Reference from command with `@/Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/get-shit-done/workflows/{name}.md`
 
 **New Reference Document:**
 - Implementation: `get-shit-done/references/{name}.md`
@@ -229,12 +229,12 @@ get-shit-done/
 ## Special Directories
 
 **get-shit-done/**
-- Purpose: Resources installed to /home/ubuntu/App-Projects-Workspace/project-initializer/.claude/
+- Purpose: Resources installed to /Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/
 - Source: Copied by bin/install.js during installation
 - Committed: Yes (source of truth)
 
 **commands/**
-- Purpose: Slash commands installed to /home/ubuntu/App-Projects-Workspace/project-initializer/.claude/commands/
+- Purpose: Slash commands installed to /Users/robert.rotter/Projects/web-app-dev/project-initializer/.claude/commands/
 - Source: Copied by bin/install.js during installation
 - Committed: Yes (source of truth)
 

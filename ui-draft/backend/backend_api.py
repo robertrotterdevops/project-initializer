@@ -124,6 +124,38 @@ POLICY_PROFILES = {
     },
 }
 SCRIPT_OPERATION_REGISTRY = {
+    "bootstrap-argocd": {
+        "path": "scripts/bootstrap-argocd.sh",
+        "title": "Bootstrap ArgoCD",
+        "description": "Installs ArgoCD, applies AppProject/root app, and configures ingress/repository access.",
+        "safe": True,
+        "dangerous": False,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 25,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
+    "argocd-sync": {
+        "path": "scripts/argocd-sync.sh",
+        "title": "ArgoCD Sync",
+        "description": "Triggers ArgoCD sync and waits for healthy reconciliation.",
+        "safe": True,
+        "dangerous": False,
+        "category": "operations",
+        "execution_context": "project_root",
+        "applies_to": ["local", "remote"],
+        "prerequisites": ["bash", "kubectl", "kubeconfig"],
+        "recommended_order": 55,
+        "arguments": [],
+        "confirmation_required": False,
+        "confirmation_mode": "",
+        "confirmation_phrase": "",
+    },
     "preflight-check": {
         "path": "scripts/preflight-check.sh",
         "title": "Preflight Check",
@@ -1178,6 +1210,35 @@ def _operations_manifest_for_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     return _fallback_operations_manifest(str(entry.get("platform") or ""))
 
 
+def _derive_gitops_tool_for_entry(entry: Dict[str, Any]) -> str:
+    value = str(entry.get("gitops_tool") or "").strip().lower()
+    if value in {"flux", "argo", "none"}:
+        return value
+    if _project_file_exists(entry, "argocd/apps/root-app.yaml")[0] or _project_file_exists(entry, "scripts/bootstrap-argocd.sh")[0]:
+        return "argo"
+    if _project_file_exists(entry, "flux-system/gitrepository.yaml")[0] or _project_file_exists(entry, "scripts/bootstrap-flux.sh")[0]:
+        return "flux"
+    return ""
+
+
+def _script_applicability(entry: Dict[str, Any], script: Dict[str, Any]) -> tuple[bool, str]:
+    key = str(script.get("key") or "").strip()
+    gitops = _derive_gitops_tool_for_entry(entry)
+
+    flux_only = {"bootstrap-flux", "verify-deployment", "rollback", "preflight-check"}
+    argo_only = {"bootstrap-argocd", "argocd-sync"}
+
+    if key in flux_only and gitops == "argo":
+        return False, "This script is Flux-oriented and not applicable to Argo projects."
+    if key in argo_only and gitops == "flux":
+        return False, "This script is Argo-oriented and not applicable to Flux projects."
+    if key in flux_only and gitops == "none":
+        return False, "This script requires Flux, but no GitOps tool is configured."
+    if key in argo_only and gitops == "none":
+        return False, "This script requires ArgoCD, but no GitOps tool is configured."
+    return True, ""
+
+
 def _hydrate_script_metadata(entry: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any]:
     hydrated = dict(script)
     if hydrated.get("confirmation_required") and hydrated.get("confirmation_mode") == "project_name" and not hydrated.get("confirmation_phrase"):
@@ -1532,7 +1593,12 @@ def _operation_scripts_for_entry(entry: Dict[str, Any], diagnostics: Optional[Di
         remote_gate = _remote_script_gate(entry, script, diagnostics=diagnostics)
         script["remote_gate"] = remote_gate
         script["blocked_reasons"] = list(remote_gate.get("blocked_reasons") or [])
-        script["ready"] = exists
+        applicable, applicability_reason = _script_applicability(entry, script)
+        script["applicable"] = applicable
+        script["applicability_reason"] = applicability_reason
+        if not applicable and applicability_reason:
+            script["blocked_reasons"].append(applicability_reason)
+        script["ready"] = bool(exists and applicable)
         scripts.append(script)
     return sorted(scripts, key=lambda item: (item.get("recommended_order", 999), item.get("title", item.get("key", ""))))
 
@@ -3593,6 +3659,65 @@ def _route_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+
+
+def _resolve_gitops_tool_for_status(entry: Dict[str, Any]) -> str:
+    tool = str(entry.get("gitops_tool") or "").strip().lower()
+    if tool in {"flux", "argo", "none"}:
+        return tool
+    if _project_file_exists(entry, "argocd/apps/root-app.yaml")[0] or _project_file_exists(entry, "scripts/bootstrap-argocd.sh")[0]:
+        return "argo"
+    if _project_file_exists(entry, "flux-system/gitrepository.yaml")[0] or _project_file_exists(entry, "scripts/bootstrap-flux.sh")[0]:
+        return "flux"
+    return "flux"
+
+
+def _argocd_application_rows(data: Dict[str, Any], polled_at: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        meta = item.get("metadata") or {}
+        status = item.get("status") or {}
+        sync_status = str((status.get("sync") or {}).get("status") or "Unknown")
+        health_status = str((status.get("health") or {}).get("status") or "Unknown")
+
+        if sync_status == "Synced" and health_status == "Healthy":
+            ready = "True"
+            reason = "Healthy"
+        elif health_status in {"Degraded", "Missing"}:
+            ready = "False"
+            reason = "Error"
+        elif sync_status in {"OutOfSync", "Unknown"} or health_status in {"Progressing", "Suspended", "Unknown"}:
+            ready = "False"
+            reason = "Progressing"
+        else:
+            ready = "Unknown"
+            reason = "Unknown"
+
+        op_state = status.get("operationState") or {}
+        message = str(op_state.get("message") or "")
+        if not message:
+            conds = status.get("conditions") or []
+            if isinstance(conds, list) and conds:
+                first = conds[0] or {}
+                message = str(first.get("message") or "")
+        if not message:
+            message = f"sync={sync_status}, health={health_status}"
+
+        rows.append({
+            "name": str(meta.get("name") or ""),
+            "namespace": str(meta.get("namespace") or "argocd"),
+            "ready": ready,
+            "reason": reason,
+            "message": message,
+            "sync_status": sync_status,
+            "health_status": health_status,
+            "polled_at": polled_at,
+        })
+    return rows
+
+
 @app.get("/api/flux-status")
 def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
     entries = DEPLOYMENT_HISTORY.list()
@@ -3602,9 +3727,10 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
 
     target_type = (entry.get("target_type") or "local").strip()
     project_name = entry.get("name", "")
-    ks_names = _derive_kustomization_names_for_entry(entry)
+    gitops_tool = _resolve_gitops_tool_for_status(entry)
     polled_at = _utcnow()
-    kustomizations = []
+    resources: List[Dict[str, Any]] = []
+    resource_kind = "kustomizations"
 
     jsonpath = (
         "{.status.conditions[?(@.type=='Ready')].status}"
@@ -3622,16 +3748,26 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         port = str(remote_cfg.get("port", "22"))
         user = remote_cfg.get("user", "")
         ssh_key_path = remote_cfg.get("ssh_key_path", "")
-        for ks in ks_names:
-            cmd = _remote_kubectl_command(
-                entry,
-                f"kubectl get kustomization {ks} -n flux-system -o jsonpath='{jsonpath}' 2>/dev/null || echo 'Unknown||'"
-            )
-            r = _run_ssh_command(host, port, user, cmd, ssh_key_path)
-            ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
-            kustomizations.append({"name": ks, "namespace": "flux-system",
-                                   "ready": ready, "reason": reason,
-                                   "message": message, "polled_at": polled_at})
+
+        if gitops_tool == "argo":
+            cmd = _remote_kubectl_command(entry, "kubectl get applications.argoproj.io -n argocd -o json 2>/dev/null || echo '{}'" )
+            apps_r = _run_ssh_command(host, port, user, cmd, ssh_key_path)
+            apps_json = _safe_json_load(apps_r.get("stdout", ""))
+            resources = _argocd_application_rows(apps_json, polled_at)
+            resource_kind = "applications"
+        else:
+            ks_names = _derive_kustomization_names_for_entry(entry)
+            for ks in ks_names:
+                cmd = _remote_kubectl_command(
+                    entry,
+                    f"kubectl get kustomization {ks} -n flux-system -o jsonpath='{jsonpath}' 2>/dev/null || echo 'Unknown||'"
+                )
+                r = _run_ssh_command(host, port, user, cmd, ssh_key_path)
+                ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
+                resources.append({"name": ks, "namespace": "flux-system",
+                                  "ready": ready, "reason": reason,
+                                  "message": message, "polled_at": polled_at})
+
         es_cmd = _remote_kubectl_command(
             entry,
             f"kubectl get statefulset -n {project_name} -o jsonpath='{{.items[*].status.readyReplicas}}/{{.items[*].status.replicas}}' 2>/dev/null || echo '0/0'"
@@ -3647,16 +3783,28 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         kube_env = os.environ.copy()
         if kubeconfig.strip():
             kube_env["KUBECONFIG"] = str(Path(kubeconfig).expanduser())
-        for ks in ks_names:
-            r = _run_shell_command(
-                ["kubectl", "get", "kustomization", ks, "-n", "flux-system",
-                 "-o", f"jsonpath={jsonpath}"],
+
+        if gitops_tool == "argo":
+            apps_r = _run_shell_command(
+                ["kubectl", "get", "applications.argoproj.io", "-n", "argocd", "-o", "json"],
                 Path.cwd(), env=kube_env
             )
-            ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
-            kustomizations.append({"name": ks, "namespace": "flux-system",
-                                   "ready": ready, "reason": reason,
-                                   "message": message, "polled_at": polled_at})
+            apps_json = _safe_json_load(apps_r.get("stdout", ""))
+            resources = _argocd_application_rows(apps_json, polled_at)
+            resource_kind = "applications"
+        else:
+            ks_names = _derive_kustomization_names_for_entry(entry)
+            for ks in ks_names:
+                r = _run_shell_command(
+                    ["kubectl", "get", "kustomization", ks, "-n", "flux-system",
+                     "-o", f"jsonpath={jsonpath}"],
+                    Path.cwd(), env=kube_env
+                )
+                ready, reason, message = _parse_ks_kubectl_output(r.get("stdout", ""))
+                resources.append({"name": ks, "namespace": "flux-system",
+                                  "ready": ready, "reason": reason,
+                                  "message": message, "polled_at": polled_at})
+
         es_r = _run_shell_command(
             ["kubectl", "get", "statefulset", "-n", project_name,
              "-o", "jsonpath={.items[*].status.readyReplicas}/{.items[*].status.replicas}"],
@@ -3676,15 +3824,15 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         "total": es_parts[1].strip() if len(es_parts) > 1 else "0",
     }
 
-    kustomization_summary = _summarize_kustomizations(kustomizations)
+    resource_summary = _summarize_kustomizations(resources)
     cluster_status = "unknown"
-    if kustomization_summary["overall"] == "failed":
+    if resource_summary["overall"] == "failed":
         cluster_status = "degraded"
-    elif kustomization_summary["overall"] == "reconciling":
+    elif resource_summary["overall"] == "reconciling":
         cluster_status = "reconciling"
-    elif kustomization_summary["overall"] == "ready" and es_pods.get("total") not in {"", "0"} and es_pods.get("running") == es_pods.get("total"):
+    elif resource_summary["overall"] == "ready" and es_pods.get("total") not in {"", "0"} and es_pods.get("running") == es_pods.get("total"):
         cluster_status = "ready"
-    elif kustomization_summary["overall"] == "ready":
+    elif resource_summary["overall"] == "ready":
         cluster_status = "partially_ready"
 
     pod_items = pods_json.get("items") if isinstance(pods_json, dict) else []
@@ -3722,12 +3870,23 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
     }
 
     access_summary = _build_flux_access_summary(entry, kubeconfig)
-    AUDIT_LOG.append("flux-poll", f"Polled {deployment_id}")
-    return {"deployment_id": deployment_id, "kustomizations": kustomizations,
-            "kustomization_summary": kustomization_summary,
-            "cluster_summary": {"status": cluster_status, "es_pods": es_pods},
-            "access_summary": access_summary,
-            "es_pods": es_pods, "status_details": status_details, "polled_at": polled_at}
+    AUDIT_LOG.append(f"{gitops_tool}-poll", f"Polled {deployment_id}")
+
+    return {
+        "deployment_id": deployment_id,
+        "gitops_tool": gitops_tool,
+        "gitops_kind": resource_kind,
+        "gitops_resources": resources,
+        "applications": resources if resource_kind == "applications" else [],
+        "kustomizations": resources if resource_kind == "kustomizations" else [],
+        "gitops_summary": resource_summary,
+        "kustomization_summary": resource_summary,
+        "cluster_summary": {"status": cluster_status, "es_pods": es_pods},
+        "access_summary": access_summary,
+        "es_pods": es_pods,
+        "status_details": status_details,
+        "polled_at": polled_at,
+    }
 
 
 def _resolve_runbook_docs(entry: Dict[str, Any], docs: List[str]) -> List[Dict[str, Any]]:
@@ -4245,7 +4404,12 @@ def _execute_project_script(
     script["prerequisite_checks"] = _evaluate_script_prerequisites(entry, script)
     script["remote_gate"] = _remote_script_gate(entry, script)
     script["blocked_reasons"] = list(script["remote_gate"].get("blocked_reasons") or [])
-    script["ready"] = exists
+    applicable, applicability_reason = _script_applicability(entry, script)
+    script["applicable"] = applicable
+    script["applicability_reason"] = applicability_reason
+    if not applicable and applicability_reason:
+        script["blocked_reasons"].append(applicability_reason)
+    script["ready"] = bool(exists and applicable)
     runbook = _build_runbook_progress(entry, {
         "scripts": [script],
         "operations_manifest": manifest,
@@ -4267,6 +4431,8 @@ def _execute_project_script(
             raise HTTPException(status_code=400, detail=f"confirmation mismatch; type '{expected}' to continue")
     if not script.get("exists"):
         raise HTTPException(status_code=404, detail=f"script not found: {script.get('path', '')}")
+    if not script.get("applicable", True):
+        raise HTTPException(status_code=400, detail=script.get("applicability_reason") or "script is not applicable for this project")
     failed_checks = [check for check in script.get("prerequisite_checks") or [] if not check.get("ok")]
     if dangerous and not script.get("remote_gate", {}).get("ok", True):
         raise HTTPException(status_code=400, detail=f"remote readiness gate failed: {'; '.join(script.get('blocked_reasons') or ['remote diagnostics not ready'])}")
