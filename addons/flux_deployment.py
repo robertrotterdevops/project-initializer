@@ -16,8 +16,8 @@ from typing import Any, Dict, List, Optional
 ADDON_META = {
     "name": "flux_deployment",
     "version": "1.2",
-    "description": "FluxCD GitOps deployment generator (default for all platforms)",
-    "triggers": {"default": True},  # Always load FluxCD as default GitOps
+    "description": "FluxCD GitOps deployment generator",
+    "triggers": {"gitops_tool": "flux"},  # Only load when Flux is selected
     "priority": 5,  # High priority - load early
 }
 

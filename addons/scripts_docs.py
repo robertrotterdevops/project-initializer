@@ -67,6 +67,37 @@ GITLAB_TOKEN=<token> bash scripts/bootstrap-flux.sh
 - For multi-cluster setups the script detects additional config sources automatically
 """
 
+_BOOTSTRAP_ARGO = """\
+### `scripts/bootstrap-argocd.sh`
+
+**Purpose:** Install/upgrade ArgoCD in-cluster, apply this project's ArgoCD `AppProject`, root app, and ingress resources, and prepare first reconciliation.
+
+**When to use:**
+- First-time ArgoCD setup after infrastructure/bootstrap is ready
+- Re-installing/upgrading ArgoCD control plane
+- Re-applying Argo project wiring after accidental deletion
+
+**Prerequisites:**
+- `kubectl` configured and pointing at the target cluster
+- Network access to pull ArgoCD install manifest
+- Git repo URL already configured in generated manifests
+
+**Usage:**
+```bash
+bash scripts/bootstrap-argocd.sh
+```
+
+**Expected output:**
+```
+ArgoCD bootstrap/configuration complete.
+UI host: argocd.<cluster>.{{domain}}
+```
+
+**Notes:**
+- Safe to re-run; resources are applied declaratively
+- Installs ArgoCD using upstream stable install manifest
+"""
+
 _BOOTSTRAP_RKE2 = """\
 ### `scripts/bootstrap-rke2.sh`
 
@@ -529,9 +560,10 @@ _ARGOCD_ORDER_SECTION = """\
 ## Recommended Execution Order
 
 ```
-1. scripts/bootstrap-flux.sh         # Bootstrap Flux (or skip if using ArgoCD exclusively)
-2. scripts/argocd-sync.sh            # Sync ArgoCD application
-3. scripts/cluster-healthcheck.sh    # Verify cluster health
+1. scripts/bootstrap-argocd.sh       # Install ArgoCD and apply AppProject/root app
+2. scripts/post-terraform-deploy.sh  # Terraform → bootstrap RKE2 → Git push → Argo wait/apply/health
+3. scripts/argocd-sync.sh            # Optional manual sync trigger
+4. scripts/cluster-healthcheck.sh    # Verify cluster health
 ```
 """
 
@@ -582,7 +614,10 @@ class ScriptsDocsGenerator:
         if self._is_flux:
             scripts.append("scripts/bootstrap-flux.sh")
         if self._is_argo:
-            scripts.append("scripts/argocd-sync.sh")
+            scripts += [
+                "scripts/bootstrap-argocd.sh",
+                "scripts/argocd-sync.sh",
+            ]
         if self._is_terraform and self._is_rke2:
             scripts += [
                 "scripts/bootstrap-rke2.sh",
@@ -608,6 +643,7 @@ class ScriptsDocsGenerator:
     def _quick_ref_table(self, scripts: List[str]) -> str:
         _desc = {
             "scripts/bootstrap-flux.sh": "Install Flux and connect to this Git repo",
+            "scripts/bootstrap-argocd.sh": "Install ArgoCD and apply AppProject/root app",
             "scripts/argocd-sync.sh": "Trigger ArgoCD sync and wait for healthy state",
             "scripts/bootstrap-rke2.sh": "Provision RKE2 cluster via Ansible after Terraform",
             "scripts/render-rke2-inventory.py": "Render Ansible inventory from Terraform outputs",
@@ -623,6 +659,7 @@ class ScriptsDocsGenerator:
         }
         _when = {
             "scripts/bootstrap-flux.sh": "First deploy / Flux re-install",
+            "scripts/bootstrap-argocd.sh": "First deploy / Argo control plane bootstrap",
             "scripts/argocd-sync.sh": "After git push / manual trigger",
             "scripts/bootstrap-rke2.sh": "After `terraform apply`",
             "scripts/render-rke2-inventory.py": "Debug / before Ansible run",
@@ -646,6 +683,7 @@ class ScriptsDocsGenerator:
         sections: List[str] = ["---", "", "## Script Reference"]
         mapping = {
             "scripts/bootstrap-flux.sh": _BOOTSTRAP_FLUX,
+            "scripts/bootstrap-argocd.sh": _BOOTSTRAP_ARGO,
             "scripts/argocd-sync.sh": _ARGOCD_SYNC,
             "scripts/bootstrap-rke2.sh": _BOOTSTRAP_RKE2,
             "scripts/render-rke2-inventory.py": _RENDER_RKE2_INVENTORY,

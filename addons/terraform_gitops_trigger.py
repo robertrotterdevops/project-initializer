@@ -304,15 +304,49 @@ echo "Deployment trigger finished."
 
 
 def _argo_tail(project_name: str) -> str:
-    return f"""if command -v argocd >/dev/null 2>&1; then
-  echo "[5/6] Triggering ArgoCD sync..."
-  argocd app sync "$PROJECT_NAME" || true
-  argocd app wait "$PROJECT_NAME" --health || true
+    return f"""run_pi_script() {{
+  local script_path="$1"
+  shift || true
+  if [[ -n "${{PI_ARG_KUBECONFIG_PATH:-}}" ]]; then
+    PI_ARG_KUBECONFIG_PATH="${{PI_ARG_KUBECONFIG_PATH}}" KUBECONFIG="${{PI_ARG_KUBECONFIG_PATH}}" "$script_path" "$@"
+  else
+    "$script_path" "$@"
+  fi
+}}
+
+echo "[5/9] Bootstrapping ArgoCD..."
+if [ -x "$ROOT_DIR/scripts/bootstrap-argocd.sh" ]; then
+  run_pi_script "$ROOT_DIR/scripts/bootstrap-argocd.sh"
 else
-  echo "ArgoCD CLI not installed; skipped sync trigger."
+  echo "bootstrap-argocd.sh not found; skipping."
 fi
 
-echo "[6/6] Deployment trigger finished."
+echo "[6/9] Waiting for ArgoCD control plane..."
+kubectl -n argocd wait deployment/argocd-server --for=condition=Available --timeout=10m || \
+  echo "  argocd-server not Available yet (will continue in background)."
+kubectl -n argocd wait pods -l app.kubernetes.io/part-of=argocd --for=condition=Ready --timeout=10m || \
+  echo "  Some ArgoCD pods are not Ready yet (continuing)."
+
+echo "[7/9] Applying ArgoCD project and root application..."
+kubectl apply -f "$ROOT_DIR/argocd/appproject.yaml" || true
+kubectl apply -f "$ROOT_DIR/argocd/apps/root-app.yaml" || true
+
+echo "[8/9] Waiting for ArgoCD application health..."
+if command -v argocd >/dev/null 2>&1; then
+  argocd app sync "$PROJECT_NAME-root" || true
+  argocd app wait "$PROJECT_NAME-root" --health --timeout 600 || true
+else
+  kubectl -n argocd wait application/"$PROJECT_NAME-root" --for=jsonpath='{{.status.health.status}}'=Healthy --timeout=10m || true
+fi
+
+echo "[9/9] Checking cluster status..."
+if [ -x "$ROOT_DIR/scripts/cluster-healthcheck.sh" ]; then
+  run_pi_script "$ROOT_DIR/scripts/cluster-healthcheck.sh" || true
+else
+  echo "cluster-healthcheck.sh not found; skipping."
+fi
+
+echo "Deployment trigger finished."
 """
 
 
@@ -444,7 +478,7 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     if gitops == "flux":
         total_steps = 9
     elif gitops == "argo":
-        total_steps = 6
+        total_steps = 9
     else:
         total_steps = 4
 

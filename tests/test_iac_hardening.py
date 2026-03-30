@@ -495,8 +495,51 @@ class TestIacHardening(unittest.TestCase):
             self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-infra"', deploy_script)
             self.assertNotIn('flux reconcile kustomization "$PROJECT_NAME-apps"', deploy_script)
             self.assertNotIn("kubectl -n flux-system wait gitrepository", deploy_script)
-            self.assertIn('argocd app sync "$PROJECT_NAME" || true', deploy_script)
+            self.assertIn('argocd app sync "$PROJECT_NAME-root" || true', deploy_script)
             self.assertTrue((out_dir / "scripts/cluster-healthcheck.sh").exists())
+
+    def test_argo_generation_excludes_flux_scaffold(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-argo-no-flux-") as td:
+            out_dir = Path(td) / "argo-no-flux"
+            initialize_project(
+                project_name="argo-no-flux",
+                description="Argo isolated generation",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            self.assertFalse((out_dir / "flux-system").exists())
+            self.assertFalse((out_dir / "scripts/bootstrap-flux.sh").exists())
+            self.assertTrue((out_dir / "scripts/bootstrap-argocd.sh").exists())
+
+    def test_argo_component_app_paths_and_ingress_host(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pi-argo-paths-") as td:
+            out_dir = Path(td) / "argo-paths"
+            initialize_project(
+                project_name="argo-paths",
+                description="Argo app path check",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+                sizing_context={
+                    "source": "sizing_report",
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            es_app = (out_dir / "argocd/apps/components/elasticsearch.yaml").read_text()
+            kb_app = (out_dir / "argocd/apps/components/kibana.yaml").read_text()
+            infra_app = (out_dir / "argocd/apps/components/infrastructure.yaml").read_text()
+            ingress = (out_dir / "argocd/ingress.yaml").read_text()
+            self.assertIn("path: elasticsearch", es_app)
+            self.assertIn("path: kibana", kb_app)
+            self.assertIn("path: infrastructure", infra_app)
+            self.assertIn("host: argocd.argo-paths.{{domain}}", ingress)
 
     def test_healthcheck_script_generated_without_terraform_when_sizing_present(self) -> None:
         sizing_context = {
@@ -1197,7 +1240,7 @@ class TestPipelineStepNumbering(unittest.TestCase):
             )
 
     def test_argo_script_consistent_step_denominator(self) -> None:
-        """All [N/M] markers in an argo script must share denominator 6."""
+        """All [N/M] markers in an argo script must share denominator 9."""
         with tempfile.TemporaryDirectory(prefix="pi-step-argo-denom-") as td:
             out_dir = Path(td) / "denom-argo"
             initialize_project(
@@ -1212,7 +1255,7 @@ class TestPipelineStepNumbering(unittest.TestCase):
             steps = self._parse_steps(script)
             denominators = list({m for _, m in steps})
             self.assertEqual(len(denominators), 1, f"Inconsistent denominators in argo script: {denominators}")
-            self.assertEqual(denominators[0], 6, f"Expected 6 total steps for argo, got {denominators[0]}")
+            self.assertEqual(denominators[0], 9, f"Expected 9 total steps for argo, got {denominators[0]}")
 
     def test_no_gitops_script_consistent_step_denominator(self) -> None:
         """No-gitops script must use denominator 4 (terraform, bootstrap, kubeconfig, git-push)."""

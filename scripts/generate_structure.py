@@ -548,6 +548,10 @@ def initialize_project(
 
     # Create directories/files
     structure = analysis.get("project_structure", [])
+    if (gitops_tool or "").lower() == "argo":
+        # Remove Flux-shaped default scaffold when ArgoCD is explicitly selected.
+        flux_scaffold = {"flux-system/", "clusters/", "apps/", "base/", "overlays/"}
+        structure = [item for item in structure if item not in flux_scaffold]
     created = create_project_structure(target_directory, structure)
 
     # Template paths
