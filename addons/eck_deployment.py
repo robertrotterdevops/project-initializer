@@ -342,9 +342,6 @@ class ECKDeploymentGenerator:
         )
         files["platform/eck-operator/README.md"] = self._generate_eck_operator_readme()
 
-        # Shared namespace for ES components
-        files["elasticsearch/namespace.yaml"] = self._generate_namespace()
-
         # Elasticsearch cluster manifest
         files["elasticsearch/cluster.yaml"] = self._generate_elasticsearch()
         files["elasticsearch/README.md"] = self._generate_readme()
@@ -544,18 +541,6 @@ Validate:
 kubectl get crd | grep k8s.elastic.co
 kubectl -n {namespace} get pods
 ```
-"""
-
-    def _generate_namespace(self) -> str:
-        """Generate namespace manifest."""
-        return f"""apiVersion: v1
-kind: Namespace
-metadata:
-  name: {self.project_name}
-  labels:
-    app.kubernetes.io/name: {self.project_name}
-    app.kubernetes.io/component: elasticsearch
-    app.kubernetes.io/managed-by: eck
 """
 
     def _generate_elasticsearch(self) -> str:
@@ -1354,7 +1339,6 @@ kind: Kustomization
 namespace: {self.project_name}
 
 resources:
-  - namespace.yaml
   - cluster.yaml
 
 commonLabels:
@@ -1674,7 +1658,6 @@ kind: Kustomization
 namespace: {self.project_name}
 
 resources:
-  - namespace.yaml
   - cluster.yaml
   - kibana.yaml
   - agent.yaml
