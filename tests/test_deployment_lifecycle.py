@@ -39,11 +39,11 @@ class TestDeploymentLifecycleMain(unittest.TestCase):
         self.assertIn("scripts/import-dashboards.sh", files)
 
     def test_03_mirror_secrets_content(self):
-        """Test 3: mirror-secrets.sh contains kubectl get secret, kubectl apply, and ES secret name pattern."""
+        """Test 3: mirror-secrets.sh contains kubectl get secret, kubectl patch, and ES secret name pattern."""
         files = main(self.project_name, self.description, self.flux_context)
         content = files["scripts/mirror-secrets.sh"]
         self.assertIn("kubectl get secret", content)
-        self.assertIn("kubectl apply", content)
+        self.assertIn("kubectl patch secret otel-es-credentials", content)
         # Script uses shell variable ${PROJECT_NAME}-es-elastic-user at runtime
         self.assertIn("es-elastic-user", content)
 

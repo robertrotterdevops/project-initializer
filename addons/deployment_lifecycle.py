@@ -163,10 +163,16 @@ if [ -z "$ES_PASS" ]; then
   echo "ERROR: Elasticsearch elastic-user password is empty or unavailable; refusing to mirror blank secret"
   exit 1
 fi
+# Ensure placeholder secret exists (ArgoCD manages metadata/annotations)
 kubectl create secret generic otel-es-credentials \\
   --from-literal=username=elastic \\
-  --from-literal=password="$ES_PASS" \\
-  -n observability --dry-run=client -o yaml | kubectl apply -f -
+  --from-literal=password=dummy \\
+  -n observability 2>/dev/null || true
+
+# Patch with real credentials — does not fight SSA field ownership
+ES_PASS_B64="$(printf '%s' "$ES_PASS" | base64 | tr -d '\\n')"
+kubectl patch secret otel-es-credentials -n observability --type=merge \\
+  -p "{{\\"data\\":{{\\"username\\":\\"ZWxhc3RpYw==\\",\\"password\\":\\"${{ES_PASS_B64}}\\"}}}}"
 
 echo "Secret mirroring complete."
 """

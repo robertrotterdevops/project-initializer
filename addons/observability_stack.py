@@ -38,6 +38,7 @@ class ObservabilityStackGenerator:
         self.platform = self.context.get("platform", "kubernetes")
         self.otel_version = self.context.get("otel_collector_version", "0.117.0")
         self.eck_version = self.context.get("eck_version", "3.0.0")
+        self.gitops_tool = (self.context.get("gitops_tool") or "").lower()
 
     def _is_openshift(self) -> bool:
         return self.platform in ("openshift",)
@@ -366,6 +367,25 @@ metadata:
 """
 
         # --- es-secret.yaml ---
+        if self.gitops_tool == "argo":
+            _es_secret_annotations = """\
+    # ArgoCD: Prune=false prevents ArgoCD from deleting the secret when it is
+    # absent from the desired-state manifest (e.g. after post-terraform-deploy.sh
+    # writes real credentials directly to the cluster).  Add an ignoreDifferences
+    # entry on the parent Application for this secret so selfHeal does not revert
+    # the live data fields on every reconcile.
+    argocd.argoproj.io/sync-options: Prune=false"""
+        else:
+            _es_secret_annotations = """\
+    # Flux creates this placeholder on first deploy.  prune: disabled keeps it
+    # alive after post-terraform-deploy.sh overwrites with real credentials.
+    # reconcile: disabled prevents Flux from overwriting real credentials on
+    # every subsequent reconcile via SSA (kustomize-controller owns data fields).
+    # The secret already exists in-cluster when Flux sees this annotation, so
+    # first-time creation is unaffected.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+    kustomize.toolkit.fluxcd.io/reconcile: disabled"""
+
         files[f"{prefix}/es-secret.yaml"] = f"""apiVersion: v1
 kind: Secret
 metadata:
@@ -374,14 +394,7 @@ metadata:
   labels:
     app.kubernetes.io/name: otel-collector
   annotations:
-    # Flux creates this placeholder on first deploy.  prune: disabled keeps it
-    # alive after post-terraform-deploy.sh overwrites with real credentials.
-    # reconcile: disabled prevents Flux from overwriting real credentials on
-    # every subsequent reconcile via SSA (kustomize-controller owns data fields).
-    # The secret already exists in-cluster when Flux sees this annotation, so
-    # first-time creation is unaffected.
-    kustomize.toolkit.fluxcd.io/prune: disabled
-    kustomize.toolkit.fluxcd.io/reconcile: disabled
+{_es_secret_annotations}
 type: Opaque
 stringData:
   username: ""

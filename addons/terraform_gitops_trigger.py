@@ -314,24 +314,24 @@ def _argo_tail(project_name: str) -> str:
   fi
 }}
 
-echo "[5/9] Bootstrapping ArgoCD..."
+echo "[5/10] Bootstrapping ArgoCD..."
 if [ -x "$ROOT_DIR/scripts/bootstrap-argocd.sh" ]; then
   run_pi_script "$ROOT_DIR/scripts/bootstrap-argocd.sh"
 else
   echo "bootstrap-argocd.sh not found; skipping."
 fi
 
-echo "[6/9] Waiting for ArgoCD control plane..."
+echo "[6/10] Waiting for ArgoCD control plane..."
 kubectl -n argocd wait deployment/argocd-server --for=condition=Available --timeout=10m || \
   echo "  argocd-server not Available yet (will continue in background)."
 kubectl -n argocd wait pods -l app.kubernetes.io/part-of=argocd --for=condition=Ready --timeout=10m || \
   echo "  Some ArgoCD pods are not Ready yet (continuing)."
 
-echo "[7/9] Applying ArgoCD project and root application..."
+echo "[7/10] Applying ArgoCD project and root application..."
 kubectl apply -f "$ROOT_DIR/argocd/appproject.yaml" || true
 kubectl apply -f "$ROOT_DIR/argocd/apps/root-app.yaml" || true
 
-echo "[8/9] Waiting for ArgoCD application health..."
+echo "[8/10] Waiting for ArgoCD application health..."
 if command -v argocd >/dev/null 2>&1; then
   argocd app sync "$PROJECT_NAME-root" || true
   argocd app wait "$PROJECT_NAME-root" --health --timeout 600 || true
@@ -339,11 +339,48 @@ else
   kubectl -n argocd wait application/"$PROJECT_NAME-root" --for=jsonpath='{{.status.health.status}}'=Healthy --timeout=10m || true
 fi
 
-echo "[9/9] Checking cluster status..."
+echo "[9/10] Checking cluster status..."
 if [ -x "$ROOT_DIR/scripts/cluster-healthcheck.sh" ]; then
   run_pi_script "$ROOT_DIR/scripts/cluster-healthcheck.sh" || true
 else
   echo "cluster-healthcheck.sh not found; skipping."
+fi
+
+echo "[10/10] Mirroring secrets after cluster stabilizes..."
+echo "::pi-substep mirror-secrets start"
+if [ -x "$ROOT_DIR/scripts/mirror-secrets.sh" ]; then
+  if run_pi_script "$ROOT_DIR/scripts/mirror-secrets.sh"; then
+    echo "::pi-substep mirror-secrets ok"
+  else
+    echo "::pi-substep mirror-secrets warning"
+    echo "  Secret mirroring failed; inspect scripts/mirror-secrets.sh output."
+  fi
+else
+  echo "::pi-substep mirror-secrets skipped"
+  echo "  mirror-secrets.sh not found; skipping."
+fi
+
+echo "::pi-substep fleet-output start"
+if [ -x "$ROOT_DIR/scripts/fleet-output.sh" ]; then
+  if run_pi_script "$ROOT_DIR/scripts/fleet-output.sh"; then
+    echo "::pi-substep fleet-output ok"
+  else
+    echo "::pi-substep fleet-output warning"
+    echo "  Fleet output configuration failed; inspect scripts/fleet-output.sh output."
+  fi
+else
+  echo "::pi-substep fleet-output skipped"
+fi
+echo "::pi-substep import-dashboards start"
+if [ -x "$ROOT_DIR/scripts/import-dashboards.sh" ]; then
+  if run_pi_script "$ROOT_DIR/scripts/import-dashboards.sh"; then
+    echo "::pi-substep import-dashboards ok"
+  else
+    echo "::pi-substep import-dashboards warning"
+    echo "  Dashboard import failed; inspect scripts/import-dashboards.sh output."
+  fi
+else
+  echo "::pi-substep import-dashboards skipped"
 fi
 
 echo "Deployment trigger finished."
@@ -502,7 +539,7 @@ def main(project_name: str, description: str, context: Optional[Dict[str, Any]] 
     if gitops == "flux":
         total_steps = 9
     elif gitops == "argo":
-        total_steps = 9
+        total_steps = 10
     else:
         total_steps = 4
 

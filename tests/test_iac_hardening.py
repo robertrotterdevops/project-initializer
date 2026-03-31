@@ -581,6 +581,11 @@ class TestIacHardening(unittest.TestCase):
             app_yaml = (out_dir / "argocd/apps/components/observability.yaml").read_text()
             self.assertIn("path: observability", app_yaml)
             self.assertIn('argocd.argoproj.io/sync-wave: "4"', app_yaml)
+            # ignoreDifferences must exclude otel-es-credentials secret from selfHeal
+            self.assertIn("ignoreDifferences", app_yaml)
+            self.assertIn("otel-es-credentials", app_yaml)
+            self.assertIn("/data", app_yaml)
+            self.assertIn("/stringData", app_yaml)
 
     def test_healthcheck_script_generated_without_terraform_when_sizing_present(self) -> None:
         sizing_context = {
@@ -1180,6 +1185,60 @@ class TestIacHardening(unittest.TestCase):
             self.assertIn("kustomize.toolkit.fluxcd.io/prune: disabled", secret_yaml)
             self.assertIn("kustomize.toolkit.fluxcd.io/reconcile: disabled", secret_yaml)
 
+    def test_argo_otel_secret_has_argocd_annotations(self) -> None:
+        """ArgoCD+OTel: es-secret.yaml must have ArgoCD Prune=false, not Flux annotations."""
+        with tempfile.TemporaryDirectory(prefix="pi-argo-secret-annot-") as td:
+            out_dir = Path(td) / "argo-secret-check"
+            initialize_project(
+                project_name="argo-secret-check",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+                enable_otel_collector=True,
+                sizing_context={
+                    "source": "sizing_report",
+                    "eck_operator": {"version": "3.0.0"},
+                },
+            )
+            secret_yaml = (out_dir / "observability/otel-collector/es-secret.yaml").read_text()
+            self.assertIn("argocd.argoproj.io/sync-options: Prune=false", secret_yaml)
+            self.assertNotIn("kustomize.toolkit.fluxcd.io", secret_yaml)
+
+    def test_argo_post_deploy_includes_mirror_secrets(self) -> None:
+        """ArgoCD post-terraform-deploy.sh must call mirror-secrets.sh."""
+        with tempfile.TemporaryDirectory(prefix="pi-argo-mirror-") as td:
+            out_dir = Path(td) / "argo-mirror"
+            initialize_project(
+                project_name="argo-mirror",
+                description="Elasticsearch on RKE2",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+            )
+            script = (out_dir / "scripts/post-terraform-deploy.sh").read_text()
+            self.assertIn("mirror-secrets.sh", script)
+            self.assertIn("::pi-substep mirror-secrets", script)
+
+    def test_mirror_secrets_uses_kubectl_patch(self) -> None:
+        """mirror-secrets.sh must use kubectl patch (not kubectl apply) to avoid SSA conflicts."""
+        with tempfile.TemporaryDirectory(prefix="pi-mirror-patch-") as td:
+            out_dir = Path(td) / "mirror-patch"
+            initialize_project(
+                project_name="mirror-patch",
+                description="Elasticsearch observability platform",
+                target_directory=str(out_dir),
+                platform="rke2",
+                gitops_tool="argo",
+                iac_tool="terraform",
+                enable_otel_collector=True,
+            )
+            script = (out_dir / "scripts/mirror-secrets.sh").read_text()
+            self.assertIn("kubectl patch secret otel-es-credentials", script)
+            self.assertNotIn("kubectl apply", script)
+
 
 class TestPipelineStepNumbering(unittest.TestCase):
     """Tests that post-terraform-deploy.sh has sequential, non-duplicate step numbers."""
@@ -1281,7 +1340,7 @@ class TestPipelineStepNumbering(unittest.TestCase):
             )
 
     def test_argo_script_consistent_step_denominator(self) -> None:
-        """All [N/M] markers in an argo script must share denominator 9."""
+        """All [N/M] markers in an argo script must share denominator 10."""
         with tempfile.TemporaryDirectory(prefix="pi-step-argo-denom-") as td:
             out_dir = Path(td) / "denom-argo"
             initialize_project(
@@ -1296,7 +1355,7 @@ class TestPipelineStepNumbering(unittest.TestCase):
             steps = self._parse_steps(script)
             denominators = list({m for _, m in steps})
             self.assertEqual(len(denominators), 1, f"Inconsistent denominators in argo script: {denominators}")
-            self.assertEqual(denominators[0], 9, f"Expected 9 total steps for argo, got {denominators[0]}")
+            self.assertEqual(denominators[0], 10, f"Expected 10 total steps for argo, got {denominators[0]}")
 
     def test_no_gitops_script_consistent_step_denominator(self) -> None:
         """No-gitops script must use denominator 4 (terraform, bootstrap, kubeconfig, git-push)."""
