@@ -31,9 +31,13 @@ Linux launcher:
 - Toast notifications
 - Drag-drop sizing file upload
 - Keyboard zoom controls (Cmd/Ctrl +/-/0)
+- Status tab with live cluster monitoring
+- Embedded readonly `k9s` session for deployment-scoped cluster inspection
 
 ## Notes
 
 - `start-ui-macos.sh` builds automatically if `.app` bundle is missing
 - `start-ui-linux.sh` runs packaged binary if present, otherwise starts dev mode
 - Windows support can be added with same Tauri architecture
+- Remote `k9s` sessions require `k9s` to be installed on the remote deployment host
+- The Status tab uses the deployment kubeconfig exported by generated deployment scripts

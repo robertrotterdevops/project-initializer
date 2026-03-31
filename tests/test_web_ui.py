@@ -1412,5 +1412,108 @@ class TestFluxStatusEndpoint(unittest.TestCase):
             self.assertEqual(data["status_details"]["ingress"][0]["host"], "kibana.example.local")
 
 
+class TestK9sStatusApi(unittest.TestCase):
+    def setUp(self):
+        import backend_api
+        backend_api.K9S_SESSIONS.clear()
+
+    def tearDown(self):
+        import backend_api
+        backend_api.K9S_SESSIONS.clear()
+
+    def test_k9s_start_remote_creates_session(self):
+        import backend_api
+        entry = {
+            "id": "dep-k9s",
+            "name": "demo",
+            "target_type": "remote",
+            "platform": "rke2",
+            "remote": {
+                "host": "10.0.0.8",
+                "port": "22",
+                "user": "ubuntu",
+                "ssh_key_path": "/tmp/id_rsa",
+                "project_dir": "/opt/demo",
+            },
+        }
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+
+        with patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist, \
+             patch("backend_api._build_k9s_launch", return_value={
+                 "command": ["ssh", "-tt", "ubuntu@10.0.0.8", "k9s --readonly"],
+                 "command_preview": "ssh -tt ubuntu@10.0.0.8 k9s --readonly",
+                 "target_type": "remote",
+             }), \
+             patch("backend_api.pty.openpty", return_value=(10, 11)), \
+             patch("backend_api.subprocess.Popen", return_value=fake_proc), \
+             patch("backend_api.threading.Thread") as mock_thread, \
+             patch("backend_api.AUDIT_LOG"):
+            mock_hist.list.return_value = [entry]
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.post("/api/status/k9s/start", data={"deployment_id": "dep-k9s"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["deployment_id"], "dep-k9s")
+            self.assertEqual(data["target_type"], "remote")
+            self.assertTrue(data["session_id"])
+            self.assertEqual(mock_thread.call_count, 1)
+
+    def test_flux_status_includes_k9s_access_summary(self):
+        import backend_api
+        entry = {
+            "id": "dep-k9s-status",
+            "name": "demo",
+            "target_type": "remote",
+            "platform": "rke2",
+            "gitops_tool": "argo",
+            "remote": {
+                "host": "10.0.0.8",
+                "port": "22",
+                "user": "ubuntu",
+                "ssh_key_path": "/tmp/id_rsa",
+                "project_dir": "/opt/demo",
+            },
+        }
+
+        def fake_ssh(host, port, user, remote_cmd, ssh_key_path=""):
+            if "command -v k9s" in remote_cmd:
+                return {"ok": True, "stdout": "available", "stderr": ""}
+            if "kubectl get applications.argoproj.io" in remote_cmd:
+                return {"ok": True, "stdout": '{"items":[]}', "stderr": ""}
+            if "kubectl get pods -n demo -o json" in remote_cmd:
+                return {"ok": True, "stdout": '{"items":[]}', "stderr": ""}
+            if "kubectl get ingress -n demo -o json" in remote_cmd:
+                return {"ok": True, "stdout": '{"items":[]}', "stderr": ""}
+            if "kubectl get route -n demo -o json" in remote_cmd:
+                return {"ok": True, "stdout": '{"items":[]}', "stderr": ""}
+            if "kubectl get statefulset -n demo" in remote_cmd:
+                return {"ok": True, "stdout": "0/0", "stderr": ""}
+            if "kubectl config current-context" in remote_cmd:
+                return {"ok": True, "stdout": "demo-context", "stderr": ""}
+            if "kubectl cluster-info" in remote_cmd:
+                return {"ok": True, "stdout": "Cluster API reachable", "stderr": ""}
+            if "kubectl get nodes --no-headers" in remote_cmd:
+                return {"ok": True, "stdout": "node-a Ready control-plane", "stderr": ""}
+            if "test -f" in remote_cmd:
+                return {"ok": True, "stdout": "present", "stderr": ""}
+            if "command -v kubectl" in remote_cmd:
+                return {"ok": True, "stdout": "/usr/bin/kubectl", "stderr": ""}
+            return {"ok": True, "stdout": "", "stderr": ""}
+
+        with patch("backend_api.DEPLOYMENT_HISTORY") as mock_hist, \
+             patch("backend_api._run_ssh_command", side_effect=fake_ssh), \
+             patch("backend_api.AUDIT_LOG"):
+            mock_hist.list.return_value = [entry]
+            from fastapi.testclient import TestClient
+            client = TestClient(backend_api.app)
+            resp = client.get("/api/flux-status", params={"deployment_id": "dep-k9s-status"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["access_summary"]["k9s"]["ok"])
+            self.assertIn("k9s available", data["access_summary"]["k9s"]["detail"])
+
+
 if __name__ == "__main__":
     unittest.main()

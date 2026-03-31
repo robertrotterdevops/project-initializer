@@ -1,5 +1,5 @@
 # Project Initializer — Documentation
-Last updated: 2026-03-23
+Last updated: 2026-03-31
 
 ## 1) Product Scope
 Project Initializer generates deployment-ready repositories for Elasticsearch/ECK platform delivery,
@@ -26,14 +26,15 @@ Use this page post-generation to run diagnostics and scripts in controlled order
 
 ## 4) Status Page (Live Cluster)
 The Status tab is intended for live reconciliation and endpoint visibility, not only raw command output.
-- Cluster Overview: high-level state and kustomization readiness.
+- Cluster Overview: high-level state and GitOps reconciliation readiness.
 - Access & Kubeconfig: context resolution and API/node reachability.
-- Kustomizations: Flux object-level readiness and messages.
+- Applications / Kustomizations: ArgoCD Applications or Flux Kustomizations depending on deployment type.
 - Workloads & Endpoints: Elasticsearch pods, Fleet Server pods, Elastic Agent pods, ingress/routes.
+- Live Cluster: embedded readonly `k9s` session for real-time cluster inspection.
 
 ## 5) Kubeconfig Resolution Model
 After first successful cluster health-check, kubeconfig is expected to be copied/generated into project-aware locations,
-              and app status checks should resolve from those paths before legacy defaults.
+and app status checks should resolve from those paths before legacy defaults.
 ```
 Expected resolution order (conceptual):
 1) Explicit override provided by user/script argument
@@ -51,6 +52,8 @@ Local/Remote generation path is the workspace location where project files are c
 - Persist and expose run history for audit and rollback context.
 - Expose credential outputs only where appropriate; avoid leaking sensitive secrets in default views.
 - Keep remote commands fast and bounded by timeouts to avoid UI hangs.
+- Run live cluster inspection in readonly mode by default.
+- Require `k9s` on the remote host for remote Status terminal sessions.
 
 ## 8) Licensing, Headers, and Generated Artifacts
 License and header strategy should be deterministic for generated files and folders, based on user policy profile.
@@ -69,3 +72,4 @@ License and header strategy should be deterministic for generated files and fold
 - Status shows stale kubeconfig path: validate latest run of cluster-healthcheck and resolved kubeconfig source.
 - Slow UI script actions: inspect remote command timeouts and streaming feedback behavior.
 - Endpoint missing: verify ingress/route resource exists in cluster namespace.
+- Live cluster pane unavailable: confirm `k9s` exists on the remote host and the project kubeconfig was exported by post-deploy automation.

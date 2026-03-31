@@ -7,11 +7,18 @@ Draft API for a professional internal UI around project-initializer.
 import json
 import os
 import base64
+import fcntl
+import pty
+import select
 import shutil
 import shlex
 import subprocess
+import struct
 import sys
 import tempfile
+import threading
+import time
+import termios
 from urllib.parse import quote
 import urllib.error
 import urllib.parse
@@ -641,6 +648,55 @@ class OperationRunHistoryStore(JsonRecordStore):
 OPERATION_RUN_HISTORY = OperationRunHistoryStore(OPERATION_RUN_HISTORY_PATH)
 
 
+class K9sSession:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        deployment_id: str,
+        target_type: str,
+        command_preview: str,
+        master_fd: int,
+        process: subprocess.Popen[bytes],
+    ) -> None:
+        self.id = session_id
+        self.deployment_id = deployment_id
+        self.target_type = target_type
+        self.command_preview = command_preview
+        self.master_fd = master_fd
+        self.process = process
+        self.started_at = _utcnow()
+        self.closed = False
+        self.exit_code: Optional[int] = None
+        self.error = ""
+        self.lock = RLock()
+        self.cond = threading.Condition(self.lock)
+        self.chunks: List[tuple[int, bytes]] = []
+        self.next_seq = 0
+
+    def append_output(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        with self.cond:
+            self.chunks.append((self.next_seq, chunk))
+            self.next_seq += 1
+            if len(self.chunks) > 512:
+                self.chunks = self.chunks[-512:]
+            self.cond.notify_all()
+
+    def close(self, exit_code: Optional[int] = None, error: str = "") -> None:
+        with self.cond:
+            self.closed = True
+            self.exit_code = exit_code
+            if error:
+                self.error = error
+            self.cond.notify_all()
+
+
+K9S_SESSIONS: Dict[str, K9sSession] = {}
+K9S_SESSION_LOCK = RLock()
+
+
 def _detect_runtime_environment() -> Dict[str, Any]:
     platform = sys.platform
     display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
@@ -1052,6 +1108,23 @@ def _run_ssh_command(host: str, port: str, user: str, remote_cmd: str, ssh_key_p
     return _run_shell_command(ssh, Path.cwd())
 
 
+def _build_ssh_base_command(host: str, port: str, user: str, ssh_key_path: str = "", *, tty: bool = False) -> List[str]:
+    ssh = ["ssh", "-p", str(port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if tty:
+        ssh.append("-tt")
+    if ssh_key_path.strip():
+        ssh.extend(["-i", str(Path(ssh_key_path).expanduser())])
+    ssh.append(f"{user}@{host}")
+    return ssh
+
+
+def _set_pty_size(fd: int, rows: int, cols: int) -> None:
+    safe_rows = max(8, int(rows or 0))
+    safe_cols = max(20, int(cols or 0))
+    winsize = struct.pack("HHHH", safe_rows, safe_cols, 0, 0)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+
+
 def _find_deployment_entry(deployment_id: str) -> Dict[str, Any]:
     entries = DEPLOYMENT_HISTORY.list()
     entry = next((e for e in entries if e.get("id") == deployment_id), None)
@@ -1325,6 +1398,95 @@ def _remote_kubectl_command(entry: Dict[str, Any], command: str) -> str:
     if kube_path:
         return f"export KUBECONFIG={shlex.quote(kube_path)}; {command}"
     return command
+
+
+def _resolve_k9s_kubeconfig(entry: Dict[str, Any], explicit_path: str = "") -> Dict[str, Any]:
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    if target_type == "remote":
+        kube = _check_remote_prerequisite(entry, "kubeconfig")
+        if explicit_path.strip():
+            kube = {"name": "kubeconfig", "ok": True, "detail": f"Using {explicit_path.strip()}"}
+        kube_path = _extract_kubeconfig_path(str(kube.get("detail") or "")) if kube.get("ok") else ""
+        return {"ok": bool(kube.get("ok") and kube_path), "path": kube_path, "detail": str(kube.get("detail") or "")}
+
+    if explicit_path.strip():
+        path = str(Path(explicit_path).expanduser())
+        return {"ok": Path(path).exists(), "path": path, "detail": f"Using {path}" if Path(path).exists() else f"Missing explicit kubeconfig: {path}"}
+
+    kube = _check_local_prerequisite(entry, "kubeconfig")
+    kube_path = _extract_kubeconfig_path(str(kube.get("detail") or "")) if kube.get("ok") else ""
+    return {"ok": bool(kube.get("ok") and kube_path), "path": kube_path, "detail": str(kube.get("detail") or "")}
+
+
+def _check_k9s_availability(entry: Dict[str, Any], kubeconfig: str = "") -> Dict[str, Any]:
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    kube = _resolve_k9s_kubeconfig(entry, kubeconfig)
+    result = {
+        "ok": False,
+        "detail": "k9s unavailable",
+        "target_type": target_type,
+        "kubeconfig_ok": kube.get("ok", False),
+        "kubeconfig_detail": kube.get("detail", ""),
+    }
+    if not kube.get("ok"):
+        result["detail"] = str(kube.get("detail") or "No kubeconfig detected")
+        return result
+
+    if target_type == "remote":
+        remote_cfg = entry.get("remote") or {}
+        check = _run_ssh_command(
+            str(remote_cfg.get("host") or ""),
+            str(remote_cfg.get("port") or "22"),
+            str(remote_cfg.get("user") or ""),
+            "command -v k9s >/dev/null 2>&1 && echo available || echo missing",
+            str(remote_cfg.get("ssh_key_path") or ""),
+        )
+        ok = check.get("ok", False) and "available" in str(check.get("stdout") or "")
+        result["ok"] = ok
+        result["detail"] = "k9s available on remote host" if ok else (str(check.get("stderr") or "") or "k9s not installed on remote host")
+        return result
+
+    k9s_path = shutil.which("k9s")
+    result["ok"] = bool(k9s_path)
+    result["detail"] = f"k9s available at {k9s_path}" if k9s_path else "k9s not installed on local host"
+    return result
+
+
+def _build_k9s_launch(entry: Dict[str, Any], kubeconfig: str = "") -> Dict[str, Any]:
+    target_type = (entry.get("target_type") or "local").strip() or "local"
+    availability = _check_k9s_availability(entry, kubeconfig)
+    if not availability.get("ok"):
+        raise HTTPException(status_code=400, detail=f"K9s unavailable: {availability.get('detail')}")
+    kube = _resolve_k9s_kubeconfig(entry, kubeconfig)
+    kube_path = str(kube.get("path") or "")
+    readonly_args = ["k9s", "--readonly"]
+
+    if target_type == "remote":
+        remote_cfg = entry.get("remote") or {}
+        remote_cmd = f"export KUBECONFIG={shlex.quote(kube_path)} TERM=xterm-256color; exec {' '.join(readonly_args)}"
+        command = _build_ssh_base_command(
+            str(remote_cfg.get("host") or ""),
+            str(remote_cfg.get("port") or "22"),
+            str(remote_cfg.get("user") or ""),
+            str(remote_cfg.get("ssh_key_path") or ""),
+            tty=True,
+        )
+        command.append(remote_cmd)
+        return {
+            "command": command,
+            "command_preview": f"ssh -tt {remote_cfg.get('user', '')}@{remote_cfg.get('host', '')} {remote_cmd}",
+            "target_type": "remote",
+        }
+
+    env = os.environ.copy()
+    env["KUBECONFIG"] = kube_path
+    env["TERM"] = "xterm-256color"
+    return {
+        "command": readonly_args,
+        "command_preview": f"KUBECONFIG={kube_path} TERM=xterm-256color {' '.join(readonly_args)}",
+        "target_type": "local",
+        "env": env,
+    }
 
 
 def _classify_kubeconfig_source(detail: str, entry: Dict[str, Any], target_type: str) -> str:
@@ -1681,6 +1843,7 @@ def _build_flux_access_summary(entry: Dict[str, Any], kubeconfig: str = "") -> D
         "kubectl_context": {"ok": False, "detail": "not checked"},
         "cluster_api": {"ok": False, "detail": "not checked"},
         "nodes_ready": {"ok": False, "detail": "not checked"},
+        "k9s": {"ok": False, "detail": "not checked"},
     }
     if target_type == "remote":
         _, remote_cfg = _project_root_from_entry(entry)
@@ -1707,6 +1870,7 @@ def _build_flux_access_summary(entry: Dict[str, Any], kubeconfig: str = "") -> D
             node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
             ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
             access["nodes_ready"] = {"ok": bool(node_lines), "detail": f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported")}
+        access["k9s"] = _check_k9s_availability(entry, kubeconfig)
         return access
 
     kube_env = os.environ.copy()
@@ -1729,6 +1893,7 @@ def _build_flux_access_summary(entry: Dict[str, Any], kubeconfig: str = "") -> D
         node_lines = [line for line in (nodes.get("stdout") or "").splitlines() if line.strip()]
         ready_nodes = sum(1 for line in node_lines if " Ready" in f" {line} ")
         access["nodes_ready"] = {"ok": bool(node_lines), "detail": f"{ready_nodes}/{len(node_lines)} node(s) Ready" if node_lines else (nodes.get("stderr") or "No nodes reported")}
+    access["k9s"] = _check_k9s_availability(entry, kubeconfig)
     return access
 
 
@@ -3887,6 +4052,218 @@ def flux_status(deployment_id: str, kubeconfig: str = "") -> Dict[str, Any]:
         "status_details": status_details,
         "polled_at": polled_at,
     }
+
+
+def _active_k9s_session_for_deployment(deployment_id: str) -> Optional[K9sSession]:
+    with K9S_SESSION_LOCK:
+        for session in K9S_SESSIONS.values():
+            if session.deployment_id == deployment_id and not session.closed and session.process.poll() is None:
+                return session
+    return None
+
+
+def _get_k9s_session(session_id: str) -> K9sSession:
+    with K9S_SESSION_LOCK:
+        session = K9S_SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="k9s session not found")
+    return session
+
+
+def _forget_k9s_session(session_id: str) -> None:
+    with K9S_SESSION_LOCK:
+        K9S_SESSIONS.pop(session_id, None)
+
+
+def _stop_k9s_session(session: K9sSession) -> None:
+    proc = session.process
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+    except Exception:
+        pass
+    try:
+        os.close(session.master_fd)
+    except OSError:
+        pass
+    session.close(proc.poll())
+    _forget_k9s_session(session.id)
+
+
+def _k9s_reader_worker(session: K9sSession) -> None:
+    proc = session.process
+    error = ""
+    try:
+        while True:
+            if proc.poll() is not None:
+                try:
+                    while True:
+                        chunk = os.read(session.master_fd, 4096)
+                        if not chunk:
+                            break
+                        session.append_output(chunk)
+                except OSError:
+                    pass
+                break
+            ready, _, _ = select.select([session.master_fd], [], [], 0.5)
+            if not ready:
+                continue
+            chunk = os.read(session.master_fd, 4096)
+            if not chunk:
+                break
+            session.append_output(chunk)
+    except Exception as exc:  # pragma: no cover
+        error = str(exc)
+    finally:
+        session.close(proc.poll(), error)
+
+
+def _start_k9s_session(entry: Dict[str, Any], kubeconfig: str = "") -> Dict[str, Any]:
+    existing = _active_k9s_session_for_deployment(str(entry.get("id") or ""))
+    if existing:
+        return {
+            "session_id": existing.id,
+            "deployment_id": existing.deployment_id,
+            "target_type": existing.target_type,
+            "started_at": existing.started_at,
+            "command_preview": existing.command_preview,
+            "reused": True,
+        }
+
+    launch = _build_k9s_launch(entry, kubeconfig)
+    session_id = str(uuid4())
+    master_fd, slave_fd = pty.openpty()
+    proc: Optional[subprocess.Popen[bytes]] = None
+    try:
+        try:
+            _set_pty_size(slave_fd, 30, 120)
+        except OSError:
+            pass
+        proc = subprocess.Popen(
+            launch["command"],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            cwd=str(Path.cwd()),
+            env=launch.get("env"),
+            close_fds=True,
+        )
+    except Exception as exc:
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+        try:
+            os.close(slave_fd)
+        except OSError:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to start k9s session: {exc}") from exc
+    finally:
+        try:
+            os.close(slave_fd)
+        except OSError:
+            pass
+
+    session = K9sSession(
+        session_id=session_id,
+        deployment_id=str(entry.get("id") or ""),
+        target_type=str(launch.get("target_type") or "local"),
+        command_preview=str(launch.get("command_preview") or ""),
+        master_fd=master_fd,
+        process=proc,
+    )
+    with K9S_SESSION_LOCK:
+        K9S_SESSIONS[session_id] = session
+    session.append_output(b"\r\n[ui] K9s session started. Waiting for terminal output...\r\n")
+    threading.Thread(target=_k9s_reader_worker, args=(session,), daemon=True).start()
+    AUDIT_LOG.append("k9s-start", f"Started k9s session for {entry.get('id')}")
+    return {
+        "session_id": session.id,
+        "deployment_id": session.deployment_id,
+        "target_type": session.target_type,
+        "started_at": session.started_at,
+        "command_preview": session.command_preview,
+        "reused": False,
+    }
+
+
+@app.post("/api/status/k9s/start")
+def status_k9s_start(deployment_id: str = Form(...), kubeconfig: str = Form("")) -> Dict[str, Any]:
+    entry = _find_deployment_entry(deployment_id)
+    return _start_k9s_session(entry, kubeconfig)
+
+
+@app.get("/api/status/k9s/stream")
+def status_k9s_stream(session_id: str) -> StreamingResponse:
+    session = _get_k9s_session(session_id)
+
+    def event_stream():
+        next_seq = 0
+        heartbeat_at = time.time()
+        while True:
+            pending: List[tuple[int, bytes]] = []
+            with session.cond:
+                pending = [(seq, chunk) for seq, chunk in session.chunks if seq >= next_seq]
+                if not pending and not session.closed:
+                    session.cond.wait(timeout=1.0)
+                    pending = [(seq, chunk) for seq, chunk in session.chunks if seq >= next_seq]
+                closed = session.closed
+                exit_code = session.exit_code
+                error = session.error
+
+            if pending:
+                for seq, chunk in pending:
+                    payload = {"seq": seq, "chunk_b64": base64.b64encode(chunk).decode("ascii")}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    next_seq = seq + 1
+                heartbeat_at = time.time()
+                continue
+
+            if closed:
+                yield f"event: end\ndata: {json.dumps({'exit_code': exit_code, 'error': error})}\n\n"
+                break
+
+            if time.time() - heartbeat_at >= 10:
+                yield ": keepalive\n\n"
+                heartbeat_at = time.time()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/status/k9s/input")
+def status_k9s_input(session_id: str = Form(...), data_b64: str = Form(...)) -> Dict[str, Any]:
+    session = _get_k9s_session(session_id)
+    if session.closed or session.process.poll() is not None:
+        raise HTTPException(status_code=409, detail="k9s session is no longer running")
+    try:
+        raw = base64.b64decode(data_b64.encode("ascii"))
+        os.write(session.master_fd, raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write to k9s session: {exc}") from exc
+    return {"ok": True}
+
+
+@app.post("/api/status/k9s/resize")
+def status_k9s_resize(session_id: str = Form(...), rows: int = Form(...), cols: int = Form(...)) -> Dict[str, Any]:
+    session = _get_k9s_session(session_id)
+    try:
+        _set_pty_size(session.master_fd, rows, cols)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to resize k9s session: {exc}") from exc
+    return {"ok": True, "rows": max(8, int(rows or 0)), "cols": max(20, int(cols or 0))}
+
+
+@app.post("/api/status/k9s/stop")
+def status_k9s_stop(session_id: str = Form(...)) -> Dict[str, Any]:
+    session = _get_k9s_session(session_id)
+    _stop_k9s_session(session)
+    AUDIT_LOG.append("k9s-stop", f"Stopped k9s session for {session.deployment_id}")
+    return {"ok": True, "session_id": session_id}
 
 
 def _resolve_runbook_docs(entry: Dict[str, Any], docs: List[str]) -> List[Dict[str, Any]]:

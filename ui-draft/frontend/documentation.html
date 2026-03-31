@@ -219,7 +219,7 @@
           Current operating guide for project scaffolding, validation, status monitoring, and deployment actions.
           This reflects the latest app behavior for local and remote workflows.
         </p>
-        <div class="meta">Version context: UI-Draft frontend/backend • Last updated: 2026-03-23</div>
+        <div class="meta">Version context: UI-Draft frontend/backend • Last updated: 2026-03-31</div>
         <div class="actions">
           <a class="btn" href="/" rel="noopener">Back to App</a>
           <button class="btn primary" id="downloadHtmlBtn">Download HTML</button>
@@ -292,17 +292,22 @@
             <p>
               The Status tab is intended for live reconciliation and endpoint visibility, not only raw command output.
             </p>
-            <h3>Current Status Sections</h3>
-            <ul>
-              <li><strong>Cluster Overview</strong>: high-level state and kustomization readiness.</li>
-              <li><strong>Access & Kubeconfig</strong>: context resolution and API/node reachability.</li>
-              <li><strong>Kustomizations</strong>: Flux object-level readiness and messages.</li>
-              <li><strong>Workloads & Endpoints</strong>: Elasticsearch pods, Fleet Server pods, Elastic Agent pods, ingress/routes.</li>
-            </ul>
-            <div class="ok" style="padding:10px 12px; border-radius:8px; margin-top:8px;">
-              Workloads should display real pod names and statuses with badges. Endpoint section should include host and ingress/route address details.
-            </div>
-          </article>
+              <h3>Current Status Sections</h3>
+              <ul>
+                <li><strong>Cluster Overview</strong>: high-level state and GitOps reconciliation readiness.</li>
+                <li><strong>Access & Kubeconfig</strong>: context resolution and API/node reachability.</li>
+                <li><strong>Applications / Kustomizations</strong>: ArgoCD Applications or Flux Kustomizations, based on deployment type.</li>
+                <li><strong>Workloads & Endpoints</strong>: Elasticsearch pods, Fleet Server pods, Elastic Agent pods, ingress/routes.</li>
+                <li><strong>Live Cluster</strong>: embedded readonly <code>k9s</code> session for real-time inspection.</li>
+              </ul>
+              <div class="ok" style="padding:10px 12px; border-radius:8px; margin-top:8px;">
+                Workloads should display real pod names and statuses with badges. Endpoint section should include host and ingress/route address details.
+              </div>
+              <p>
+                The live terminal is cluster-scoped rather than Flux-scoped or Argo-scoped. For remote deployments, the backend launches
+                <code>k9s</code> on the remote host over SSH using the deployment-specific kubeconfig already exported by generated deployment scripts.
+              </p>
+            </article>
 
           <article class="card" id="kubeconfig">
             <h2>5) Kubeconfig Resolution Model</h2>
@@ -315,9 +320,10 @@
 2) Project-local kubeconfig (for local/remote generated project context)
 3) User home fallback (~/.kube/&lt;project&gt;, ~/.kube/config)
 4) Platform defaults only when explicitly required</code></pre>
-            <p class="warn" style="padding:10px 12px; border-radius:8px;">
-              Local/Remote generation path is the workspace location where project files are created, not automatically the runtime cluster control-plane host.
-            </p>
+              <p class="warn" style="padding:10px 12px; border-radius:8px;">
+                Local/Remote generation path is the workspace location where project files are created, not automatically the runtime cluster control-plane host.
+                The Status live terminal reuses these project-scoped kubeconfig paths before any generic fallback.
+              </p>
           </article>
 
           <article class="card" id="platform-matrix">
@@ -331,14 +337,16 @@
 
           <article class="card" id="ops-guidelines">
             <h2>7) Operational Guidelines</h2>
-            <ul>
-              <li>Keep script execution states visible (running/spinner/progress/end).</li>
-              <li>Use foldable output blocks for long logs; emphasize actionable summary first.</li>
-              <li>Persist and expose run history for audit and rollback context.</li>
-              <li>Expose credential outputs only where appropriate; avoid leaking sensitive secrets in default views.</li>
-              <li>Keep remote commands fast and bounded by timeouts to avoid UI hangs.</li>
-            </ul>
-          </article>
+              <ul>
+                <li>Keep script execution states visible (running/spinner/progress/end).</li>
+                <li>Use foldable output blocks for long logs; emphasize actionable summary first.</li>
+                <li>Persist and expose run history for audit and rollback context.</li>
+                <li>Expose credential outputs only where appropriate; avoid leaking sensitive secrets in default views.</li>
+                <li>Keep remote commands fast and bounded by timeouts to avoid UI hangs.</li>
+                <li>Run live cluster inspection in readonly mode by default.</li>
+                <li>Require <code>k9s</code> to exist on the remote host when using remote deployment monitoring.</li>
+              </ul>
+            </article>
 
           <article class="card" id="license">
             <h2>8) Licensing, Headers, and Generated Artifacts</h2>
@@ -358,13 +366,14 @@
           <article class="card" id="troubleshooting">
             <h2>9) Troubleshooting Checklist</h2>
             <ul>
-              <li>Generation mismatch: verify sizing JSON contract schema and parsed preview.</li>
-              <li>Missing pools/tier values: inspect <code>terraform.tfvars.example</code> and <code>/sizing</code> output together.</li>
-              <li>Status shows stale kubeconfig path: validate latest run of cluster-healthcheck and resolved kubeconfig source.</li>
-              <li>Slow UI script actions: inspect remote command timeouts and streaming feedback behavior.</li>
-              <li>Endpoint missing: verify ingress/route resource exists in cluster namespace.</li>
-            </ul>
-          </article>
+                <li>Generation mismatch: verify sizing JSON contract schema and parsed preview.</li>
+                <li>Missing pools/tier values: inspect <code>terraform.tfvars.example</code> and <code>/sizing</code> output together.</li>
+                <li>Status shows stale kubeconfig path: validate latest run of cluster-healthcheck and resolved kubeconfig source.</li>
+                <li>Slow UI script actions: inspect remote command timeouts and streaming feedback behavior.</li>
+                <li>Endpoint missing: verify ingress/route resource exists in cluster namespace.</li>
+                <li>Live cluster pane unavailable: confirm the remote host has <code>k9s</code> installed and that the project kubeconfig was exported by post-deploy automation.</li>
+              </ul>
+            </article>
 
           <article class="card" id="download">
             <h2>10) Export / Download</h2>

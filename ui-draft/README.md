@@ -12,10 +12,11 @@ A polished web-based user interface for `project-initializer`, designed for inte
 
 ### UI/UX
 - **Dark/Light Theme**: Toggle via sidebar or keyboard
-- **Sidebar Navigation**: Create, Analyze, Git Sync, Settings pages
+- **Sidebar Navigation**: Create, Analyze, Git Sync, Status, Settings pages
 - **Recent Projects**: Quick access to last 5 created projects
 - **Toast Notifications**: Success/error feedback
 - **Zoom Controls**: Keyboard shortcuts (Cmd/Ctrl + +/-/0)
+- **Live Cluster View**: Embedded `k9s` session under Status for real-time cluster inspection
 
 ### Developer Tools
 - **Open in Zed/VS Code**: Launch editor with created project
@@ -103,6 +104,19 @@ Application preferences:
 - Theme toggle (dark/light)
 - Default target directory
 
+### 5. Status
+Operational cluster view for generated deployments:
+- Deployment-aware status polling for Flux or ArgoCD projects
+- Access and kubeconfig diagnostics
+- Workload and endpoint summaries
+- Embedded readonly `k9s` session for live cluster navigation
+
+`k9s` behavior:
+- The Status terminal is cluster-scoped, not GitOps-tool scoped
+- For remote deployments, `k9s` runs on the remote host over SSH
+- The UI uses the deployment kubeconfig exported by generated deployment scripts
+- The remote host must have `k9s` installed and reachable in `PATH`
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -116,7 +130,8 @@ Application preferences:
 ```
 ui-draft/
 ├── frontend/
-│   └── index.html      # Single-page UI (HTML/CSS/JS)
+│   ├── index.html      # Single-page UI (HTML/CSS/JS)
+│   └── vendor/         # Bundled frontend runtime assets (xterm.js, fit addon)
 ├── backend/
 │   ├── app.py          # FastAPI application entry point
 │   └── backend_api.py  # API endpoints and business logic
@@ -128,7 +143,7 @@ ui-draft/
 
 ## Technology Stack
 
-- **Frontend**: Vanilla HTML/CSS/JS, Lucide Icons, Google Fonts (Inter, JetBrains Mono)
+- **Frontend**: Vanilla HTML/CSS/JS, Lucide Icons, Google Fonts (Inter, JetBrains Mono), bundled xterm.js
 - **Backend**: FastAPI (Python)
 - **Desktop**: Tauri (Rust)
 - **Styling**: CSS custom properties with dark/light theme support
@@ -181,6 +196,11 @@ pkill -f uvicorn
 ### API not reachable
 - Ensure virtual environment is activated
 - Check `.venv` has required packages: `pip install -r ui-draft/requirements.txt`
+
+### Status tab shows no live `k9s` session
+- Confirm the selected deployment has a valid kubeconfig in the generated project context
+- For remote mode, confirm `k9s` is installed on the remote host
+- If the cluster cards load but the live pane does not, refresh the page to reload frontend assets
 
 ### Desktop build fails
 - Verify Rust toolchain: `rustc --version`

@@ -7,7 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/vendor/xterm.min.css">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/static/vendor/xterm.min.js"></script>
+    <script src="/static/vendor/xterm-addon-fit.min.js"></script>
     <style>
       :root {
         --bg-primary: #0f1218;
@@ -107,6 +110,24 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: var(--text-muted);
+      }
+
+      #statusK9sTerminal {
+        width: 100%;
+      }
+
+      #statusK9sTerminal .xterm {
+        width: 100%;
+        height: 100%;
+      }
+
+      #statusK9sTerminal .xterm-viewport {
+        width: 100% !important;
+      }
+
+      #statusK9sTerminal .xterm-screen,
+      #statusK9sTerminal .xterm-screen canvas {
+        width: 100% !important;
       }
 
       /* Layout */
@@ -2916,6 +2937,18 @@
               </div>
             </div>
 
+            <div class="card collapsible-card" id="statusK9sCard" style="display:none">
+              <div class="card-header"><h2 class="card-title"><i data-lucide="monitor"></i> Live Cluster</h2><button class="card-collapse-toggle" type="button" data-card-target="statusK9sContent" aria-label="Toggle Live Cluster"><i data-lucide="chevron-down"></i></button></div>
+              <div class="card-content" id="statusK9sContent">
+              <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                <button class="btn btn-secondary" id="statusK9sStartBtn"><i data-lucide="play"></i> Start K9s</button>
+                <button class="btn btn-secondary" id="statusK9sStopBtn" disabled><i data-lucide="square"></i> Stop</button>
+                <span class="form-hint" id="statusK9sMeta">No live session.</span>
+              </div>
+              <div id="statusK9sTerminal" style="height:420px; border:1px solid var(--border-color); border-radius:10px; background:#11161d; overflow:hidden;"></div>
+              </div>
+            </div>
+
             <div class="card collapsible-card" id="statusKsCard" style="display:none">
               <div class="card-header"><h2 class="card-title"><i data-lucide="git-branch"></i> <span id="statusGitopsTitle">Kustomizations</span></h2><button class="card-collapse-toggle" type="button" data-card-target="statusKsContent" aria-label="Toggle Kustomizations"><i data-lucide="chevron-down"></i></button></div>
               <div class="card-content" id="statusKsContent">
@@ -3096,6 +3129,11 @@
         zoom: Number(localStorage.getItem('pi-ui-zoom') || '1'),
         recentProjects: JSON.parse(localStorage.getItem('pi-recent-projects') || '[]'),
         deploymentHistory: [],
+        statusK9sTerminal: null,
+        statusK9sFitPending: false,
+        statusK9sSessionId: '',
+        statusK9sEventSource: null,
+        statusK9sDeploymentId: '',
         currentPage: 'create',
         sizingFile: null,
         sizingPreview: null,
@@ -4238,6 +4276,7 @@
           }
           state.deploymentHistory = data.entries || [];
           updateRecentProjects();
+          populateStatusDropdown();
           populateValidationDropdown();
         } catch (err) {
           showToast(`Failed to load deployments: ${err}`, 'error');
@@ -5732,6 +5771,167 @@
         if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
       }
 
+      function ensureStatusK9sTerminal() {
+        if (state.statusK9sTerminal) return state.statusK9sTerminal;
+        if (!window.Terminal) return null;
+        const mount = document.getElementById('statusK9sTerminal');
+        if (!mount) return null;
+        const term = new window.Terminal({
+          cursorBlink: true,
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 12,
+          theme: {
+            background: '#11161d',
+            foreground: '#e5edf5',
+            cursor: '#00d4aa',
+            selectionBackground: 'rgba(0, 212, 170, 0.25)',
+          },
+          convertEol: false,
+          scrollback: 3000,
+        });
+        if (window.FitAddon?.FitAddon) {
+          state.statusK9sFitAddon = new window.FitAddon.FitAddon();
+          term.loadAddon(state.statusK9sFitAddon);
+        }
+        term.open(mount);
+        state.statusK9sFitAddon?.fit();
+        term.onData(data => sendStatusK9sInput(data));
+        state.statusK9sTerminal = term;
+        return term;
+      }
+
+      function updateStatusK9sMeta(message, running = false) {
+        const meta = document.getElementById('statusK9sMeta');
+        const startBtn = document.getElementById('statusK9sStartBtn');
+        const stopBtn = document.getElementById('statusK9sStopBtn');
+        if (meta) meta.textContent = message || 'No live session.';
+        if (startBtn) startBtn.disabled = running;
+        if (stopBtn) stopBtn.disabled = !running;
+      }
+
+      function disconnectStatusK9sStream() {
+        if (state.statusK9sEventSource) {
+          state.statusK9sEventSource.close();
+          state.statusK9sEventSource = null;
+        }
+      }
+
+      async function stopStatusK9sSession() {
+        disconnectStatusK9sStream();
+        const sessionId = state.statusK9sSessionId;
+        state.statusK9sSessionId = '';
+        if (sessionId) {
+          try {
+            const fd = new FormData();
+            fd.append('session_id', sessionId);
+            await fetch(apiUrl('/api/status/k9s/stop'), { method: 'POST', body: fd });
+          } catch (_) {}
+        }
+        updateStatusK9sMeta('No live session.', false);
+      }
+
+      async function sendStatusK9sInput(data) {
+        if (!state.statusK9sSessionId || !data) return;
+        try {
+          const fd = new FormData();
+          fd.append('session_id', state.statusK9sSessionId);
+          fd.append('data_b64', btoa(unescape(encodeURIComponent(data))));
+          await fetch(apiUrl('/api/status/k9s/input'), { method: 'POST', body: fd });
+        } catch (_) {}
+      }
+
+      async function resizeStatusK9sSession() {
+        if (!state.statusK9sTerminal) return;
+        const mount = document.getElementById('statusK9sTerminal');
+        if (!mount) return;
+        state.statusK9sFitAddon?.fit();
+        const cols = Math.max(20, state.statusK9sTerminal.cols || Math.floor(mount.clientWidth / 9));
+        const rows = Math.max(8, state.statusK9sTerminal.rows || Math.floor(mount.clientHeight / 18));
+        try {
+          state.statusK9sTerminal.resize(cols, rows);
+          if (!state.statusK9sSessionId) return;
+          const fd = new FormData();
+          fd.append('session_id', state.statusK9sSessionId);
+          fd.append('rows', String(rows));
+          fd.append('cols', String(cols));
+          await fetch(apiUrl('/api/status/k9s/resize'), { method: 'POST', body: fd });
+        } catch (_) {}
+      }
+
+      function attachStatusK9sStream(sessionId) {
+        disconnectStatusK9sStream();
+        const term = ensureStatusK9sTerminal();
+        if (!term) {
+          updateStatusK9sMeta('xterm.js failed to load.', false);
+          return;
+        }
+        resizeStatusK9sSession();
+        setTimeout(() => resizeStatusK9sSession(), 50);
+        setTimeout(() => resizeStatusK9sSession(), 200);
+        const streamUrl = apiUrl('/api/status/k9s/stream') + '?session_id=' + encodeURIComponent(sessionId);
+        const es = new EventSource(streamUrl);
+        es.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data || '{}');
+            if (payload.chunk_b64) {
+              const bytes = Uint8Array.from(atob(payload.chunk_b64), ch => ch.charCodeAt(0));
+              const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+              term.write(decoded);
+            }
+          } catch (_) {}
+        };
+        es.addEventListener('end', (event) => {
+          let detail = 'Session ended.';
+          try {
+            const payload = JSON.parse(event.data || '{}');
+            if (payload.error) detail = `Session ended: ${payload.error}`;
+            else if (payload.exit_code !== null && payload.exit_code !== undefined) detail = `Session ended (exit ${payload.exit_code}).`;
+          } catch (_) {}
+          updateStatusK9sMeta(detail, false);
+          disconnectStatusK9sStream();
+          state.statusK9sSessionId = '';
+        });
+        es.onerror = () => {
+          updateStatusK9sMeta('Live session stream disconnected.', false);
+          disconnectStatusK9sStream();
+        };
+        state.statusK9sEventSource = es;
+      }
+
+      async function startStatusK9sSession(deploymentId) {
+        if (!deploymentId) return;
+        const term = ensureStatusK9sTerminal();
+        if (!term) {
+          updateStatusK9sMeta('xterm.js failed to load.', false);
+          return;
+        }
+        term.clear();
+        term.writeln('Starting K9s session...');
+        const kubeconfig = document.getElementById('statusKubeconfig')?.value?.trim() || '';
+        try {
+          const fd = new FormData();
+          fd.append('deployment_id', deploymentId);
+          fd.append('kubeconfig', kubeconfig);
+          const res = await fetch(apiUrl('/api/status/k9s/start'), { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            term.writeln('');
+            term.writeln(`Failed: ${data.detail || res.status}`);
+            updateStatusK9sMeta(`Unavailable: ${data.detail || res.status}`, false);
+            return;
+          }
+          state.statusK9sSessionId = data.session_id || '';
+          state.statusK9sDeploymentId = deploymentId;
+          updateStatusK9sMeta(`Running ${data.target_type || 'cluster'} session${data.reused ? ' (reused)' : ''}.`, true);
+          await resizeStatusK9sSession();
+          attachStatusK9sStream(state.statusK9sSessionId);
+        } catch (err) {
+          term.writeln('');
+          term.writeln(`Failed: ${err}`);
+          updateStatusK9sMeta(`Unavailable: ${err}`, false);
+        }
+      }
+
       async function pollFluxStatus(deploymentId) {
         if (!deploymentId) return;
         const kubeconfig = document.getElementById('statusKubeconfig')?.value?.trim() || '';
@@ -5809,10 +6009,13 @@
             <div><div class="form-hint">Context</div><div style="font-weight:600; color:${access.kubectl_context?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.kubectl_context?.detail || 'not checked')}</div></div>
             <div><div class="form-hint">Cluster API</div><div style="font-weight:600; color:${access.cluster_api?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.cluster_api?.detail || 'not checked')}</div></div>
             <div><div class="form-hint">Nodes</div><div style="font-weight:600; color:${access.nodes_ready?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.nodes_ready?.detail || 'not checked')}</div></div>
+            <div><div class="form-hint">K9s</div><div style="font-weight:600; color:${access.k9s?.ok ? 'var(--accent-success)' : 'var(--accent-warning)'};">${escapeHtml(access.k9s?.detail || 'not checked')}</div></div>
           </div>
           ${access.remote?.host ? `<div class="form-hint" style="margin-top:12px;">remote=${escapeHtml(`${access.remote.user || 'user'}@${access.remote.host}:${access.remote.project_dir || ''}`)}:${escapeHtml(access.remote.port || '22')}</div>` : ''}
         `;
         card.style.display = '';
+        const k9sCard = document.getElementById('statusK9sCard');
+        if (k9sCard) k9sCard.style.display = '';
       }
 
       function renderStatusOverview(data) {
@@ -6203,11 +6406,12 @@
         const sel = document.getElementById('statusDeploymentSelect');
         const kubeconfigField = document.getElementById('statusKubeconfigField');
         if (sel) {
-          sel.addEventListener('change', () => {
+          sel.addEventListener('change', async () => {
             const selected = sel.options[sel.selectedIndex];
             const targetType = selected?.dataset?.targetType || 'local';
             kubeconfigField.style.display = targetType === 'local' ? '' : 'none';
             stopStatusPolling();
+            await stopStatusK9sSession();
             if (sel.value) startStatusPolling(sel.value);
           });
         }
@@ -6218,6 +6422,20 @@
             if (sel2?.value) pollFluxStatus(sel2.value);
           });
         }
+        document.getElementById('statusK9sStartBtn')?.addEventListener('click', async () => {
+          const deploymentId = document.getElementById('statusDeploymentSelect')?.value || '';
+          if (!deploymentId) {
+            showToast('Select a deployment first', 'warning');
+            return;
+          }
+          await startStatusK9sSession(deploymentId);
+        });
+        document.getElementById('statusK9sStopBtn')?.addEventListener('click', async () => {
+          await stopStatusK9sSession();
+        });
+        window.addEventListener('resize', () => {
+          resizeStatusK9sSession();
+        });
       });
 
       document.getElementById('createBtn').addEventListener('click', async () => {
